@@ -5,7 +5,9 @@
  * whether the current phase's completion condition truly holds and whether to advance, go back, or ask
  * the user. It runs when a run settles and the book gained an entry since the last judgment, and at a
  * `close` declaration. The advisory is one line leading with `next → <phase>`; it continues the run once
- * when Jev agrees to advance and the next phase is a verify, review, or fix. A run that arranged a wake
+ * when Jev agrees to advance and the next phase is a verify, review, or fix, or when todos are still open
+ * without a followup (unless Jev says to ask the user). Away from close the advisory names those todos and
+ * asks the agent to continue, complete, or settle each with `metadata.followup`. A run that arranged a wake
  * (a monitor, a loop, a subagent) is waiting, not finished, and is not judged. Outside a loop nothing
  * runs, nor in a `quick` loop, whose only prompt is the close reminder; a subagent session registers
  * nothing, since the agent that spawned it judges its result.
@@ -14,7 +16,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { currentKind, guarded, openLoop } from "./support/book.ts";
 import { type Answers, classify } from "./support/jev.ts";
-import { type Snapshot, snapshot } from "./support/snapshot.ts";
+import { type Snapshot, listTodos, snapshot } from "./support/snapshot.ts";
 import { isSubagent } from "./support/subagent.ts";
 
 export { isSubagent, snapshot };
@@ -99,9 +101,18 @@ export function assess(verdict: Verdict, snap: Snapshot): { found: string[]; not
 	return { found, notes };
 }
 
-/** True when Jev agrees to advance and the next phase is one the agent can act on now. */
+/** True when Jev agrees to advance and the next phase is one the agent can act on now, or open todos wait and the user is not needed. */
 export function continues(verdict: Verdict, snap: Snapshot): boolean {
+	if (snap.unsettled.length && verdict.move !== "ask-user") return true;
 	return verdict.move === "advance" && ACTIONABLE.has(snap.next);
+}
+
+/** The open todos the agent must answer, or the call to put them to the user. */
+function todoCall(verdict: Verdict, snap: Snapshot): string {
+	const list = `Open todos: ${listTodos(snap.unsettled)}.`;
+	return verdict.move === "ask-user"
+		? ` ${list} Ask the user about them with ask_user_question before ending the turn.`
+		: ` ${list} Continue each, complete it, or set metadata.followup (a ticket id, \`memory\`, or \`drop — <reason>\`).`;
 }
 
 /** One line: the program's next phase and its gap, Jev's move and scores, and, away from close, the call to act. */
@@ -111,7 +122,8 @@ export function message(verdict: Verdict, snap: Snapshot, found: string[], notes
 		`Second thought (Jev, advisory): next → ${snap.next}${snap.missing ? ` (missing: ${snap.missing})` : ""}; ` +
 		`${verdict.move}; done ${verdict.done.toFixed(2)}, review ${verdict.review}, quality ${verdict.quality.toFixed(2)}/3` +
 		`${extra.length ? `; ${extra.join("; ")}` : ""}.` +
-		(!atClose && continues(verdict, snap) ? ` Do ${snap.next} now, or say why it does not apply.` : "")
+		(!atClose && verdict.move === "advance" && ACTIONABLE.has(snap.next) ? ` Do ${snap.next} now, or say why it does not apply.` : "") +
+		(!atClose && snap.unsettled.length ? todoCall(verdict, snap) : "")
 	);
 }
 

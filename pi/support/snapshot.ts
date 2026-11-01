@@ -2,6 +2,7 @@
 
 import {
 	type Book,
+	type Task,
 	allFriction,
 	childLines,
 	currentIntent,
@@ -16,6 +17,7 @@ import {
 	stagesDone,
 	TASK_LEGEND,
 	taskLines,
+	validFollowup,
 	verifyAfterLastAct,
 } from "./book.ts";
 import { computePhases } from "./phases.ts";
@@ -29,12 +31,26 @@ export type Snapshot = {
 	current: string;
 	/** A review recorded after the last change with no blocking finding on it. */
 	reviewClear: boolean;
+	/** Open todos that no valid `metadata.followup` settles yet, as `#id subject`. */
+	unsettled: string[];
 };
+
+const LISTED_TODOS = 5;
+const SUBJECT_LIMIT = 80;
+
+const todoLine = (task: Task): string => `#${task.id} ${task.subject.replace(/\s+/g, " ").trim().slice(0, SUBJECT_LIMIT)}`;
+
+/** The first few todo lines joined by `; `, then `+N more`. */
+export function listTodos(lines: string[]): string {
+	return [...lines.slice(0, LISTED_TODOS), ...(lines.length > LISTED_TODOS ? [`+${lines.length - LISTED_TODOS} more`] : [])].join("; ");
+}
 
 export function snapshot(book: Book, ctx: { cwd: string; sessionManager: { getBranch(): unknown[] } }): Snapshot {
 	const { entries } = book;
 	const todos = replayTodos(ctx.sessionManager.getBranch());
-	const open = todos.filter(isOpenTask).length;
+	const openTasks = todos.filter(isOpenTask);
+	const unsettled = openTasks.filter((task) => !validFollowup(task.metadata?.followup));
+	const settled = openTasks.length - unsettled.length;
 	const phases = computePhases(book, { cwd: ctx.cwd, todos });
 	const check = verifyAfterLastAct(entries);
 	const verify = [
@@ -56,7 +72,7 @@ export function snapshot(book: Book, ctx: { cwd: string; sessionManager: { getBr
 			diff: diffText(diffAgainstBases(entries)),
 			phase: `current: ${phases.current}; next: ${phases.next}${phases.missing ? `; missing: ${phases.missing}` : ""}${phases.skipped.length ? `; skipped: ${phases.skipped.join(", ")}` : ""}`.slice(0, 600),
 			verify: verify.slice(0, 1200),
-			todos: `${open} open of ${todos.length}`,
+			todos: `${openTasks.length} open of ${todos.length}${unsettled.length ? `: ${listTodos(unsettled.map(todoLine))}` : ""}${settled ? ` (${settled} with a followup)` : ""}`.slice(0, 700),
 			tasks: [`legend: ${TASK_LEGEND}`, ...taskLines(entries, todos, ctx.cwd)].join("\n").slice(0, 1500),
 			friction: (friction.join("\n") || "none").slice(0, 800),
 		},
@@ -64,5 +80,6 @@ export function snapshot(book: Book, ctx: { cwd: string; sessionManager: { getBr
 		missing: phases.missing,
 		current: phases.current,
 		reviewClear: reviewClearAfterLastAct(entries),
+		unsettled: unsettled.map(todoLine),
 	};
 }

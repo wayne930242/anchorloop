@@ -222,7 +222,7 @@ class TestSecondThought(ExtensionCase):
         self.assertLessEqual(len(state["diff"]), 1200)
         self.assertEqual(state["phase"], "current: verify; next: review; missing: a review round after the last change with Blocking: P0=0 P1=0")
         self.assertIn("last check: exit 0 — 3 passed", state["verify"])
-        self.assertEqual(state["todos"], "1 open of 2")
+        self.assertEqual(state["todos"], "1 open of 2: #1 build it")
         self.assertEqual(state["friction"], "1 recorded, 0 reflected\n1: a → b [unreflected]")
         legend, task = state["tasks"].splitlines()[:2]
         self.assertEqual(legend, "legend: #id status subject — anchor (last exit) — ref → line range; missing = heading gone")
@@ -252,6 +252,70 @@ class TestSecondThought(ExtensionCase):
         self.assertIn("Do verify now", first["entries"][1]["content"])
         # The same advice a second time is not repeated.
         self.assertIsNone(out["results"][8])
+
+    def open_todos(self, *tasks: dict) -> dict:
+        return {"branchAdd": [todo_state(*tasks)]}
+
+    def test_open_todos_are_listed_in_the_advisory_with_the_call_to_settle_each(self):
+        out = self.settle_after(answers(), self.open_todos({"subject": "port the cache", "status": "pending"}, {"subject": "done", "status": "completed"}),
+                                bash_result("pytest -q", 0, "ok"))
+        text = self.content(out)
+        self.assertNotIn("\n", text)
+        self.assertIn("Open todos: #1 port the cache.", text)
+        self.assertIn("Continue each, complete it, or set metadata.followup (a ticket id, `memory`, or `drop — <reason>`).", text)
+        self.assertEqual(out["classifyCalls"][0]["todos"], "1 open of 2: #1 port the cache")
+
+    def test_the_todo_list_is_bounded(self):
+        tasks = [{"subject": f"task {n} " + "x" * 200, "status": "pending"} for n in range(1, 9)]
+        out = self.settle_after(answers(), self.open_todos(*tasks))
+        text = self.content(out)
+        self.assertIn("#5 task 5", text)
+        self.assertNotIn("#6 task 6", text)
+        self.assertIn("+3 more", text)
+        self.assertNotIn("x" * 81, text)
+
+    def test_open_todos_continue_the_run_even_when_the_next_phase_is_not_actionable(self):
+        out = self.settle_after(answers(), self.open_todos({"subject": "port the cache", "status": "in_progress"}), edit_result(), bash_result("pytest -q", 0, "ok"))
+        self.assertIn("next → close", self.content(out))
+        self.assertTrue(out["results"][-1]["continue"])
+
+    def test_open_todos_continue_the_run_once_per_run(self):
+        todos = self.open_todos({"subject": "port the cache", "status": "pending"})
+        out = self.replay([*self.loop(), todos, SETTLE, edit_result(), SETTLE], classify=answers())
+        self.assertTrue(out["results"][4]["continue"])
+        self.assertNotIn("continue", out["results"][6])
+
+    def test_ask_user_with_open_todos_tells_the_agent_to_ask_and_does_not_continue(self):
+        out = self.settle_after(answers("ask-user"), self.open_todos({"subject": "port the cache", "status": "pending"}))
+        self.assertNotIn("continue", out["results"][-1])
+        text = self.content(out)
+        self.assertIn("Open todos: #1 port the cache. Ask the user about them with ask_user_question", text)
+        self.assertNotIn("Continue each", text)
+
+    def test_a_todo_with_a_valid_followup_is_no_longer_called_out(self):
+        out = self.settle_after(answers(), self.open_todos({"subject": "later", "status": "pending", "metadata": {"followup": "MP-12"}}))
+        self.assertNotIn("Open todos", self.content(out))
+        self.assertNotIn("continue", out["results"][-1])
+        self.assertEqual(out["classifyCalls"][0]["todos"], "1 open of 1 (1 with a followup)")
+
+    def test_without_open_todos_the_advisory_is_unchanged(self):
+        out = self.settle_after(answers(), self.open_todos({"subject": "done", "status": "completed"}), edit_result(), bash_result("pytest -q", 0, "3 passed"))
+        text = self.content(out)
+        self.assertEqual(text, "Second thought (Jev, advisory): next → close; advance; done 0.90, review none, quality 2.90/3.")
+        self.assertNotIn("continue", out["results"][-1])
+
+    def test_open_todos_are_not_listed_in_the_close_advisory(self):
+        steps = [*self.loop(), edit_result(), self.open_todos({"subject": "port the cache", "status": "pending"}),
+                 {"event": "tool_call", "payload": {"toolName": "anchorloop_stage", "toolCallId": "c9", "input": {"stage": "close", "verdict": "landed"}}},
+                 stage(stage="close", verdict="landed"),
+                 tool_result("anchorloop_stage", {"stage": "close", "verdict": "landed"}, "Loop closed (landed)", call_id="c9")]
+        advisory = self.replay(steps, classify=answers())["results"][-1]["content"][1]["text"]
+        self.assertIn("Second thought (Jev, advisory)", advisory)
+        self.assertNotIn("Open todos", advisory)
+
+    def test_a_waiting_run_with_open_todos_is_not_judged(self):
+        out = self.replay([*self.loop(), self.open_todos({"subject": "port the cache", "status": "pending"}), tool_call("MonitorCreate"), SETTLE], classify=answers())
+        self.assertEqual(out["classifyCalls"], [])
 
     def test_the_run_continues_at_most_once_per_run(self):
         out = self.replay([*self.loop(), edit_result(), SETTLE, bash_result("pytest -q", 1, "bad"), SETTLE], classify=answers())
