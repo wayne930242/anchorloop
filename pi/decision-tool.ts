@@ -55,18 +55,16 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "anchorloop_decision",
 		label: "Decision trail",
-		description:
-			"Append one row to a decision trail TSV (scratch/decisions-<task-slug>.tsv): a fork chosen, a unit completed, a pivot, or a blocker. " +
-			"Pass `start` with your run id instead of the row fields when picking up a trail another run wrote.",
+		description: "Append one row to scratch/decisions-<slug>.tsv for a fork, pivot, or blocker (git log holds completed units). `start` = your run id when picking up a trail.",
 		parameters: {
 			type: "object",
 			properties: {
-				log: { type: "string", description: "Trail path, relative to the working directory" },
-				start: { type: "string", description: "Run id; writes a start row and ignores the row fields" },
-				decision: { type: "string", description: "What was chosen or done, one line" },
-				why: { type: "string", description: "The reason in plain words" },
-				evidence: { type: "string", description: "A pointer: commit, file:line, or artifact path" },
-				result: { type: "string", description: "Outcome or predicate state" },
+				log: { type: "string" },
+				start: { type: "string" },
+				decision: { type: "string" },
+				why: { type: "string" },
+				evidence: { type: "string", description: "commit, file:line, or path" },
+				result: { type: "string" },
 			},
 			required: ["log"],
 			additionalProperties: false,

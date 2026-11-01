@@ -8,7 +8,7 @@ from .utils import find_defensive_phrases
 
 
 def check_decision_md(path: Path) -> list[str]:
-    """Check decision.md for required structure and pre-flight skill/rule readiness."""
+    """Check decision.md for its decision table."""
     warnings: list[str] = []
     text = path.read_text(encoding="utf-8")
 
@@ -16,28 +16,17 @@ def check_decision_md(path: Path) -> list[str]:
     if not re.search(r"\|\s*Question\s*\|\s*Answer\s*\|\s*Basis\s*\|\s*Status\s*\|", text, re.IGNORECASE):
         warnings.append("decision.md should include a Question | Answer | Basis | Status table (Status: grounded, confirmed, or open).")
 
-    # Check for pre-flight readiness (core rules)
-    lower = text.lower()
-    if "rule" not in lower and "readiness" not in lower and "prerequisite" not in lower and "core" not in lower:
-        warnings.append(
-            "confirm core rules readiness before implementation; note readiness in decision.md."
-        )
-
     return warnings
 
 
 def check_spec_md(path: Path) -> list[str]:
-    """Check spec.md for approval status and reality anchor definition."""
+    """Check spec.md for its approval status."""
     warnings: list[str] = []
     text = path.read_text(encoding="utf-8")
 
     # Status header
     if not re.search(r"Status:\s*(proposed|approved)", text, re.IGNORECASE):
         warnings.append("spec.md must declare 'Status: proposed' or 'Status: approved' at the top.")
-
-    # Reality anchor declaration
-    if "reality anchor" not in text.lower() and "anchor" not in text.lower():
-        warnings.append("spec.md should name the chosen reality anchor and its checkpoint.")
 
     return warnings
 
@@ -62,16 +51,14 @@ def check_verification_md(path: Path) -> list[str]:
         ]
         if invalid_results:
             warnings.append(
-                f"invalid verification Result values found: {', '.join(set(invalid_results))}. "
-                "Result must be one of: pass, fail, unknown."
+                f"invalid verification Result values found: {', '.join(set(invalid_results))} (use pass, fail, unknown)"
             )
 
     # 2. Review of newly added rules or skills (tuning vs defensive vocabulary)
     found_defensive = find_defensive_phrases(text, DEFENSIVE_PATTERNS)
     if found_defensive:
         warnings.append(
-            f"detected defensive wording in verification/review: {', '.join(found_defensive)}. "
-            "Reviews of new rules and skills must focus on adjustment and tuning, not adding defensive red lines."
+            f"detected defensive wording in verification/review: {', '.join(found_defensive)}"
         )
 
     return warnings

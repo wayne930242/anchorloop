@@ -25,80 +25,96 @@ ROWS = "| Question | Answer | Basis | Status |\n|---|---|---|---|\n| Which db? |
 DESIGN = "## Approach\n\nUse the existing table.\n"
 
 
+def touch(tool: str, path: str = "src/app.py", call_id: str = "c1") -> list[dict]:
+    """An edit as pi runs it: the tool call, then its result."""
+    return [tool_call(tool, path, call_id), tool_result(tool, {"path": path}, call_id=call_id)]
+
+
 class TestAnchorGate(ExtensionCase):
     extensions = ("book.ts", "anchor-gate.ts")
 
-    def warned_steps(self, out: dict, mention: str = "anchorloop: act comes before") -> list[int]:
-        for notice in out["notices"]:
-            self.assertEqual(notice["level"], "warning")
-            self.assertIn(mention, notice["message"])
-            self.assertNotIn("\n", notice["message"])
-        return [notice["step"] for notice in out["notices"]]
+    def lines(self, out: dict) -> list[tuple[int, str]]:
+        """The (step of the call, warning line) of each edit result that carries the gate's line; the warning reaches the agent in the tool result."""
+        found = []
+        for step, result in enumerate(out["results"]):
+            for block in (result or {}).get("content", []):
+                if block["text"].startswith("anchorloop: before"):
+                    self.assertNotIn("\n", block["text"])
+                    found.append((step - 1, block["text"]))
+        return found
+
+    def warned_steps(self, out: dict) -> list[int]:
+        self.assertEqual(out["notices"], [])
+        return [step for step, _ in self.lines(out)]
 
     def loop(self, kind: str | None = "inline", **extra) -> list[dict]:
         steps = [{"event": "session_start"}, user_start(), todo_create()]
         return steps + ([stage(stage="kind", kind=kind, intent="x", **extra)] if kind else [])
 
     def test_without_an_open_loop_nothing_is_gated(self):
-        out = self.replay([{"event": "session_start"}, user_start(), tool_call("edit"), tool_call("write")])
+        out = self.replay([{"event": "session_start"}, user_start(), *touch("edit"), *touch("write")])
         self.assertEqual(out["notices"], [])
 
-    def test_an_edit_without_an_anchor_warns_once_in_one_line_naming_the_skip_escape_and_never_blocks(self):
-        out = self.replay([*self.loop(), tool_call("edit"), tool_call("write"), user_start("now the import"), tool_call("edit")])
-        self.assertEqual(out["results"][4:], [None, None, None, None])
+    def test_an_edit_without_an_anchor_warns_once_in_one_line_in_the_edit_result_and_never_blocks(self):
+        out = self.replay([*self.loop(), *touch("edit"), *touch("write"), user_start("now the import"), *touch("edit")])
         self.assertEqual(self.warned_steps(out), [4])
-        message = out["notices"][0]["message"]
-        self.assertIn("anchor (a `Reality anchor:` line, or `anchor` on the kind call)", message)
-        self.assertIn("skip with `anchorloop_stage skip anchor <reason>`", message)
+        [(_, message)] = self.lines(out)
+        self.assertEqual(message, "anchorloop: before act, still missing: anchor (a `Reality anchor:` line, or `anchor` on the kind call).")
+        # The warning is the only addition to the edit's own result; later edits are untouched.
+        self.assertEqual([block["text"] for block in out["results"][5]["content"]], ["ok", message])
+        self.assertTrue(all(result is None for result in out["results"][6:]))
 
-    def test_an_edit_before_the_kind_is_declared_is_gated_like_inline(self):
-        self.assertEqual(self.warned_steps(self.replay([*self.loop(None), tool_call("edit")])), [3])
+    def test_the_warning_is_not_a_notification_to_the_user(self):
+        self.assertEqual(self.replay([*self.loop(), *touch("edit")])["notices"], [])
+
+    def test_an_edit_in_a_loop_a_todo_create_opened_is_gated_like_inline(self):
+        self.assertEqual(self.warned_steps(self.replay([*self.loop(None), *touch("edit")])), [3])
 
     def test_a_quick_loop_has_no_phase_warnings(self):
-        self.assertEqual(self.replay([*self.loop("quick"), tool_call("edit")])["notices"], [])
+        self.assertEqual(self.replay([*self.loop("quick"), *touch("edit")])["notices"], [])
 
     def test_the_reality_anchor_line_silences_the_warning(self):
-        out = self.replay([*self.loop(), assistant("Alignment: fix it.\nReality anchor: pytest tests/test_export.py"), tool_call("write"), user_start("now the import"), tool_call("write")])
+        out = self.replay([*self.loop(), assistant("Alignment: fix it.\nReality anchor: pytest tests/test_export.py"), *touch("write"), user_start("now the import"), *touch("write")])
         self.assertEqual(out["notices"], [])
 
     def test_a_reality_anchor_line_stated_before_the_loop_opened_counts(self):
         branch = [{"type": "message", "message": {"role": "user", "content": "fix it"}},
                   {"type": "message", "message": {"role": "assistant", "content": [{"type": "text", "text": "Reality anchor: pytest"}]}}]
-        self.assertEqual(self.replay([{"event": "session_start"}, todo_create(), stage(stage="kind", kind="inline", intent="x"), tool_call("edit")], branch=branch)["notices"], [])
+        self.assertEqual(self.replay([{"event": "session_start"}, todo_create(), stage(stage="kind", kind="inline", intent="x"), *touch("edit")], branch=branch)["notices"], [])
 
     def test_a_reality_anchor_line_stated_before_the_last_user_message_does_not_count(self):
         branch = [{"type": "message", "message": {"role": "assistant", "content": [{"type": "text", "text": "Reality anchor: pytest"}]}},
                   {"type": "message", "message": {"role": "user", "content": "now the import"}}]
-        out = self.replay([{"event": "session_start"}, todo_create(), tool_call("edit")], branch=branch)
+        out = self.replay([{"event": "session_start"}, todo_create(), *touch("edit")], branch=branch)
         self.assertEqual(self.warned_steps(out), [2])
 
     def test_the_anchor_on_the_kind_call_and_a_skipped_anchor_both_count(self):
-        self.assertEqual(self.replay([*self.loop(anchor="pytest"), tool_call("edit")])["notices"], [])
-        self.assertEqual(self.replay([stage(stage="skip", phase="anchor", reason="no check exists"), tool_call("edit")], session="s2")["notices"], [])
+        self.assertEqual(self.replay([*self.loop(anchor="pytest"), *touch("edit")])["notices"], [])
+        self.assertEqual(self.replay([stage(stage="skip", phase="anchor", reason="no check exists"), *touch("edit")], session="s2")["notices"], [])
 
     def test_text_and_html_files_scratch_specs_temp_paths_and_other_tools_pass(self):
         out = self.replay([
             *self.loop(),
-            tool_call("write", "README.md"),
-            tool_call("edit", "notes/todo.TXT"),
-            tool_call("write", "report/index.html"),
-            tool_call("edit", "legacy/page.HTM"),
-            tool_call("write", "scratch/friction.json"),
-            tool_call("edit", "docs/specs/2026-10-21-x/design.html"),
-            tool_call("write", str(Path(tempfile.gettempdir()) / "anchorloop-gate-outside" / "page.html")),
+            *touch("write", "README.md"),
+            *touch("edit", "notes/todo.TXT"),
+            *touch("write", "report/index.html"),
+            *touch("edit", "legacy/page.HTM"),
+            *touch("write", "scratch/friction.json"),
+            *touch("edit", "docs/specs/2026-10-21-x/design.html"),
+            *touch("write", str(Path(tempfile.gettempdir()) / "anchorloop-gate-outside" / "page.html")),
             tool_call("bash"),
         ])
         self.assertEqual(out["notices"], [])
 
     def test_the_warning_comes_again_only_when_a_jump_adds_a_phase_that_was_not_warned_about(self):
-        steps = [*self.loop(), tool_call("edit"), tool_call("edit"), stage(stage="kind", anchor="pytest"), tool_call("edit"),
-                 stage(stage="back", phase="anchor", reason="the anchor was wrong"), tool_call("edit")]
-        self.assertEqual(self.warned_steps(self.replay(steps)), [4, 9])
+        steps = [*self.loop(), *touch("edit"), *touch("edit"), stage(stage="kind", anchor="pytest"), *touch("edit"),
+                 stage(stage="back", phase="anchor", reason="the anchor was wrong"), *touch("edit")]
+        self.assertEqual(self.warned_steps(self.replay(steps)), [4, 12])
 
     def test_a_durable_loop_names_every_missing_phase_in_one_warning(self):
-        out = self.replay([*self.loop("durable"), tool_call("edit"), tool_call("edit", "src/b.py")])
+        out = self.replay([*self.loop("durable"), *touch("edit"), *touch("edit", "src/b.py")])
         self.assertEqual(self.warned_steps(out), [4])
-        message = out["notices"][0]["message"]
+        message = self.lines(out)[0][1]
         for phase in ("decide", "grill", "spec", "read", "approve", "design", "anchor"):
             self.assertIn(f"{phase} (", message)
 
@@ -113,37 +129,37 @@ class TestAnchorGate(ExtensionCase):
         return [*self.loop("durable", anchor="pytest"), self.artifact("decision.md", ROWS), self.artifact("spec.md", spec), stage(stage="fresh-read"), self.artifact("design.md", DESIGN)]
 
     def test_a_durable_production_edit_with_every_earlier_phase_complete_is_silent(self):
-        self.assertEqual(self.replay([*self.ready(), tool_call("edit")])["notices"], [])
+        self.assertEqual(self.replay([*self.ready(), *touch("edit")])["notices"], [])
 
     def test_a_durable_production_edit_warns_while_the_spec_is_not_approved(self):
-        out = self.replay([*self.ready("proposed"), tool_call("edit"), tool_call("edit", "src/b.py")])
+        out = self.replay([*self.ready("proposed"), *touch("edit"), *touch("edit", "src/b.py")])
         self.assertEqual(self.warned_steps(out), [8])
-        self.assertIn("approve (spec.md Status: approved with Approved from (now proposed))", out["notices"][0]["message"])
+        self.assertIn("approve (spec.md Status: approved with Approved from (now proposed))", self.lines(out)[0][1])
 
     def test_a_spec_edited_back_to_proposed_makes_the_next_edit_warn_again(self):
         spec = f"{DIR}/spec.md"
-        out = self.replay([*self.ready(), tool_call("edit"), write_file(spec, "Status: proposed\n"), tool_result("write", {"path": spec}), tool_call("edit"), tool_call("edit")])
-        self.assertEqual(self.warned_steps(out), [11])
-        self.assertIn("approve (", out["notices"][0]["message"])
+        out = self.replay([*self.ready(), *touch("edit"), write_file(spec, "Status: proposed\n"), tool_result("write", {"path": spec}), *touch("edit"), *touch("edit")])
+        self.assertEqual(self.warned_steps(out), [12])
+        self.assertIn("approve (", self.lines(out)[0][1])
 
     def test_spec_and_doc_edits_in_a_durable_loop_are_not_production_edits(self):
-        out = self.replay([*self.loop("durable"), tool_call("edit", f"{DIR}/design.md"), tool_call("write", "notes.md")])
+        out = self.replay([*self.loop("durable"), *touch("edit", f"{DIR}/design.md"), *touch("write", "notes.md")])
         self.assertEqual(out["notices"], [])
 
     def test_a_pickup_loop_that_names_the_spec_in_its_intent_reads_the_phases_from_disk(self):
         for name, text in (("decision.md", ROWS), ("spec.md", "Status: approved\nApproved from: user\n"), ("design.md", DESIGN)):
             self.artifact(name, text)
-        steps = [{"event": "session_start"}, user_start(), todo_create(), stage(stage="kind", kind="durable", intent=f"implement {DIR}", anchor="pytest"), tool_call("edit")]
+        steps = [{"event": "session_start"}, user_start(), todo_create(), stage(stage="kind", kind="durable", intent=f"implement {DIR}", anchor="pytest"), *touch("edit")]
         self.assertEqual(self.replay(steps)["notices"], [])
 
     def test_an_inline_loop_ignores_the_artifact_phases(self):
-        self.assertEqual(self.replay([*self.loop(anchor="x"), tool_call("edit")])["notices"], [])
+        self.assertEqual(self.replay([*self.loop(anchor="x"), *touch("edit")])["notices"], [])
 
     def test_a_book_that_cannot_be_written_never_blocks_a_tool(self):
         # RV-F011: the books path is a file, so every book read or write fails.
         blocker = self.cwd.parent / "not-a-dir"
         blocker.write_text("x")
-        steps = [{"event": "session_start"}, todo_create(), tool_call("edit"), tool_result("write", {"path": "src/a.py"}), bash_result("pytest", 0, "ok"), assistant("Reality anchor: x")]
+        steps = [{"event": "session_start"}, todo_create(), *touch("edit"), tool_result("write", {"path": "src/a.py"}), bash_result("pytest", 0, "ok"), assistant("Reality anchor: x")]
         out = self.replay(steps, env={"ANCHORLOOP_BOOKS_DIR": str(blocker)})
         self.assertTrue(all(result is None for result in out["results"]), out["results"])
 
@@ -196,7 +212,12 @@ class TestSecondThought(ExtensionCase):
         return self.replay([*self.loop(kind, *more), SETTLE, *(extra or [])], classify=classify)
 
     def content(self, out: dict) -> str:
-        return out["results"][-1]["entries"][-1]["content"]
+        return self.advice(out["results"][-1]) or self.fail(f"no advisory in {out['results'][-1]}")
+
+    def advice(self, result: dict | None) -> str | None:
+        """The advisory text a settle result carries, or None when the result says nothing."""
+        messages = [entry for entry in (result or {}).get("entries", []) if entry["type"] == "custom_message"]
+        return messages[-1]["content"] if messages else None
 
     def test_without_a_loop_nothing_is_asked_or_recorded(self):
         out = self.replay([user_start(), tool_call("bash"), assistant("Done."), SETTLE], classify=answers("advance"))
@@ -236,22 +257,34 @@ class TestSecondThought(ExtensionCase):
         out = self.replay([*self.loop(), link, SETTLE], classify=answers())
         self.assertIn("worker-1#1: old cmd → renamed [unreflected]", out["classifyCalls"][0]["friction"])
 
-    def test_the_advisory_is_one_line_that_leads_with_the_programs_next_phase(self):
+    def test_jev_agreeing_with_no_concerns_and_no_open_todos_says_nothing_but_the_verdict_is_recorded(self):
         out = self.settle_after(answers(), edit_result(), bash_result("pytest -q", 0, "3 passed"))
-        text = self.content(out)
-        self.assertTrue(text.startswith("Second thought (Jev, advisory): next → close; advance; done 0.90, review none, quality 2.90/3."), text)
-        self.assertNotIn("\n", text)
-        self.assertEqual(out["results"][-1]["entries"][0]["data"]["move"], "advance")
+        result = out["results"][-1]
+        self.assertIsNone(self.advice(result))
+        self.assertEqual([entry["type"] for entry in result["entries"]], ["custom"])
+        self.assertEqual(result["entries"][0]["data"]["move"], "advance")
+        self.assertNotIn("continue", result)
+
+    def test_the_advisory_is_the_next_phase_and_its_gap_without_scores(self):
+        out = self.settle_after(answers(), edit_result())
+        self.assertEqual(self.content(out), "next: verify (a passing run of `pytest -q` after the last change)")
+        self.assertTrue(out["results"][-1]["continue"])
+
+    def test_concerns_follow_the_next_line_and_no_score_or_prefix_is_shown(self):
+        out = self.settle_after(answers("advance", done=0.05, quality=0.5), edit_result(), bash_result("pytest -q", 0, "ok"))
+        self.assertEqual(self.content(out), "next: close\nconcerns: evidence not shown to cover the intent; result below the intent")
         self.assertNotIn("continue", out["results"][-1])
+        self.assertNotIn("Jev", self.content(out))
+        self.assertNotIn("0.", self.content(out))
 
     def test_a_verify_phase_continues_the_run_once_when_jev_agrees_to_advance(self):
         out = self.replay([*self.loop(), edit_result(), SETTLE, bash_result("pytest -q", 1, "bad"), SETTLED, edit_result(), SETTLE], classify=answers())
         first = out["results"][4]
         self.assertTrue(first["continue"])
-        self.assertIn("next → verify (missing: a passing run of `pytest -q` after the last change); advance", first["entries"][1]["content"])
-        self.assertIn("Do verify now", first["entries"][1]["content"])
-        # The same advice a second time is not repeated.
-        self.assertIsNone(out["results"][8])
+        self.assertEqual(self.advice(first), "next: verify (a passing run of `pytest -q` after the last change)")
+        # The same advice a second time is not repeated, though the verdict is recorded again.
+        self.assertIsNone(self.advice(out["results"][8]))
+        self.assertEqual(len(out["results"][8]["entries"]), 1)
 
     def open_todos(self, *tasks: dict) -> dict:
         return {"branchAdd": [todo_state(*tasks)]}
@@ -259,24 +292,22 @@ class TestSecondThought(ExtensionCase):
     def test_open_todos_are_listed_in_the_advisory_with_the_call_to_settle_each(self):
         out = self.settle_after(answers(), self.open_todos({"subject": "port the cache", "status": "pending"}, {"subject": "done", "status": "completed"}),
                                 bash_result("pytest -q", 0, "ok"))
-        text = self.content(out)
-        self.assertNotIn("\n", text)
-        self.assertIn("Open todos: #1 port the cache.", text)
-        self.assertIn("Continue each, complete it, or set metadata.followup (a ticket id, `memory`, or `drop — <reason>`).", text)
+        self.assertEqual(self.content(out), "next: act (a change to the code)\nopen: #1 port the cache — continue each, complete it, or set metadata.followup (a ticket id, `memory`, or `drop — <reason>`)")
         self.assertEqual(out["classifyCalls"][0]["todos"], "1 open of 2: #1 port the cache")
 
     def test_the_todo_list_is_bounded(self):
         tasks = [{"subject": f"task {n} " + "x" * 200, "status": "pending"} for n in range(1, 9)]
         out = self.settle_after(answers(), self.open_todos(*tasks))
         text = self.content(out)
-        self.assertIn("#5 task 5", text)
-        self.assertNotIn("#6 task 6", text)
-        self.assertIn("+3 more", text)
-        self.assertNotIn("x" * 81, text)
+        self.assertIn("#3 task 3", text)
+        self.assertNotIn("#4 task 4", text)
+        self.assertIn("+5 more", text)
+        self.assertNotIn("x" * 61, text)
+        self.assertIn("…; #2", text)
 
     def test_open_todos_continue_the_run_even_when_the_next_phase_is_not_actionable(self):
         out = self.settle_after(answers(), self.open_todos({"subject": "port the cache", "status": "in_progress"}), edit_result(), bash_result("pytest -q", 0, "ok"))
-        self.assertIn("next → close", self.content(out))
+        self.assertTrue(self.content(out).startswith("next: close\nopen: #1 port the cache"))
         self.assertTrue(out["results"][-1]["continue"])
 
     def test_open_todos_continue_the_run_once_per_run(self):
@@ -289,29 +320,40 @@ class TestSecondThought(ExtensionCase):
         out = self.settle_after(answers("ask-user"), self.open_todos({"subject": "port the cache", "status": "pending"}))
         self.assertNotIn("continue", out["results"][-1])
         text = self.content(out)
-        self.assertIn("Open todos: #1 port the cache. Ask the user about them with ask_user_question", text)
-        self.assertNotIn("Continue each", text)
+        self.assertIn("open: #1 port the cache — ask the user about them with ask_user_question", text)
+        self.assertIn("concerns: needs the user's decision", text)
+        self.assertNotIn("continue each", text)
 
     def test_a_todo_with_a_valid_followup_is_no_longer_called_out(self):
         out = self.settle_after(answers(), self.open_todos({"subject": "later", "status": "pending", "metadata": {"followup": "MP-12"}}))
-        self.assertNotIn("Open todos", self.content(out))
+        self.assertIsNone(self.advice(out["results"][-1]))
         self.assertNotIn("continue", out["results"][-1])
         self.assertEqual(out["classifyCalls"][0]["todos"], "1 open of 1 (1 with a followup)")
 
-    def test_without_open_todos_the_advisory_is_unchanged(self):
+    def test_without_open_todos_a_finished_loop_hears_nothing(self):
         out = self.settle_after(answers(), self.open_todos({"subject": "done", "status": "completed"}), edit_result(), bash_result("pytest -q", 0, "3 passed"))
-        text = self.content(out)
-        self.assertEqual(text, "Second thought (Jev, advisory): next → close; advance; done 0.90, review none, quality 2.90/3.")
+        self.assertIsNone(self.advice(out["results"][-1]))
         self.assertNotIn("continue", out["results"][-1])
+
+    def test_an_unchanged_advisory_is_not_repeated_when_todos_change_around_it_but_a_new_open_todo_speaks_again(self):
+        first = self.open_todos({"subject": "port the cache", "status": "pending"})
+        edited = self.open_todos({"subject": "port the cache NOW", "status": "pending"})
+        more = self.open_todos({"subject": "port the cache", "status": "pending"}, {"subject": "second", "status": "pending"})
+        out = self.replay([*self.loop(), first, SETTLE, SETTLED, edited, stage(stage="friction", tried="a", found="b"), SETTLE, SETTLED, more, stage(stage="friction", tried="c", found="d"), SETTLE],
+                          classify=answers())
+        spoken = [self.advice(result) for result in out["results"] if result and "entries" in result]
+        # The reworded subject keeps the same ids, so only the first and the third settle speak.
+        self.assertEqual([text is not None for text in spoken], [True, False, True])
+        self.assertIn("#2 second", spoken[2])
 
     def test_open_todos_are_not_listed_in_the_close_advisory(self):
         steps = [*self.loop(), edit_result(), self.open_todos({"subject": "port the cache", "status": "pending"}),
                  {"event": "tool_call", "payload": {"toolName": "anchorloop_stage", "toolCallId": "c9", "input": {"stage": "close", "verdict": "landed"}}},
                  stage(stage="close", verdict="landed"),
                  tool_result("anchorloop_stage", {"stage": "close", "verdict": "landed"}, "Loop closed (landed)", call_id="c9")]
-        advisory = self.replay(steps, classify=answers())["results"][-1]["content"][1]["text"]
-        self.assertIn("Second thought (Jev, advisory)", advisory)
-        self.assertNotIn("Open todos", advisory)
+        result = self.replay(steps, classify=answers("advance", done=0.05))["results"][-1]
+        self.assertEqual(result["content"][1]["text"], "\nJev: evidence not shown to cover the intent.")
+        self.assertNotIn("port the cache", result["content"][1]["text"])
 
     def test_a_waiting_run_with_open_todos_is_not_judged(self):
         out = self.replay([*self.loop(), self.open_todos({"subject": "port the cache", "status": "pending"}), tool_call("MonitorCreate"), SETTLE], classify=answers())
@@ -325,34 +367,34 @@ class TestSecondThought(ExtensionCase):
     def test_a_failing_check_after_the_last_change_makes_fix_the_next_phase_and_continues(self):
         out = self.settle_after(answers(), edit_result(), bash_result("pytest -q", 1, "1 failed"))
         self.assertTrue(out["results"][-1]["continue"])
-        self.assertIn("next → fix (missing: the anchor exited 1 after the last change)", self.content(out))
+        self.assertEqual(self.content(out), "next: fix (the anchor exited 1 after the last change)")
 
     def test_a_loop_with_no_change_yet_never_continues_for_verify_or_review(self):
         # RV-F005: nothing was changed, so no check or review is missing.
         for kind in ("inline", "reviewed"):
             out = self.settle_after(answers(), kind=kind)
             self.assertNotIn("continue", out["results"][-1], kind)
-            self.assertIn("next → act", self.content(out))
+            self.assertIsNone(self.advice(out["results"][-1]), kind)
 
     def test_a_review_phase_continues_only_while_no_clear_review_follows_the_last_change(self):
         steps = (edit_result(), bash_result("pytest -q", 0, "ok"))
         missing = self.settle_after(answers(), *steps, kind="reviewed")
         self.assertTrue(missing["results"][-1]["continue"])
-        self.assertIn("next → review", self.content(missing))
+        self.assertTrue(self.content(missing).startswith("next: review ("))
         reviewed = self.settle_after(answers(), *steps, reviewer("Blocking: P0=0 P1=0"), kind="reviewed")
         self.assertNotIn("continue", reviewed["results"][-1])
-        self.assertIn("next → close", self.content(reviewed))
+        self.assertIsNone(self.advice(reviewed["results"][-1]))
 
     def test_a_blocking_review_makes_fix_the_next_phase_until_the_code_changes(self):
         out = self.settle_after(answers(), edit_result(), bash_result("pytest -q", 0, "ok"), reviewer("Blocking: P0=0 P1=1"), kind="reviewed")
         self.assertTrue(out["results"][-1]["continue"])
-        self.assertIn("next → fix (missing: blocking review findings are open)", self.content(out))
+        self.assertEqual(self.content(out), "next: fix (blocking review findings are open)")
 
     def test_back_and_ask_user_never_continue_the_run(self):
         for move in ("back", "ask-user"):
             out = self.settle_after(answers(move), edit_result())
             self.assertNotIn("continue", out["results"][-1], move)
-            self.assertIn(f"; {move};", self.content(out))
+            self.assertIn("concerns: " + {"back": "earlier evidence does not hold", "ask-user": "needs the user's decision"}[move], self.content(out))
 
     def test_a_run_is_judged_only_when_the_book_gained_an_entry_since_the_last_judgment(self):
         out = self.replay([*self.loop(), SETTLE, SETTLED, SETTLE, SETTLED, edit_result(), SETTLE], classify=answers())
@@ -363,9 +405,17 @@ class TestSecondThought(ExtensionCase):
 
     def test_an_identical_advisory_is_not_repeated(self):
         out = self.replay([*self.loop(), edit_result(), SETTLE, SETTLED, stage(stage="friction", tried="a", found="b"), SETTLE], classify=answers())
-        self.assertIsNotNone(out["results"][4])
-        self.assertIsNone(out["results"][7])
+        self.assertIsNotNone(self.advice(out["results"][4]))
+        self.assertIsNone(self.advice(out["results"][7]))
         self.assertEqual(len(out["classifyCalls"]), 2)
+
+    def test_an_advisory_whose_gap_is_reworded_but_whose_next_phase_and_concerns_are_the_same_is_not_repeated(self):
+        # The failing check's own output changes between settles, which rewords the gap only through the exit code.
+        out = self.replay([*self.loop(), edit_result(), bash_result("pytest -q", 1, "bad"), SETTLE, SETTLED, edit_result(), bash_result("pytest -q", 2, "worse"), SETTLE],
+                          classify=answers("advance", done=0.05))
+        first, second = out["results"][5], out["results"][9]
+        self.assertEqual(self.advice(first), "next: fix (the anchor exited 1 after the last change)\nconcerns: evidence not shown to cover the intent")
+        self.assertIsNone(self.advice(second))
 
     def test_entries_an_earlier_handler_returned_are_kept(self):
         earlier = {"type": "custom", "customType": "x", "data": {}}
@@ -384,23 +434,22 @@ class TestSecondThought(ExtensionCase):
         out = self.settle_after(answers(review="full"), edit_result(), bash_result("pytest -q", 0, "ok"), reviewer("**Blocking:** P0=0 P1=0"), kind="reviewed")
         result = out["results"][-1]
         self.assertNotIn("continue", result)
-        text = self.content(out)
-        self.assertIn("no blocking finding", text)
-        self.assertNotIn("needs full independent review", text)
+        self.assertIsNone(self.advice(result))
         self.assertEqual(result["entries"][0]["data"]["concerns"], [])
 
     def test_a_full_rating_is_a_concern_when_no_clean_review_follows_the_last_change(self):
         out = self.settle_after(answers(review="full"), edit_result(), kind="reviewed")
-        self.assertIn("needs full independent review", self.content(out))
+        self.assertIn("concerns: needs full independent review", self.content(out))
 
-    def test_a_retry_pair_leaves_its_recorded_friction_for_the_reflect(self):
+    def test_a_retry_pair_is_reflected_as_resolved_without_a_call(self):
         out = self.settle_after(answers(), edit_result(), bash_result("pytest -q", 0, "ok"), bash_result("pytest -q", 1, "bad"), bash_result("pytest -q", 0, "ok"))
-        self.assertIn("next → reflect (missing: 1 friction entry without a reflect)", self.content(out))
+        # The rerun's friction is auto-recorded and reflected as resolved, so the loop is ready to close.
+        self.assertIsNone(self.advice(out["results"][-1]))
+        self.assertEqual(out["classifyCalls"][0]["friction"].splitlines()[0], "1 recorded, 1 reflected")
 
     def test_low_completion_done_and_quality_are_listed_as_concerns(self):
         out = self.settle_after(answers("advance", done=0.05, quality=0.5), edit_result(), bash_result("pytest -q", 0, "ok"))
         text = self.content(out)
-        self.assertNotIn("not shown to be complete", text)
         self.assertIn("evidence not shown to cover the intent", text)
         self.assertIn("result below the intent", text)
 
@@ -411,12 +460,19 @@ class TestSecondThought(ExtensionCase):
                  tool_result("anchorloop_stage", {"stage": "close", "verdict": "landed"}, "Loop closed (landed)", call_id="c9")]
         out = self.replay(steps, classify=answers())
         result = out["results"][-1]
-        self.assertEqual(result["content"][0]["text"], "Loop closed (landed)")
-        advisory = result["content"][1]["text"]
-        self.assertIn("Second thought (Jev, advisory): next → verify", advisory)
-        self.assertNotIn("Do verify now", advisory)
         self.assertEqual(out["classifyCalls"][0]["intent"], "fix the export")
         self.assertEqual(self.book_files(), [])
+        # Closing with no concern says nothing more than the close result.
+        self.assertIsNone(result)
+
+    def test_a_close_tool_result_carries_only_jevs_concerns(self):
+        steps = [*self.loop(), edit_result(),
+                 {"event": "tool_call", "payload": {"toolName": "anchorloop_stage", "toolCallId": "c9", "input": {"stage": "close", "verdict": "landed"}}},
+                 stage(stage="close", verdict="landed"),
+                 tool_result("anchorloop_stage", {"stage": "close", "verdict": "landed"}, "closed (landed).", call_id="c9")]
+        result = self.replay(steps, classify=answers("advance", done=0.05, review="full"))["results"][-1]
+        self.assertEqual(result["content"][0]["text"], "closed (landed).")
+        self.assertEqual(result["content"][1]["text"], "\nJev: evidence not shown to cover the intent; needs full independent review.")
 
     def test_a_refused_close_is_not_judged(self):
         todos = todo_state({"subject": "x", "status": "pending"})

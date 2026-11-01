@@ -18,16 +18,14 @@ def check_rules_file(path: Path) -> list[str]:
     found_patterns = find_defensive_phrases(text, DEFENSIVE_PATTERNS)
     if found_patterns:
         warnings.append(
-            f"detected defensive wording: {', '.join(found_patterns)}. "
-            "State desired behavior directly; modern models do not need excessive red lines."
+            f"detected defensive wording: {', '.join(found_patterns)}"
         )
 
     # 2. Rule proliferation / bloat check
     lines = [line.strip() for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
     if len(lines) > 200:
         warnings.append(
-            f"rule file has {len(lines)} non-empty lines. Consider consolidating into higher-level principles "
-            "or separating into specialized modules rather than accumulating micro-rules."
+            f"rule file has {len(lines)} non-empty lines (over 200)"
         )
 
     # 3. Check for Simplified Chinese common distinctive characters
@@ -36,7 +34,7 @@ def check_rules_file(path: Path) -> list[str]:
     found_sc = [c for c in simplified_chinese_chars if c in text]
     if found_sc:
         warnings.append(
-            f"possible Simplified Chinese detected ({''.join(found_sc[:5])}). Always use Traditional Chinese."
+            f"possible Simplified Chinese detected ({''.join(found_sc[:5])})"
         )
 
     return warnings

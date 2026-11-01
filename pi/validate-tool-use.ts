@@ -11,7 +11,7 @@ function validate(filePath: string, cwd: string): string | undefined {
 	try {
 		return validateFile(filePath, cwd);
 	} catch (error) {
-		return `⚠ [anchorloop] Validator did not run: ${error instanceof Error ? error.message : String(error)}`;
+		return `validator did not run: ${error instanceof Error ? error.message : String(error)}`;
 	}
 }
 

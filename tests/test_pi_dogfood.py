@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from tests.pi_harness import bash_result, stage, todo_create, todo_state, tool_call, tool_result
-from tests.test_pi_anchorloop import TestAnchorGate
+from tests.test_pi_anchorloop import TestAnchorGate, touch
 from tests.test_pi_anchorloop import answers as jev_answers
 from tests.test_pi_book import BookCase, answers, edit, subagent_result, text_of
 from tests.test_pi_phases import DIR, DONE_ROWS, PhaseCase, spec_text
@@ -41,9 +41,9 @@ class TestActEvidence(BookCase):
         loose = self.cwd.parent / "loose"
         loose.mkdir()
         gate = TestAnchorGate()
-        out = self.replay([*gate.loop(), tool_call("edit", str(other / "scratch" / "x.py")), tool_call("edit", str(loose / "x.py")), tool_call("edit", str(other / "lib.py"))], extensions=("book.ts", "anchor-gate.ts"))
-        self.assertEqual(len(out["notices"]), 1)
-        self.assertEqual(out["notices"][0]["step"], len(out["results"]) - 1)
+        out = self.replay([*gate.loop(), *touch("edit", str(other / "scratch" / "x.py"), "c1"), *touch("edit", str(loose / "x.py"), "c2"), *touch("edit", str(other / "lib.py"), "c3")], extensions=("book.ts", "anchor-gate.ts"))
+        self.assertEqual(out["notices"], [])
+        self.assertEqual([step for step, _ in gate.lines(out)], [len(out["results"]) - 2])
 
     def test_read_only_git_commands_and_no_op_pulls_are_not_act(self):
         self.replay([
@@ -223,15 +223,15 @@ class TestCloseOutput(BookCase):
         self.replay(steps)
         (self.cwd / "app.py").write_text("print(1)\nprint(2)\n")
         out = self.replay([stage(stage="close", verdict="landed")])
-        text = text_of(out["results"][-1])
-        self.assertIn("phases done: anchor, act, verify; skipped: reflect (nothing to reflect)", text)
-        self.assertIn("diff work: 1 file changed", text)
-        self.assertNotIn("other:", text)
-        self.assertNotIn("untracked", text)
+        self.assertEqual(text_of(out["results"][-1]), "closed (landed). Clear the todo list.")
+        diff = out["appended"][0]["data"]["diff"]
+        self.assertIn("work: 1 file changed", diff)
+        self.assertNotIn("other:", diff)
+        self.assertNotIn("untracked", diff)
 
     def test_automatic_skips_are_marked_and_the_phase_list_goes_into_the_session_entry(self):
         out = self.replay([*self.open_loop(anchor="pytest -q"), edit(), bash_result("pytest -q", 0, "ok"), stage(stage="close", verdict="landed")])
-        self.assertIn("skipped: reflect (no friction)", text_of(out["results"][-1]))
+        self.assertEqual(text_of(out["results"][-1]), "closed (landed). Clear the todo list.")
         phases = out["appended"][0]["data"]["phases"]
         self.assertEqual(phases[-1], {"phase": "reflect", "state": "auto-skipped", "note": "no friction"})
 
@@ -261,12 +261,12 @@ class TestCloseJudgment(BookCase):
         steps = [*self.open_loop(anchor="pytest -q"), edit(), bash_result("pytest -q", 0, "ok"), stage(stage="friction", tried="a", found="b"), close_call,
                  stage(stage="reflect", friction=[1], **{"class": "gap", "action": "solid-loop"}),
                  {**stage(stage="close", verdict="landed"), "emit": "c9"}]
-        out = self.replay(steps, classify=jev_answers())
+        out = self.replay(steps, classify=jev_answers("advance", done=0.05))
         state = out["classifyCalls"][0]
         self.assertIn("1 recorded, 1 reflected", state["friction"])
         self.assertIn("[gap: solid-loop]", state["friction"])
         self.assertTrue(state["phase"].startswith("current: reflect; next: close"), state["phase"])
-        self.assertTrue(out["emitted"][0]["content"][-1]["text"].startswith("\nSecond thought"))
+        self.assertTrue(out["emitted"][0]["content"][-1]["text"].startswith("\nJev:"))
 
 
 class TestFreshReadJudging(PhaseCase):

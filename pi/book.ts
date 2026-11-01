@@ -1,6 +1,7 @@
 /**
- * pi extension: the loop book. The first `todo` create or `kind` declaration opens a loop and its book. The agent declares only
- * what the program cannot observe (`kind` with its intent and anchor command, a non-command `verify`,
+ * pi extension: the loop book. The first `todo` create opens a loop and its book as `inline`, its intent the first todo's subject
+ * and its anchor a stated `Reality anchor:` line or the todo's `metadata.anchor`; a `kind` declaration opens one too. The agent declares only
+ * what the program cannot observe (`kind` to choose `reviewed` or `durable`, a non-command `verify`,
  * `fresh-read`, `friction`, `reflect`, `skip`, `back`, `close`); the extension derives the rest from
  * evidence: production edits, the exit code of the anchor command, reviewer results, durable artifacts,
  * and the fresh-reader subagent. A phase machine over that evidence warns once per jump and never blocks;
@@ -61,9 +62,6 @@ const STAGES = ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "
 const REVIEWERS = new Set(["reviewer", "adversarial-reviewer"]);
 const BLOCKING = /Blocking\s*:?\**\s*:?\s*P0\s*=\s*(\d+)\D{0,5}P1\s*=\s*(\d+)/gi;
 const ANCHOR_LINE = /Reality anchor:[ \t]*(.*)/;
-
-export const OPEN_LINE =
-	"anchorloop: a loop is open. Declare it with `anchorloop_stage` {stage: kind, kind: quick|inline|reviewed|durable, intent: <one line>, anchor: <check command>}.";
 
 type Params = {
 	stage: (typeof STAGES)[number];
@@ -330,7 +328,7 @@ function statedAnchor(message: { role?: string; content?: unknown } | undefined)
 	return found ? found[1].trim().slice(0, 300) || "(stated on the next line)" : undefined;
 }
 
-const STATUS_KEY = "anchorloop";
+const WIDGET_KEY = "anchorloop";
 
 const reply = (text: string) => ({ content: [{ type: "text" as const, text }], details: undefined });
 
@@ -402,6 +400,22 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	/** True while no `kind` call has chosen the kind: the loop still holds the `inline` a todo create opened it with. */
+	function kindIsDefault(entries: Entry[]): boolean {
+		return !entries.some((entry) => entry.stage === "kind" && typeof entry.kind === "string" && entry.auto !== true);
+	}
+
+	/** Opens the loop at the first todo create as `inline`: the first todo's subject is the intent, a stated `Reality anchor:` line or its `metadata.anchor` the anchor. */
+	function openFromTodo(ctx: ExtensionContext, details: unknown): Book {
+		const book = createBook(ctx);
+		const first = (taskDetails(details) ?? [])[0];
+		book.entries.push(appendEntry(book.path, "kind", { kind: "inline", auto: true, ...(first?.subject ? { intent: clip(first.subject.replace(/\s+/g, " ").trim(), 200) } : {}) }));
+		recordPriorAnchor(book, ctx);
+		const anchor = first?.metadata?.anchor;
+		if (typeof anchor === "string" && anchor.trim() && !anchorCommand(book.entries)) book.entries.push(appendEntry(book.path, "anchor", { check: anchor.trim() }));
+		return book;
+	}
+
 	function close(book: Book, ctx: ExtensionContext, verdict: string): { text: string; snapshot?: Snapshot } {
 		const todos = replayTodos(ctx.sessionManager.getBranch());
 		const undisposed = todos.filter((task) => isOpenTask(task) && !validFollowup(task.metadata?.followup));
@@ -415,7 +429,6 @@ export default function (pi: ExtensionAPI) {
 		const kind = currentKind(book.entries);
 		const phases = phasesOf(book, ctx);
 		const missing = incompleteBefore(phases, "close");
-		const notice = verdict === "landed" && missing.length ? `anchorloop: closed with phases not shown complete: ${missing.map((status) => `${status.name} (${status.note})`).join("; ")}.` : undefined;
 		const diff = diffAgainstBases(book.entries);
 		const friction = allFriction(book.entries);
 		const phaseList = phases.statuses.map((status) => ({ phase: status.name, state: status.state === "skipped" && status.auto ? "auto-skipped" : status.state === "missing" ? "not shown complete" : status.state, ...(status.state === "skipped" ? { note: status.note } : {}) }));
@@ -434,25 +447,16 @@ export default function (pi: ExtensionAPI) {
 			followups: todos.filter((task) => isOpenTask(task)).map((task) => ({ task: task.subject, followup: task.metadata?.followup })),
 		};
 		const unreflected = friction.filter((item) => !item.reflected);
-		const tail = unreflected.length
-			? ` Unreflected friction for the Reflexive Pass: ${unreflected.map((item) => `${item.ref} (${item.found})`).join("; ")}.`
-			: "";
-		const named = (item: (typeof phaseList)[number]) => `${item.phase}${item.note ? ` (${item.note})` : ""}`;
-		const doneNames = phaseList.filter((item) => item.state === "done").map((item) => item.phase);
-		const skippedNames = phaseList.filter((item) => item.state === "skipped" || item.state === "auto-skipped").map(named);
-		const openNames = phaseList.filter((item) => item.state === "not shown complete").map((item) => item.phase);
-		const shown = [
-			`done: ${doneNames.join(", ") || "none"}`,
-			...(skippedNames.length ? [`skipped: ${skippedNames.join(", ")}`] : []),
-			...(openNames.length ? [`${verdict === "landed" ? "not complete" : "not reached"}: ${openNames.join(", ")}`] : []),
-		].join("; ");
-		const back = summary.back.length ? `; back ${summary.back.join(", ")}` : "";
-		const text = `Loop closed (${verdict}): phases ${shown}; ${summary.reviewTrend}; diff ${diff.summary.split("\n").join("; ")}${back}.${tail}`;
-		const after = notice ? `\n${notice}` : "";
+		// The agent has just done the finished phases, so the result names only what is left.
+		const text = [
+			`closed (${verdict}).`,
+			...(missing.length ? [`${verdict === "landed" ? "not complete" : "not reached"}: ${missing.map((status) => (verdict === "landed" ? `${status.name} (${status.note})` : status.name)).join("; ")}.`] : []),
+			...(unreflected.length ? [`unreflected friction: ${unreflected.map((item) => `${item.ref} (${item.found})`).join("; ")}.`] : []),
+		].join(" ");
 		if (kept) {
 			// A child's book stays for the main session to read and delete.
 			appendEntry(book.path, "close", { verdict, summary: text.slice(0, 500) });
-			return { text: `${text} The book stays for the main session.${after}` };
+			return { text: `${text} The book stays for the main session.` };
 		}
 		// Jev judges the loop as it stood at close; the book is gone by the time the result is judged.
 		const snap = kind === "quick" ? undefined : snapshot(book, ctx);
@@ -461,38 +465,33 @@ export default function (pi: ExtensionAPI) {
 			for (const { book: child } of findChildBooks(id)) deleteBook(child.path);
 		}
 		deleteBook(book.path);
-		return { text: `${text} The book is deleted. Clear the todo list now (todo action: clear).${after}`, snapshot: snap };
+		return { text: `${text} Clear the todo list.`, snapshot: snap };
 	}
 
 	pi.registerTool({
 		name: "anchorloop_stage",
 		label: "Loop stage",
 		description:
-			"Declare only what the extension cannot observe in the anchorloop loop book. " +
-			"`kind` (kind, intent, optional anchor command; call again to set the anchor, or with `reason` to change the kind or answer a re-classification): quick (act, check), inline (anchor, act, verify), reviewed (adds review), durable (adds decide, grill, spec, read, approve, design); every kind ends with reflect, close. " +
-			"When an anchor run or declared verify of a quick or inline loop finds the change reaching 3 source files, 2 modules, or a README, changelog, or *.schema.json beside code, its verify waits for a `kind` call with `reason`. " +
-			"`verify` (note; only for an anchor that is not a command), `fresh-read` (a fresh-context read of the spec is done), `friction` (tried, found, led_by), `reflect` (friction ids, class misdirection|gap|resolved, action), " +
-			"`skip` / `back` (phase, reason), `close` (verdict), `read` (view the book). Edits, anchor runs, reviews, and spec files are read from evidence. " +
-			"A loop opens with the first `todo` create; `close` refuses while a pending or in-progress todo lacks metadata.followup.",
+			"Loop book; the first `todo` create opens a loop as inline. stage: kind (kind, intent, anchor; reason to change the kind or answer a reach notice), verify (note; only for a check not run in bash), fresh-read, friction (tried, found, led_by), reflect (friction ids, class, action), skip/back (phase, reason), close (verdict; refuses while an open todo lacks metadata.followup), read. Edits, anchor runs, reviews, and specs are read from evidence.",
 		parameters: {
 			type: "object",
 			properties: {
 				stage: { type: "string", enum: [...STAGES] },
-				kind: { type: "string", enum: [...KINDS], description: "stage kind: the loop kind; a later call with `reason` changes it" },
-				intent: { type: "string", description: "stage kind: one line on what the loop delivers" },
-				anchor: { type: "string", description: "stage kind: the check command whose exit code observes the result" },
-				note: { type: "string", description: "stage verify: what was observed; stage fresh-read: who read the spec" },
-				result: { type: "string", enum: ["pass", "fail"], description: "stage verify; default pass" },
-				tried: { type: "string", description: "stage friction: the attempt that failed" },
-				found: { type: "string", description: "stage friction: what the failure revealed" },
-				led_by: { type: "string", description: "stage friction: the skill or instruction line that prompted the attempt, or `none`" },
-				friction: { type: "array", items: { type: ["string", "number"] }, description: "stage reflect: friction ids (`3`, or `worker#2` for a child's)" },
-				class: { type: "string", enum: ["misdirection", "gap", "resolved"], description: "stage reflect" },
-				action: { type: "string", description: "stage reflect: what was done, such as solid-loop, memory, or a commit" },
-				phase: { type: "string", description: "stage skip or back: the phase" },
-				reason: { type: "string", description: "stage skip or back: why; stage kind: why the kind changes, or why it still fits the measured reach" },
-				verdict: { type: "string", enum: ["landed", "blocked", "abandoned"], description: "stage close" },
-				view: { type: "string", enum: ["summary", "all"], description: "stage read; default summary" },
+				kind: { type: "string", enum: [...KINDS] },
+				intent: { type: "string" },
+				anchor: { type: "string", description: "the check command" },
+				note: { type: "string" },
+				result: { type: "string", enum: ["pass", "fail"] },
+				tried: { type: "string" },
+				found: { type: "string" },
+				led_by: { type: "string", description: "the instruction that misled the attempt, or `none`" },
+				friction: { type: "array", items: { type: ["string", "number"] }, description: "ids: `3`, `worker#2`" },
+				class: { type: "string", enum: ["misdirection", "gap", "resolved"] },
+				action: { type: "string" },
+				phase: { type: "string" },
+				reason: { type: "string" },
+				verdict: { type: "string", enum: ["landed", "blocked", "abandoned"] },
+				view: { type: "string", enum: ["summary", "all"] },
 			},
 			required: ["stage"],
 			additionalProperties: false,
@@ -533,22 +532,17 @@ export default function (pi: ExtensionAPI) {
 		if (stage === "kind") {
 			if (!params.kind && !params.intent && !params.anchor && !params.reason) throw new Error("kind needs `kind`, `intent`, `anchor`, or `reason`");
 			if (!had && (!params.kind || !params.intent)) throw new Error("the first kind declaration needs `kind` and a one-line `intent`");
+			// The kind a todo create defaulted to is not a choice yet, so choosing another needs no reason.
 			const changed = had !== undefined && params.kind !== undefined && had !== params.kind;
-			if (changed && !params.reason) throw new Error(`changing the kind from ${had} to ${params.kind} needs \`reason\`: the reach grew, the user added scope, a user-owned decision appeared, or the change turned out smaller`);
+			if (changed && !params.reason && !kindIsDefault(book.entries)) throw new Error(`changing the kind from ${had} to ${params.kind} needs \`reason\`: the reach grew, the user added scope, a user-owned decision appeared, or the change turned out smaller`);
 			touchRepo(book, join(ctx.cwd, "_"));
-			const notes: string[] = [];
 			if (params.kind || params.intent || params.reason) {
 				// A reason answers the reach measured now, so a later threshold asks again.
 				const answer = params.reason ? { reason: params.reason, crossed: reachOf(book.entries, ctx.cwd).crossed } : {};
 				appendEntry(book.path, "kind", { kind: params.kind ?? had, ...(params.intent ? { intent: params.intent } : {}), ...answer });
-				const why = params.reason ? ` (${params.reason})` : "";
-				notes.push(changed ? `kind changed: ${had} → ${params.kind}${why}` : `kind: ${params.kind ?? had}${why}`);
 			}
-			if (params.anchor) {
-				appendEntry(book.path, "anchor", { check: params.anchor });
-				notes.push(`anchor: ${params.anchor}`);
-			}
-			return reply(notes.join("\n"));
+			if (params.anchor) appendEntry(book.path, "anchor", { check: params.anchor });
+			return reply("ok");
 		}
 		if (stage === "verify") {
 			if (!params.note) throw new Error("verify needs a `note` saying what was observed");
@@ -557,17 +551,17 @@ export default function (pi: ExtensionAPI) {
 			const entry = appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, ...reachField(book, ctx.cwd) });
 			book.entries.push(entry);
 			const notice = reachNotice(book, entry);
-			return reply(`${recorded} declared: ${result} — ${params.note}${notice ? `\n${notice}` : ""}`);
+			return reply(notice ? `ok\n${notice}` : "ok");
 		}
 		if (stage === "fresh-read") {
 			appendEntry(book.path, "goldfish", { source: "declared", ...(params.note ? { note: params.note } : {}) });
-			return reply("fresh-read recorded.");
+			return reply("ok");
 		}
 		if (stage === "friction") {
 			if (!params.tried || !params.found) throw new Error("friction needs `tried` and `found`");
 			const id = frictionOf(book.entries).length + 1;
 			appendEntry(book.path, "friction", { id, tried: params.tried, found: params.found, led_by: params.led_by || "none" });
-			return reply(`friction #${id} recorded.`);
+			return reply(`friction #${id}`);
 		}
 		if (stage === "reflect") {
 			const known = allFriction(book.entries).map((item) => item.ref);
@@ -576,7 +570,7 @@ export default function (pi: ExtensionAPI) {
 			const unknown = ids.filter((id) => !known.includes(id));
 			if (unknown.length) throw new Error(`unknown friction ${unknown.join(", ")}; known: ${known.join(", ") || "none"}`);
 			appendEntry(book.path, "reflect", { friction: ids, class: params.class, ...(params.action ? { action: params.action } : {}) });
-			return reply(`reflect recorded for ${ids.join(", ")} (${params.class}).`);
+			return reply("ok");
 		}
 		// skip and back
 		const phase = params.phase;
@@ -584,7 +578,7 @@ export default function (pi: ExtensionAPI) {
 		if (!phase || !known.includes(phase)) throw new Error(`${stage} needs \`phase\`, one of ${known.join(", ")} for a ${had ?? "undeclared"} loop`);
 		if (!params.reason) throw new Error(`${stage} needs a \`reason\``);
 		appendEntry(book.path, stage, { phase, reason: params.reason });
-		return reply(stage === "skip" ? `${phase}: skipped (${params.reason}).` : `back to ${phase} (${params.reason}); later phases count as incomplete until their conditions hold again.`);
+		return reply("ok");
 	}
 
 	pi.on(
@@ -648,7 +642,7 @@ export default function (pi: ExtensionAPI) {
 			const code = anchorExit(command, task.anchor, exit);
 			book.entries.push(appendEntry(book.path, "taskrun", { id: task.id, command: task.anchor.slice(0, 200), exit: code, last, ...keyOf(code) }));
 		}
-		notices.push(...autoFriction(book));
+		autoFriction(book);
 		const merged = mergeRun(command);
 		if (exit === 0 && merged && !/Already up[ -]to[ -]date/i.test(last ?? "") && book.entries.at(-1)?.stage !== "edit") {
 			touchRepoBeforeMerge(book, resolve(String(book.header.cwd ?? process.cwd()), merged.dir), merged.verb);
@@ -664,10 +658,10 @@ export default function (pi: ExtensionAPI) {
 	/**
 	 * Records one friction line for each anchor that passed again after it had passed and then failed. A pair is recorded
 	 * once, and not at all when the agent recorded a friction entry itself after the failure. The pairs one command
-	 * completes in one bash call (it is both the loop and a task anchor) share one entry. Returns the lines that tell the agent.
+	 * completes in one bash call (it is both the loop and a task anchor) share one entry. No instruction owns such a slip, so
+	 * the entry is reflected as `resolved` at once and the agent is told nothing.
 	 */
-	function autoFriction(book: Book): string[] {
-		const lines: string[] = [];
+	function autoFriction(book: Book): void {
 		const open = new Map<string, string[]>();
 		for (const pair of retryPairs(book.entries)) {
 			const id = `${pair.key}#${pair.fail}`;
@@ -688,24 +682,23 @@ export default function (pi: ExtensionAPI) {
 			const found = clip(String(failed.key ?? keyLine(String(failed.last ?? ""))) || "failed with no output");
 			const number = frictionOf(book.entries).length + 1;
 			book.entries.push(appendEntry(book.path, "friction", { id: number, tried, found, led_by: "none", auto: true, pairs }));
-			lines.push(`anchorloop: friction #${number} recorded from the ${tried}: ${found}. Classify it with \`reflect\` before close.`);
+			book.entries.push(appendEntry(book.path, "reflect", { friction: [String(number)], class: "resolved", action: "auto-recorded rerun" }));
 		}
-		return lines;
 	}
 
-	/** The footer line: the loop's kind, its last complete phase, the next one, and the friction still to reflect. */
+	/** The line below the editor: the loop's kind, its last complete phase, the next one, and the friction still to reflect; cleared when no loop is open. */
 	function showStatus(ctx: ExtensionContext): void {
-		if (typeof ctx.ui?.setStatus !== "function") return;
+		if (typeof ctx.ui?.setWidget !== "function") return;
 		const book = openLoop(ctx);
 		if (!book) {
-			ctx.ui.setStatus(STATUS_KEY, undefined);
+			ctx.ui.setWidget(WIDGET_KEY, undefined);
 			return;
 		}
 		const phases = phasesOf(book, ctx);
 		const open = allFriction(book.entries).filter((item) => !item.reflected).length;
 		const kind = phases.kind === "undeclared" ? "no kind" : phases.kind;
 		const at = `${phases.current}${phases.current === "start" ? "" : " ✓"} → ${phases.next}`;
-		ctx.ui.setStatus(STATUS_KEY, `anchorloop ${kind} · ${at}${open ? ` · ${open} friction to reflect` : ""}`);
+		ctx.ui.setWidget(WIDGET_KEY, [`⚓ ${kind} · ${at}${open ? ` · ${open} friction` : ""}`], { placement: "belowEditor" });
 	}
 
 	pi.on(
@@ -721,14 +714,10 @@ export default function (pi: ExtensionAPI) {
 			if (event.toolName === "todo") {
 				const input = event.input as { action?: unknown; id?: unknown };
 				let open = openLoop(ctx);
-				const opens = !open && input.action === "create";
-				if (!open && opens) {
-					open = createBook(ctx);
-					recordPriorAnchor(open, ctx);
-				}
+				if (!open && input.action === "create") open = openFromTodo(ctx, event.details);
 				if (!open) return;
 				recordTasks(open, event.details, input, ctx.cwd);
-				return opens ? { content: [...event.content, { type: "text" as const, text: OPEN_LINE }] } : undefined;
+				return;
 			}
 			const book = openLoop(ctx);
 			if (!book) return;
@@ -833,7 +822,10 @@ function headAndTail(text: string): string {
 			const book = openLoop(ctx);
 			if (!book) return;
 			const stated = statedAnchor(message);
-			if (stated && !book.entries.some((entry) => entry.stage === "anchor" && entry.check === stated)) appendEntry(book.path, "anchor", { check: stated, line: true });
+			if (stated && !book.entries.some((entry) => entry.stage === "anchor" && entry.check === stated)) {
+				appendEntry(book.path, "anchor", { check: stated, line: true });
+				showStatus(ctx);
+			}
 			if (message.role !== "custom" || message.customType !== "subagent_result" || subagent) return;
 			const agent = String(message.details?.agent ?? "");
 			if (REVIEWERS.has(agent)) {

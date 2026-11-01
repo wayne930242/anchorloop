@@ -31,7 +31,7 @@ const [extensionUrls, cwd, stepsJson, branchJson, classifyJson, sessionId, sessi
 const handlers = {};
 const tools = {};
 const branch = JSON.parse(branchJson);
-const out = { results: [], classifyCalls: [], questionSets: [], notices: [], appended: [], emitted: [], statuses: [] };
+const out = { results: [], classifyCalls: [], questionSets: [], notices: [], appended: [], emitted: [], statuses: [], widgets: [] };
 const pi = {
   on: (event, fn) => { (handlers[event] ??= []).push(fn); },
   registerTool: (tool) => { tools[tool.name] = tool; },
@@ -47,6 +47,7 @@ const ctx = {
   ui: {
     notify: (message, level) => out.notices.push({ step: out.results.length, message, level }),
     setStatus: (key, text) => out.statuses.push({ step: out.results.length, key, text: text ?? null }),
+    setWidget: (key, lines, options) => out.widgets.push({ step: out.results.length, key, lines: lines ?? null, placement: options?.placement ?? null }),
   },
   sessionManager: { getBranch: () => branch, getSessionId: () => sessionId, getSessionFile: () => sessionFile || undefined },
   modelRegistry: {
@@ -95,6 +96,7 @@ for (const step of JSON.parse(stepsJson)) {
     out.results.push({ error: error.message });
   }
 }
+out.schemas = Object.fromEntries(Object.entries(tools).map(([name, tool]) => [name, { description: tool.description, parameters: tool.parameters }]));
 console.log(JSON.stringify(out));
 """
 

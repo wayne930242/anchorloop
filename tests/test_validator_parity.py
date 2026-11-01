@@ -55,6 +55,9 @@ FIXTURES: dict[str, str | bytes] = {
     "docs/specs/p/spec.md": "# Spec\nno status\n",
     "docs/specs/p/verification.md": "| Requirement | Evidence | Result |\n| a | b | pass |\n| c | d | maybe |\n| e | f | Pass |\nstrict red line\n",
     "docs/specs/p/other.md": "# Other\n",
+    "docs/specs/q/decision.md": "| Question | Answer | Basis | Status |\n| a | b | c | d |\n",
+    "docs/specs/q/spec.md": "Status: proposed\n",
+    "skill-many-advisories/SKILL.md": SKILL_OK.format(name="m", body="".join(f"NEVER touch thing {n}.\n" for n in range(6))),
     "notes/readme.md": "# Plain\nnever under any circumstances\n",
 }
 

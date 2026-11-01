@@ -171,13 +171,10 @@ export function unansweredReach(entries: Entry[], reach: Reach | undefined): str
 
 /** The one line that asks an unreviewed loop to re-classify; an undeclared loop is asked to declare its kind. */
 export function reachLine(reach: Reach, kind: string | undefined): string {
-	const files = `${reach.source.length} source file${reach.source.length === 1 ? "" : "s"}`;
-	const modules = `${reach.modules.length} module${reach.modules.length === 1 ? "" : "s"} (${reach.modules.slice(0, 4).join(", ")}${reach.modules.length > 4 ? ", …" : ""})`;
-	const told = reach.behavior.length ? ` and changes ${reach.behavior.slice(0, 3).join(", ")}${reach.behavior.length > 3 ? ", …" : ""}` : "";
-	const ask = kind
-		? `call \`kind\` with \`reason\`: upgrade to reviewed, or say why ${kind} still fits`
-		: "declare `kind` with `intent` and `reason`: reviewed when it reaches past its files, or inline and why it still fits";
-	return `the change reaches ${files} across ${modules}${told}; ${ask}`;
+	const modules = reach.modules.length ? ` / ${reach.modules.length} module${reach.modules.length === 1 ? "" : "s"} (${reach.modules.slice(0, 4).join(", ")}${reach.modules.length > 4 ? ", …" : ""})` : "";
+	const told = reach.behavior.length ? ` / ${reach.behavior.slice(0, 3).join(", ")}${reach.behavior.length > 3 ? ", …" : ""}` : "";
+	const ask = kind ? `kind with reason: reviewed, or why ${kind} fits` : "declare kind with intent and reason: reviewed, or why inline fits";
+	return `reach ${reach.source.length} file${reach.source.length === 1 ? "" : "s"}${modules}${told}; ${ask}`;
 }
 
 // --- evidence ------------------------------------------------------------------------------------
@@ -362,11 +359,9 @@ export function incompleteBefore(phases: Phases, entering: string): Status[] {
 	return phases.statuses.filter((status, index) => index < at && status.state === "missing");
 }
 
-/** One line: the phase entered, what is missing before it, and the skip escape. */
+/** One line: the phases still missing before the one entered. */
 export function jumpLine(entering: string, missingBefore: Status[]): string {
-	const list = missingBefore.map((status) => `${status.name} (${status.note})`).join("; ");
-	const skip = missingBefore[0]?.name ?? "<phase>";
-	return `anchorloop: ${entering} comes before ${list}; skip with \`anchorloop_stage skip ${skip} <reason>\`.`;
+	return `anchorloop: before ${entering}, still missing: ${missingBefore.map((status) => `${status.name} (${status.note})`).join("; ")}.`;
 }
 
 /** The phase line `read` and the close summary show. */

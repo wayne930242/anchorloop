@@ -219,9 +219,7 @@ class TestSkipAndBack(PhaseCase):
     def test_the_close_summary_and_session_entry_show_skips_and_backs(self):
         out = self.replay([*self.open_loop(), stage(stage="skip", phase="anchor", reason="no check"), edit(), stage(stage="back", phase="act", reason="redo"), edit(),
                            stage(stage="skip", phase="verify", reason="docs"), stage(stage="close", verdict="landed")])
-        text = text_of(out["results"][-1])
-        self.assertIn("skipped: anchor (no check), verify (docs)", text)
-        self.assertIn("back act (redo)", text)
+        self.assertEqual(text_of(out["results"][-1]), "closed (landed). Clear the todo list.")
         data = out["appended"][0]["data"]
         self.assertEqual((data["skipped"], data["back"]), (["anchor (no check)", "verify (docs)"], ["act (redo)"]))
 
@@ -229,13 +227,8 @@ class TestSkipAndBack(PhaseCase):
 class TestCloseAndReflect(PhaseCase):
     def test_closing_with_incomplete_phases_warns_in_one_line_and_never_refuses(self):
         out = self.replay([*self.open_loop(anchor="pytest -q"), stage(stage="close", verdict="landed")])
-        text = text_of(out["results"][-1])
-        self.assertIn("Loop closed (landed)", text)
-        warning = text.splitlines()[-1]
-        self.assertTrue(warning.startswith("anchorloop: closed with phases not shown complete: act (a change to the code); verify ("), warning)
-        self.assertNotIn("skip with", text)
-        self.assertIn("not complete: act, verify", text)
-        self.assertIn("done: anchor;", text)
+        self.assertEqual(text_of(out["results"][-1]),
+                         "closed (landed). not complete: act (a change to the code); verify (a passing run of `pytest -q` after the last change). Clear the todo list.")
 
     def test_closing_as_abandoned_or_blocked_is_not_a_jump(self):
         out = self.replay([*self.open_loop(anchor="pytest -q"), stage(stage="close", verdict="abandoned")])
@@ -243,7 +236,7 @@ class TestCloseAndReflect(PhaseCase):
 
     def test_a_quick_loop_gets_one_reminder_at_close_and_nothing_before(self):
         out = self.replay([*self.open_loop("quick", anchor="make lint"), edit(), stage(stage="close", verdict="landed")])
-        self.assertTrue(text_of(out["results"][-1]).splitlines()[-1].startswith("anchorloop: closed with phases not shown complete: check ("))
+        self.assertTrue(text_of(out["results"][-1]).startswith("closed (landed). not complete: check ("), text_of(out["results"][-1]))
 
     def test_reflect_is_the_last_phase_before_close_and_completes_when_every_friction_has_a_reflect(self):
         self.replay([*self.open_loop(anchor="pytest -q"), edit(), bash_result("pytest -q", 0, "ok")])
@@ -254,8 +247,7 @@ class TestCloseAndReflect(PhaseCase):
     def test_closing_with_unreflected_friction_is_a_jump_that_warns_and_lists_it(self):
         out = self.replay([*self.open_loop(anchor="pytest -q"), edit(), bash_result("pytest -q", 0, "ok"), stage(stage="friction", tried="a", found="b"), stage(stage="close", verdict="landed")])
         text = text_of(out["results"][-1])
-        self.assertIn("Unreflected friction for the Reflexive Pass: 1 (b)", text)
-        self.assertIn("anchorloop: closed with phases not shown complete: reflect (1 friction entry without a reflect)", text)
+        self.assertEqual(text, "closed (landed). not complete: reflect (1 friction entry without a reflect). unreflected friction: 1 (b). Clear the todo list.")
 
     def test_reflect_can_be_skipped(self):
         self.replay([*self.open_loop(anchor="pytest -q"), edit(), bash_result("pytest -q", 0, "ok"), stage(stage="friction", tried="a", found="b")])
@@ -271,21 +263,21 @@ class TestReclassify(PhaseCase):
     def test_changing_the_kind_needs_a_reason(self):
         out = self.replay([*self.open_loop("inline"), stage(stage="kind", kind="reviewed"), stage(stage="kind", kind="reviewed", reason="the reader moved to 9 callers")])
         self.assertIn("needs `reason`", out["results"][2]["error"])
-        self.assertIn("kind changed: inline → reviewed (the reader moved to 9 callers)", text_of(out["results"][3]))
+        self.assertEqual(text_of(out["results"][3]), "ok")
         self.assertEqual(self.entries("kind")[-1]["reason"], "the reader moved to 9 callers")
 
     def test_a_reason_lets_the_kind_drop(self):
         out = self.replay([*self.open_loop("reviewed", anchor="pytest"), edit(), bash_result("pytest", 0, "ok"), subagent_result("reviewer", "r1", "Blocking: P0=0 P1=0"),
                            stage(stage="kind", kind="inline", reason="one file after all")])
-        self.assertIn("kind changed: reviewed → inline (one file after all)", text_of(out["results"][-1]))
+        self.assertEqual(text_of(out["results"][-1]), "ok")
+        self.assertEqual(self.entries("kind")[-1]["kind"], "inline")
 
     def test_an_anchor_run_past_the_reach_asks_an_inline_loop_to_reclassify_until_kind_answers(self):
         self.git_repo()
         out = self.replay([*self.open_loop(anchor="pytest -q"), *self.wide(), bash_result("pytest -q", 0, "ok")])
         notice = text_of(out["results"][-1]).splitlines()[-1]
-        self.assertTrue(notice.startswith("anchorloop: the change reaches 3 source files across 2 modules (lib, src);"), notice)
-        self.assertIn("`kind` with `reason`", notice)
-        self.assertIn("→ verify (missing: the change reaches 3 source files across 2 modules (lib, src)", self.line([]))
+        self.assertEqual(notice, "anchorloop: reach 3 files / 2 modules (lib, src); kind with reason: reviewed, or why inline fits.")
+        self.assertIn("→ verify (missing: reach 3 files / 2 modules (lib, src)", self.line([]))
         self.assertEqual(self.line([stage(stage="kind", kind="inline", reason="three one-line renames")]), "inline · phase verify ✓ → close")
         self.assertEqual(self.entries("kind")[-1]["crossed"], ["files", "modules"])
 
@@ -299,19 +291,19 @@ class TestReclassify(PhaseCase):
         self.git_repo()
         self.replay([*self.open_loop(anchor="pytest -q"), *self.wide(), bash_result("pytest -q", 0, "ok"), stage(stage="kind", kind="inline", reason="renames")])
         out = self.replay([{"file": "README.md", "text": "a new flag\n"}, bash_result("pytest -q", 0, "ok")])
-        self.assertIn("and changes README.md", text_of(out["results"][-1]))
-        self.assertIn("→ verify (missing: the change reaches", self.line([]))
+        self.assertIn("/ README.md;", text_of(out["results"][-1]))
+        self.assertIn("→ verify (missing: reach", self.line([]))
 
     def test_a_quick_loop_is_asked_at_its_check(self):
         self.git_repo()
         self.replay([*self.open_loop("quick", anchor="make lint"), *self.wide(), bash_result("make lint", 0, "ok")])
-        self.assertIn("quick · phase act ✓ → check (missing: the change reaches 3 source files", self.line([]))
+        self.assertIn("quick · phase act ✓ → check (missing: reach 3 files", self.line([]))
 
     def test_a_declared_verify_measures_the_reach_too(self):
         self.git_repo()
         out = self.replay([*self.open_loop(anchor="the page shows the column"), *self.wide(), stage(stage="verify", note="the column is there")])
-        self.assertIn("anchorloop: the change reaches 3 source files", text_of(out["results"][-1]))
-        self.assertIn("→ verify (missing: the change reaches 3 source files", self.line([]))
+        self.assertIn("anchorloop: reach 3 files", text_of(out["results"][-1]))
+        self.assertIn("→ verify (missing: reach 3 files", self.line([]))
 
     def test_tests_lockfiles_specs_and_a_readme_without_source_do_not_count(self):
         self.git_repo()
@@ -414,12 +406,12 @@ class TestReachEdges(PhaseCase):
                            edit("src/a.py"), bash_result("pytest -q", 0, "ok")])
         self.assertEqual(out["results"][-1].get("structuredContent"), {"exit_code": 0, "output": "ok"})
 
-    def test_an_undeclared_loop_is_told_to_declare_its_kind(self):
+    def test_a_loop_a_todo_create_opened_is_asked_like_any_inline_loop(self):
         self.git_repo()
         stated = {"event": "message_end", "payload": {"message": {"role": "assistant", "content": [{"type": "text", "text": "Reality anchor: pytest -q"}]}}}
         out = self.replay([todo_create(), stated, tool_call("write", "src/a.py"), {"file": "src/a.py", "text": "a\n"}, {"file": "src/b.py", "text": "b\n"}, {"file": "lib/c.py", "text": "c\n"},
                            edit("src/a.py"), bash_result("pytest -q", 0, "ok")])
-        self.assertIn("declare `kind` with `intent` and `reason`", text_of(out["results"][-1]))
+        self.assertIn("kind with reason: reviewed, or why inline fits", text_of(out["results"][-1]))
 
 if __name__ == "__main__":
     unittest.main()

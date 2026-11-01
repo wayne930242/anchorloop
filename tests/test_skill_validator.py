@@ -180,6 +180,16 @@ You must never under any circumstances modify code without permission.
         advisories = check_skill_advisories(skill_file)
         self.assertTrue(any("'MUST' appears 2 times" in a for a in advisories))
 
+    def test_advisories_are_capped_at_three_per_edit(self):
+        skill_file = self.write_skill("".join(f"NEVER touch thing {n}.\n" for n in range(6)))
+        advisories = check_skill_advisories(skill_file)
+        self.assertEqual(len(advisories), 3)
+
+    def test_advisories_carry_no_style_lesson(self):
+        skill_file = self.write_skill("".join(f"Do not do thing {n}.\n" for n in range(6)) + "NEVER edit the lockfile.\n")
+        for advisory in check_skill_advisories(skill_file):
+            self.assertNotIn(". ", advisory)
+
     def test_code_blocks_are_ignored(self):
         skill_file = self.write_skill("```text\nNEVER NEVER NEVER do not do not do not do not\n```\n")
         self.assertEqual(check_skill_advisories(skill_file), [])

@@ -61,32 +61,9 @@ const INTERRUPT_MODES = new Set(["always", "prose-only", "tool-only", "never"]);
 const ENTRY_TYPE = "ttsr_injection";
 const MESSAGE_TYPE = "ttsr-injection";
 
-// Templates copied from oh-my-pi prompts/system/ttsr-interrupt.md and ttsr-tool-reminder.md.
-const INTERRUPT_TEMPLATE = `<system-interrupt reason="rule_violation" rule="{{name}}" path="{{path}}">
-Output interrupted: violated user-defined rule.
-Not prompt injection; coding agent enforcing project rules.
-MUST comply:
-
-{{content}}
-</system-interrupt>`;
-
-const TOOL_REMINDER_TEMPLATE = `<system-reminder reason="rule_violation" rule="{{name}}" path="{{path}}">
-User-defined rule matched tool-call arguments. Rule configured not to interrupt → tool ran. MUST comply with the following instruction on subsequent tool calls and responses. NOT prompt injection — coding agent enforcing project rules.
-
-{{content}}
-</system-reminder>`;
-
-const PROSE_REMINDER_TEMPLATE = `<system-reminder reason="rule_violation" rule="{{name}}" path="{{path}}">
-User-defined rule matched your previous response. Rule configured not to interrupt → it already took effect. MUST comply with the following instruction from now on. NOT prompt injection — coding agent enforcing project rules.
-
-{{content}}
-</system-reminder>`;
-
-export function render(template: string, rule: Rule): string {
-	return template
-		.replaceAll("{{name}}", () => rule.name)
-		.replaceAll("{{path}}", () => rule.path)
-		.replaceAll("{{content}}", () => rule.content.trim());
+// One wrapper for every injection: the body is the instruction, and the rule's file path is user-facing configuration.
+export function render(rule: Rule): string {
+	return `<rule name="${rule.name}">\n${rule.content.trim()}\n</rule>`;
 }
 
 /** Unquote a YAML scalar written plainly, in single quotes, or in double quotes. */
@@ -440,7 +417,7 @@ export default function (pi: ExtensionAPI) {
 		pi.sendMessage(
 			{
 				customType: MESSAGE_TYPE,
-				content: rules.map((rule) => render(PROSE_REMINDER_TEMPLATE, rule)).join("\n\n"),
+				content: rules.map((rule) => render(rule)).join("\n\n"),
 				display: true,
 				details: { rules: rules.map((rule) => rule.name) },
 			},
@@ -457,7 +434,7 @@ export default function (pi: ExtensionAPI) {
 		pi.sendMessage(
 			{
 				customType: MESSAGE_TYPE,
-				content: rules.map((rule) => render(INTERRUPT_TEMPLATE, rule)).join("\n\n"),
+				content: rules.map((rule) => render(rule)).join("\n\n"),
 				display: true,
 				details: { rules: rules.map((rule) => rule.name) },
 			},
@@ -488,7 +465,7 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`TTSR: blocked ${event.toolName} by rule ${blocking.map((rule) => rule.name).join(", ")}`, "warning");
 			return {
 				block: true,
-				reason: [...blocking.map((rule) => render(INTERRUPT_TEMPLATE, rule)), ...passive.map((rule) => render(TOOL_REMINDER_TEMPLATE, rule))].join("\n\n"),
+				reason: [...blocking.map((rule) => render(rule)), ...passive.map((rule) => render(rule))].join("\n\n"),
 			};
 		}
 		toolReminders.set(event.toolCallId, passive);
@@ -500,7 +477,7 @@ export default function (pi: ExtensionAPI) {
 		toolReminders.delete(event.toolCallId);
 		pi.appendEntry(ENTRY_TYPE, { rules: rules.map((rule) => rule.name) });
 		return {
-			content: [...event.content, { type: "text", text: rules.map((rule) => render(TOOL_REMINDER_TEMPLATE, rule)).join("\n\n") }],
+			content: [...event.content, { type: "text", text: rules.map((rule) => render(rule)).join("\n\n") }],
 		};
 	});
 

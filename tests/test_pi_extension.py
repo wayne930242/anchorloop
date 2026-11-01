@@ -52,7 +52,7 @@ class TestPiExtension(unittest.TestCase):
         result = self.run_handler("write", test_file)
         self.assertEqual(result["content"][0], {"type": "text", "text": "ok"})
         self.assertEqual(len(result["content"]), 2)
-        self.assertIn("[anchorloop] Validation suggestions", result["content"][1]["text"])
+        self.assertTrue(result["content"][1]["text"].startswith("validator AGENTS.md:\n"), result["content"][1]["text"])
         self.assertIn("defensive wording", result["content"][1]["text"])
 
     def test_clean_file_leaves_result_unchanged(self):

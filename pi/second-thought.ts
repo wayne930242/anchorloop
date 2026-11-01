@@ -4,10 +4,13 @@
  * summary, phase (current, next, missing), verify state, open todos, tasks, and friction, and judges only
  * whether the current phase's completion condition truly holds and whether to advance, go back, or ask
  * the user. It runs when a run settles and the book gained an entry since the last judgment, and at a
- * `close` declaration. The advisory is one line leading with `next → <phase>`; it continues the run once
- * when Jev agrees to advance and the next phase is a verify, review, or fix, or when todos are still open
- * without a followup (unless Jev says to ask the user). Away from close the advisory names those todos and
- * asks the agent to continue, complete, or settle each with `metadata.followup`. A run that arranged a wake
+ * `close` declaration. The advisory is `next: <phase> (<missing>)` plus Jev's concerns, and is sent only when it
+ * changes the agent's next action: Jev has a concern, todos are still open without a followup, or the run
+ * continues. It continues the run once when Jev agrees to advance and the next phase is a verify, review, or
+ * fix, or when todos are still open without a followup (unless Jev says to ask the user). Away from close the
+ * advisory names up to three of those todos and asks the agent to continue, complete, or settle each with
+ * `metadata.followup`. An advisory with the same next phase, concerns, and open todo ids is sent once. At
+ * close only concerns are sent. A run that arranged a wake
  * (a monitor, a loop, a subagent) is waiting, not finished, and is not judged. Outside a loop nothing
  * runs, nor in a `quick` loop, whose only prompt is the close reminder; a subagent session registers
  * nothing, since the agent that spawned it judges its result.
@@ -89,16 +92,13 @@ export function readVerdict(answers: Answers): Verdict | undefined {
 	};
 }
 
-export function assess(verdict: Verdict, snap: Snapshot): { found: string[]; notes: string[] } {
+export function assess(verdict: Verdict, snap: Snapshot): { found: string[] } {
 	const found: string[] = [];
-	const notes: string[] = [];
 	if (verdict.done < THRESHOLDS.doneBelow) found.push("evidence not shown to cover the intent");
-	if (verdict.review === THRESHOLDS.reviewTier) {
-		if (snap.reviewClear) notes.push("review rated full, but a review recorded after the last change found no blocking finding");
-		else found.push("needs full independent review");
-	}
+	// A review recorded after the last change with no blocking finding already covers the full-review rating.
+	if (verdict.review === THRESHOLDS.reviewTier && !snap.reviewClear) found.push("needs full independent review");
 	if (verdict.quality < THRESHOLDS.qualityBelow) found.push("result below the intent");
-	return { found, notes };
+	return { found };
 }
 
 /** True when Jev agrees to advance and the next phase is one the agent can act on now, or open todos wait and the user is not needed. */
@@ -107,24 +107,37 @@ export function continues(verdict: Verdict, snap: Snapshot): boolean {
 	return verdict.move === "advance" && ACTIONABLE.has(snap.next);
 }
 
-/** The open todos the agent must answer, or the call to put them to the user. */
-function todoCall(verdict: Verdict, snap: Snapshot): string {
-	const list = `Open todos: ${listTodos(snap.unsettled)}.`;
-	return verdict.move === "ask-user"
-		? ` ${list} Ask the user about them with ask_user_question before ending the turn.`
-		: ` ${list} Continue each, complete it, or set metadata.followup (a ticket id, \`memory\`, or \`drop — <reason>\`).`;
+/** What Jev's move adds to the program's reading when it is not "advance". */
+const MOVE_CONCERN: Record<Move, string | undefined> = { advance: undefined, back: "earlier evidence does not hold", "ask-user": "needs the user's decision" };
+
+/** Jev's concerns: a move against the program's reading, then the assessment findings. */
+export function concerns(verdict: Verdict, found: string[]): string[] {
+	const move = MOVE_CONCERN[verdict.move];
+	return move ? [move, ...found] : found;
 }
 
-/** One line: the program's next phase and its gap, Jev's move and scores, and, away from close, the call to act. */
-export function message(verdict: Verdict, snap: Snapshot, found: string[], notes: string[], atClose = false): string {
-	const extra = [...found, ...notes];
-	return (
-		`Second thought (Jev, advisory): next → ${snap.next}${snap.missing ? ` (missing: ${snap.missing})` : ""}; ` +
-		`${verdict.move}; done ${verdict.done.toFixed(2)}, review ${verdict.review}, quality ${verdict.quality.toFixed(2)}/3` +
-		`${extra.length ? `; ${extra.join("; ")}` : ""}.` +
-		(!atClose && verdict.move === "advance" && ACTIONABLE.has(snap.next) ? ` Do ${snap.next} now, or say why it does not apply.` : "") +
-		(!atClose && snap.unsettled.length ? todoCall(verdict, snap) : "")
-	);
+/** The open todos the agent must answer, or the call to put them to the user. */
+function todoCall(verdict: Verdict, snap: Snapshot): string {
+	const list = `open: ${listTodos(snap.unsettled)}`;
+	return verdict.move === "ask-user"
+		? `${list} — ask the user about them with ask_user_question before ending the turn`
+		: `${list} — continue each, complete it, or set metadata.followup (a ticket id, \`memory\`, or \`drop — <reason>\`)`;
+}
+
+/** The advisory: the program's next phase and its gap, Jev's concerns, and, away from close, the open todos. Empty at close without concerns. */
+export function message(verdict: Verdict, snap: Snapshot, found: string[], atClose = false): string {
+	const list = concerns(verdict, found);
+	if (atClose) return list.length ? `Jev: ${list.join("; ")}.` : "";
+	return [
+		`next: ${snap.next}${snap.missing ? ` (${snap.missing})` : ""}`,
+		...(list.length ? [`concerns: ${list.join("; ")}`] : []),
+		...(snap.unsettled.length ? [todoCall(verdict, snap)] : []),
+	].join("\n");
+}
+
+/** What makes two advisories the same: the next phase, the concerns, and the open todo ids; the wording of the gap may change. */
+function adviceKey(verdict: Verdict, snap: Snapshot, found: string[]): string {
+	return JSON.stringify([snap.next, concerns(verdict, found), snap.unsettled.map((task) => task.id)]);
 }
 
 export default function (pi: ExtensionAPI) {
@@ -175,9 +188,10 @@ export default function (pi: ExtensionAPI) {
 			if (!snap) return;
 			const judgment = await judge(ctx, snap);
 			if (!judgment?.verdict) return;
-			const { found, notes } = assess(judgment.verdict, snap);
+			const { found } = assess(judgment.verdict, snap);
 			pi.appendEntry(ENTRY_TYPE, { ...judgment.verdict, at: "close", concerns: found });
-			return { content: [...event.content, { type: "text" as const, text: `\n${message(judgment.verdict, snap, found, notes, true)}` }] };
+			const text = message(judgment.verdict, snap, found, true);
+			return text ? { content: [...event.content, { type: "text" as const, text: `\n${text}` }] } : undefined;
 		}),
 	);
 
@@ -198,14 +212,17 @@ export default function (pi: ExtensionAPI) {
 			// A later handler's boundary result replaces the entries an earlier one returned, so carry them along.
 			const earlier = event.entries ?? [];
 			if (!judgment.verdict) return { entries: [...earlier, record({ verdict: "unknown", reason: judgment.reason })] };
-			const { found, notes } = assess(judgment.verdict, snap);
-			const text = message(judgment.verdict, snap, found, notes);
-			if (told.get(id) === text) return;
-			told.set(id, text);
+			const { found } = assess(judgment.verdict, snap);
+			const verdictEntry = record({ ...judgment.verdict, concerns: found });
 			const proceed = !continued && continues(judgment.verdict, snap);
+			// Jev agrees and nothing needs the agent: the verdict is recorded and nothing is said.
+			const speaks = proceed || snap.unsettled.length > 0 || concerns(judgment.verdict, found).length > 0;
+			const key = adviceKey(judgment.verdict, snap, found);
+			if (!speaks || told.get(id) === key) return { entries: [...earlier, verdictEntry] };
+			told.set(id, key);
 			if (proceed) continued = true;
 			return {
-				entries: [...earlier, record({ ...judgment.verdict, concerns: found }), { type: "custom_message" as const, customType: ENTRY_TYPE, content: text, display: true }],
+				entries: [...earlier, verdictEntry, { type: "custom_message" as const, customType: ENTRY_TYPE, content: message(judgment.verdict, snap, found), display: true }],
 				...(proceed ? { continue: true } : {}),
 			};
 		}),

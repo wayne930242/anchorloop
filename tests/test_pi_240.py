@@ -1,6 +1,6 @@
-"""2.4.0: anchor reruns record their own one-line friction, and the footer shows the loop's kind and phase."""
+"""Anchor reruns record their own one-line friction, already reflected as resolved, and the widget below the editor shows the loop's kind and phase."""
 
-from tests.pi_harness import bash_result, stage, todo_create, todo_update, tool_result
+from tests.pi_harness import assistant, bash_result, stage, todo_create, todo_update, tool_result
 from tests.test_pi_book import BookCase, edit, text_of
 
 PYTEST_FAIL = "\n".join([
@@ -32,7 +32,7 @@ class TestAutoFriction(BookCase):
         self.assertIn("FAILED tests/test_x.py::test_x - assert 3 == 4", friction["found"])
         self.assertLessEqual(len(friction["found"]), 120)
         self.assertNotIn("Traceback", friction["found"])
-        self.assertIn("friction #1 recorded", text_of(out["results"][-1]))
+        self.assertIsNone(out["results"][-1])
         self.assertEqual(self.entries("friction"), [friction])
 
     def test_the_key_line_is_cut_to_120_characters(self):
@@ -117,41 +117,63 @@ class TestAutoFriction(BookCase):
         self.assertIn("npm test", friction["tried"])
         self.assertIn("Error: expected 2 got 3", friction["found"])
 
-    def test_the_auto_friction_still_waits_for_a_reflect_before_close(self):
+    def test_the_auto_friction_is_reflected_as_resolved_at_once(self):
         self.rerun()
+        [reflect] = self.entries("reflect")
+        self.assertEqual((reflect["friction"], reflect["class"]), (["1"], "resolved"))
         out = self.replay([stage(stage="read")])
-        self.assertIn("1 friction entry without a reflect", text_of(out["results"][-1]))
-        out = self.replay([stage(stage="reflect", friction=[1], **{"class": "resolved"}), stage(stage="read")])
+        self.assertIn("friction: 1 (0 unreflected)", text_of(out["results"][-1]))
         self.assertNotIn("without a reflect", text_of(out["results"][-1]))
 
+    def test_a_friction_the_agent_records_still_waits_for_a_reflect(self):
+        self.replay([*self.open_loop(anchor="pytest -q"), stage(stage="friction", tried="a", found="b", led_by="the playbook")])
+        out = self.replay([stage(stage="read")])
+        self.assertIn("friction: 1 (1 unreflected)", text_of(out["results"][-1]))
 
-class TestFooterStatus(BookCase):
-    def last_status(self, out: dict) -> str | None:
-        mine = [status for status in out["statuses"] if status["key"] == "anchorloop"]
-        return mine[-1]["text"] if mine else "never set"
 
-    def test_the_footer_names_the_kind_and_the_phase(self):
+class TestLoopWidget(BookCase):
+    def last_widget(self, out: dict):
+        mine = [widget for widget in out["widgets"] if widget["key"] == "anchorloop"]
+        return mine[-1] if mine else "never set"
+
+    def last_line(self, out: dict) -> str | None:
+        widget = self.last_widget(out)
+        return widget["lines"][0] if widget["lines"] else None
+
+    def test_the_widget_sits_below_the_editor_and_names_the_kind_and_the_phase(self):
         out = self.replay([*self.open_loop(kind="reviewed", anchor="pytest -q"), edit(), bash_result("pytest -q", 0, "ok")])
-        self.assertEqual(self.last_status(out), "anchorloop reviewed · verify ✓ → review")
+        widget = self.last_widget(out)
+        self.assertEqual((widget["lines"], widget["placement"]), (["⚓ reviewed · verify ✓ → review"], "belowEditor"))
+        self.assertEqual(out["statuses"], [])
 
     def test_a_failed_check_shows_fix_next(self):
         out = self.replay([*self.open_loop(anchor="pytest -q"), edit(), bash_result("pytest -q", 1, "1 failed")])
-        self.assertEqual(self.last_status(out), "anchorloop inline · act ✓ → fix")
+        self.assertEqual(self.last_line(out), "⚓ inline · act ✓ → fix")
 
     def test_unreflected_friction_is_counted(self):
         out = self.replay([*self.open_loop(anchor="pytest -q"), stage(stage="friction", tried="a", found="b")])
-        self.assertTrue(self.last_status(out).endswith(" · 1 friction to reflect"))
+        self.assertTrue(self.last_line(out).endswith(" · 1 friction"))
 
-    def test_an_undeclared_loop_says_so(self):
+    def test_a_reflected_friction_is_not_counted(self):
+        out = self.replay([*self.open_loop(anchor="pytest -q"), stage(stage="friction", tried="a", found="b"), stage(stage="reflect", friction=[1], **{"class": "resolved"})])
+        self.assertNotIn("friction", self.last_line(out))
+
+    def test_the_first_todo_create_shows_an_inline_loop(self):
         out = self.replay([todo_create()])
-        self.assertEqual(self.last_status(out), "anchorloop no kind · start → anchor")
+        self.assertEqual(self.last_line(out), "⚓ inline · start → anchor")
 
-    def test_closing_the_loop_clears_the_footer(self):
+    def test_closing_the_loop_clears_the_widget(self):
         out = self.replay([*self.open_loop(kind="quick"), stage(stage="skip", phase="act", reason="nothing"), todo_update(1, "write the fix", "completed"),
                            stage(stage="close", verdict="abandoned")])
-        self.assertIsNone(self.last_status(out))
+        self.assertIsNone(self.last_widget(out)["lines"])
 
     def test_session_start_shows_an_open_loop_again(self):
         self.replay([*self.open_loop(anchor="pytest -q")])
         out = self.replay([{"event": "session_start", "payload": {}}])
-        self.assertEqual(self.last_status(out), "anchorloop inline · anchor ✓ → act")
+        self.assertEqual(self.last_line(out), "⚓ inline · anchor ✓ → act")
+
+    def test_a_reality_anchor_line_updates_the_widget_without_a_tool_call(self):
+        out = self.replay([todo_create(), assistant("Reality anchor: pytest -q")])
+        widgets = [widget for widget in out["widgets"] if widget["key"] == "anchorloop"]
+        self.assertEqual(widgets[0]["lines"], ["⚓ inline · start → anchor"])
+        self.assertEqual(widgets[-1]["lines"], ["⚓ inline · anchor ✓ → act"])

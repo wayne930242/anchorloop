@@ -29,6 +29,7 @@ RED_LINE_MARKERS = (
     r"\b(never|must not|do not|don't|forbidden|barred|prohibited|avoid)\b"
     r"|不要|禁止|不得|不准|嚴禁"
 )
+MAX_ADVISORIES = 3
 RED_LINE_MIN_BUDGET = 3
 RED_LINE_DENSITY = 0.10
 # Emphatic capitals are matched case-sensitively and need a reason on the same or next line.

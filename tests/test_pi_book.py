@@ -44,7 +44,8 @@ class BookCase(ExtensionCase):
 
     def open_loop(self, kind: str = "inline", intent: str = "fix the export", anchor: str | None = None) -> list[dict]:
         extra = {"anchor": anchor} if anchor else {}
-        return [todo_create(), stage(stage="kind", kind=kind, intent=intent, **extra)]
+        # `kind` first: a todo create opens the loop as inline on its own, and these tests choose the kind themselves.
+        return [stage(stage="kind", kind=kind, intent=intent, **extra), todo_create()]
 
     def entries(self, name: str, which: Path | None = None) -> list[dict]:
         return [entry for entry in self.book(which)[1] if entry["stage"] == name]
@@ -64,7 +65,7 @@ class TestLifecycle(BookCase):
 
     def test_kind_opens_the_loop_itself_when_a_todo_create_in_the_same_batch_has_not_landed(self):
         out = self.replay([stage(stage="kind", kind="inline", intent="x", anchor="pytest"), todo_create(), stage(stage="read")])
-        self.assertIn("kind: inline", text_of(out["results"][0]))
+        self.assertEqual(text_of(out["results"][0]), "ok")
         self.assertEqual(len(self.book_files()), 1)
         self.assertEqual([e["stage"] for e in self.book()[1]], ["kind", "anchor", "task"])
         self.assertIsNone(out["results"][1])
@@ -75,14 +76,35 @@ class TestLifecycle(BookCase):
         self.assertIn("intent", out["results"][0]["error"])
         self.assertEqual(self.book_files(), [])
 
-    def test_the_first_todo_create_opens_a_loop_and_a_later_one_extends_it(self):
-        out = self.replay([todo_create("first"), todo_create("second")])
-        self.assertIn("anchorloop_stage", text_of(out["results"][0]))
-        self.assertIn("created", text_of(out["results"][0]))
-        self.assertIsNone(out["results"][1])
+    def test_the_first_todo_create_opens_an_inline_loop_and_says_nothing_about_it(self):
+        out = self.replay([todo_create("first"), todo_create("second", task_id=2)])
+        self.assertEqual([result for result in out["results"] if result], [])
         self.assertEqual(len(self.book_files()), 1)
         header, entries = self.book()
-        self.assertEqual((header["owner"], header["session"], [e["stage"] for e in entries]), ("main", str(self.session_file), ["task"]))
+        self.assertEqual((header["owner"], header["session"], [e["stage"] for e in entries]), ("main", str(self.session_file), ["kind", "task", "task"]))
+        kind = entries[0]
+        self.assertEqual((kind["kind"], kind["intent"]), ("inline", "first"))
+
+    def test_the_first_todo_subject_is_the_intent_cut_to_a_line(self):
+        self.replay([todo_create("fix\nthe   export " + "x" * 400)])
+        intent = self.entries("kind")[0]["intent"]
+        self.assertTrue(intent.startswith("fix the export x"))
+        self.assertLessEqual(len(intent), 200)
+
+    def test_the_first_todos_anchor_metadata_is_the_loop_anchor(self):
+        self.replay([todo_create("first", anchor="pytest -q")])
+        self.assertEqual([entry["check"] for entry in self.entries("anchor")], ["pytest -q"])
+
+    def test_a_reality_anchor_line_stated_before_the_todo_is_the_loop_anchor_and_beats_the_metadata(self):
+        branch = [{"type": "message", "message": {"role": "user", "content": "fix it"}},
+                  {"type": "message", "message": {"role": "assistant", "content": [{"type": "text", "text": "Reality anchor: pytest tests/test_export.py"}]}}]
+        self.replay([todo_create("first", anchor="make test")], branch=branch)
+        self.assertEqual([entry["check"] for entry in self.entries("anchor")], ["pytest tests/test_export.py"])
+
+    def test_the_default_inline_loop_can_choose_another_kind_without_a_reason(self):
+        out = self.replay([todo_create("first"), stage(stage="kind", kind="reviewed"), stage(stage="kind", kind="durable")])
+        self.assertEqual(text_of(out["results"][1]), "ok")
+        self.assertIn("reason", out["results"][2]["error"])
 
     def test_todo_calls_other_than_create_do_not_open_a_loop(self):
         self.replay([tool_result("todo", {"action": "list"}), tool_result("todo", {"action": "update", "id": 1})])
@@ -91,7 +113,7 @@ class TestLifecycle(BookCase):
     def test_a_second_kind_declaration_upgrades_the_open_loop(self):
         out = self.replay([*self.open_loop("inline"), stage(stage="kind", kind="reviewed", reason="the fix reaches a shared reader"), stage(stage="read")])
         self.assertEqual(len(self.book_files()), 1)
-        self.assertIn("kind changed: inline → reviewed", text_of(out["results"][2]))
+        self.assertEqual(text_of(out["results"][2]), "ok")
         self.assertTrue(text_of(out["results"][3]).startswith("reviewed · phase start → anchor"))
         self.assertIn("intent: fix the export", text_of(out["results"][3]))
         self.assertEqual(self.stages(), ["kind", "kind"])
@@ -102,11 +124,17 @@ class TestLifecycle(BookCase):
         self.assertEqual([a["check"] for a in anchors], ["pytest -q", "make test"])
         self.assertEqual(len(self.entries("kind")), 1)
 
-    def test_the_first_kind_needs_a_kind_and_an_intent(self):
-        out = self.replay([todo_create(), stage(stage="kind", kind="quick"), stage(stage="kind", intent="x"), stage(stage="kind")])
-        self.assertIn("intent", out["results"][1]["error"])
-        self.assertIn("kind", out["results"][2]["error"])
-        self.assertIn("needs", out["results"][3]["error"])
+    def test_a_kind_call_without_a_loop_needs_a_kind_and_an_intent(self):
+        out = self.replay([stage(stage="kind", kind="quick"), stage(stage="kind", intent="x"), stage(stage="kind")])
+        self.assertIn("intent", out["results"][0]["error"])
+        self.assertIn("kind", out["results"][1]["error"])
+        self.assertIn("needs", out["results"][2]["error"])
+        self.assertEqual(self.book_files(), [])
+
+    def test_a_kind_call_with_only_an_anchor_extends_the_default_loop(self):
+        out = self.replay([todo_create(), stage(stage="kind", anchor="make test")])
+        self.assertEqual(text_of(out["results"][1]), "ok")
+        self.assertEqual([entry["check"] for entry in self.entries("anchor")], ["make test"])
 
     def test_declarations_the_program_can_observe_are_not_accepted(self):
         out = self.replay([*self.open_loop(), *[stage(stage=name) for name in ("act", "check", "review", "anchor", "decision", "spec", "design")]])
@@ -141,8 +169,8 @@ class TestLifecycle(BookCase):
         )
         link = tool_result("subagent", {}, "started", details={"id": "kid", "name": "w", "agent": "worker", "status": "started"})
         out = self.replay([*self.open_loop(anchor="pytest -q"), link, {"branchAdd": [todos]}, stage(stage="close", verdict="landed")])
-        self.assertIn("Loop closed (landed)", text_of(out["results"][-1]))
-        self.assertIn("todo", text_of(out["results"][-1]))
+        self.assertTrue(text_of(out["results"][-1]).startswith("closed (landed)."))
+        self.assertTrue(text_of(out["results"][-1]).endswith("Clear the todo list."))
         self.assertEqual(self.book_files(), [])
         self.assertFalse(child.exists())
         (entry,) = out["appended"]
@@ -171,6 +199,31 @@ class TestLifecycle(BookCase):
         self.assertEqual(lines[1], "intent: fix the export")
         self.assertEqual(lines[2], "last verify: none")
         self.assertEqual(lines[3], "reviews: no review; open todos: 0; friction: 0 (0 unreflected)")
+
+
+class TestToolSchemas(BookCase):
+    """The tool schemas ride along on every turn of every session, so their size is a budget."""
+
+    def schemas(self) -> dict:
+        return self.replay([], extensions=("book.ts", "decision-tool.ts"))["schemas"]
+
+    def test_the_stage_tool_description_stays_near_150_tokens_and_keeps_its_required_fields_and_enums(self):
+        stage_tool = self.schemas()["anchorloop_stage"]
+        self.assertLessEqual(len(stage_tool["description"]) / 4, 150)
+        parameters = stage_tool["parameters"]
+        self.assertEqual(parameters["required"], ["stage"])
+        self.assertEqual(parameters["properties"]["stage"]["enum"], ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "back", "close", "read"])
+        self.assertEqual(parameters["properties"]["kind"]["enum"], ["quick", "inline", "reviewed", "durable"])
+        self.assertEqual(parameters["properties"]["verdict"]["enum"], ["landed", "blocked", "abandoned"])
+        self.assertEqual(parameters["properties"]["class"]["enum"], ["misdirection", "gap", "resolved"])
+        self.assertLessEqual(len(json.dumps(stage_tool)) / 4, 400)
+
+    def test_the_decision_tool_description_stays_near_60_tokens_and_names_what_a_row_is_for(self):
+        decision_tool = self.schemas()["anchorloop_decision"]
+        self.assertLessEqual(len(decision_tool["description"]) / 4, 60)
+        self.assertIn("fork, pivot, or blocker", decision_tool["description"])
+        self.assertIn("git log", decision_tool["description"])
+        self.assertEqual(decision_tool["parameters"]["required"], ["log"])
 
 
 class TestEvidence(BookCase):
@@ -366,7 +419,7 @@ class TestChildren(BookCase):
         self.assertIn("No loop is open", text_of(out["results"][0]))
         self.replay([todo_create("again")], env=self.child_env())
         kid = next(self.books.rglob("kid.yml"))
-        self.assertEqual([entry["stage"] for entry in self.book(kid)[1]], ["task"])
+        self.assertEqual([entry["stage"] for entry in self.book(kid)[1]], ["kind", "task"])
 
     def test_a_childs_friction_shows_in_main_read_under_its_name(self):
         self.child(stage(stage="friction", tried="ran the old command", found="it was renamed", led_by="skill X"))
@@ -394,7 +447,7 @@ class TestFriction(BookCase):
 
     def test_a_failed_anchor_run_followed_by_a_pass_records_its_own_friction(self):
         steps = [*self.open_loop(anchor="pytest"), edit(), bash_result("pytest", 0, "ok"), edit(), bash_result("pytest", 1, "1 failed"), edit(), bash_result("pytest", 0, "ok")]
-        self.assertIn("friction: 1 (1 unreflected)", self.read_text(steps))
+        self.assertIn("friction: 1 (0 unreflected)", self.read_text(steps))
 
     def test_red_first_failures_before_any_pass_are_not_retries(self):
         steps = [*self.open_loop(anchor="pytest"), bash_result("pytest", 1, "1 failed"), bash_result("pytest", 1, "1 failed"), bash_result("pytest", 0, "ok")]
@@ -402,14 +455,14 @@ class TestFriction(BookCase):
 
     def test_a_task_anchor_run_counts_for_retry_pairs(self):
         steps = [todo_create("t", anchor="pytest -q x"), stage(stage="kind", kind="inline", intent="x"), bash_result("pytest -q x", 0, "ok"), bash_result("pytest -q x", 1, "bad"), bash_result("pytest -q x", 0, "ok")]
-        self.assertIn("friction: 1 (1 unreflected)", self.read_text(steps))
+        self.assertIn("friction: 1 (0 unreflected)", self.read_text(steps))
 
     def test_close_never_refuses_over_friction_carries_it_into_the_session_entry_and_lists_the_unreflected(self):
         out = self.replay([*self.open_loop(), stage(stage="friction", tried="a", found="b", led_by="skill X"), stage(stage="friction", tried="c", found="d"),
                            stage(stage="reflect", friction=[1], **{"class": "misdirection", "action": "solid-loop"}), stage(stage="close", verdict="landed")])
         text = text_of(out["results"][-1])
-        self.assertIn("Loop closed", text)
-        self.assertIn("Unreflected friction for the Reflexive Pass: 2 (d)", text)
+        self.assertTrue(text.startswith("closed (landed)."), text)
+        self.assertIn("unreflected friction: 2 (d)", text)
         self.assertNotIn("1 (b)", text)
         (entry,) = out["appended"]
         friction = entry["data"]["friction"]
@@ -509,7 +562,7 @@ class TestTodoLinks(BookCase):
         out = self.replay([todo_create("plain"), stage(stage="kind", kind="durable", intent="x")])
         (entry,) = self.tasks()
         self.assertEqual(set(entry), {"ts", "stage", "id", "subject", "status"})
-        self.assertNotIn("warn", text_of(out["results"][0]).lower())
+        self.assertIsNone(out["results"][0])
         self.assertEqual(out["notices"], [])
 
     def test_a_todo_update_outside_a_loop_opens_nothing(self):
@@ -533,7 +586,7 @@ class TestTodoLinks(BookCase):
 
     def test_a_bash_call_that_does_not_match_a_task_anchor_records_nothing(self):
         self.replay([todo_create("t", anchor="pytest -q"), bash_result("ls", 0, "x")])
-        self.assertEqual([e["stage"] for e in self.book()[1]], ["task"])
+        self.assertEqual([e["stage"] for e in self.book()[1]], ["kind", "anchor", "task"])
 
     def test_bare_heading_refs_resolve_against_the_recorded_spec_folder(self):
         self.spec(self.SPEC)

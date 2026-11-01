@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .constants import (
     DEFENSIVE_PATTERNS,
+    MAX_ADVISORIES,
     EMPHATIC_WORDS,
     REASON_WORDS,
     RED_LINE_DENSITY,
@@ -63,8 +64,7 @@ def check_skill_md(path: Path) -> list[str]:
         has_references = (skill_dir / "references").is_dir()
         if not has_references:
             warnings.append(
-                f"skill has {len(lines)} lines (exceeds recommended {SKILL_MAX_RECOMMENDED_LINES}). "
-                "Move detailed guidelines or templates to references/ to keep SKILL.md streamlined."
+                f"skill has {len(lines)} lines (over {SKILL_MAX_RECOMMENDED_LINES}) and no references/"
             )
 
     # 3. Broken markdown links, followed through every Markdown file SKILL.md reaches
@@ -98,8 +98,7 @@ def check_skill_md(path: Path) -> list[str]:
     found_patterns = find_defensive_phrases(text, DEFENSIVE_PATTERNS)
     if found_patterns:
         warnings.append(
-            f"detected defensive anti-pattern(s): {', '.join(found_patterns)}. "
-            "State expected behavior directly rather than constructing defensive red lines."
+            f"detected defensive anti-pattern(s): {', '.join(found_patterns)}"
         )
 
     return warnings
@@ -120,10 +119,7 @@ def check_skill_advisories(path: Path) -> list[str]:
     markers = len(re.findall(RED_LINE_MARKERS, body, re.IGNORECASE))
     budget = max(RED_LINE_MIN_BUDGET, int(sum(1 for line in lines if line.strip()) * RED_LINE_DENSITY))
     if markers > budget:
-        advisories.append(
-            f"{markers} red-line markers exceed the budget of {budget}. Keep a red line only when an "
-            "observed failure backs it, and delete the rest."
-        )
+        advisories.append(f"{markers} red-line markers exceed the budget of {budget}")
 
     # 2. Reasoned: an emphatic word carries its reason on the same or next line.
     # 3. Once: an emphatic word is spent a single time.
@@ -133,12 +129,9 @@ def check_skill_advisories(path: Path) -> list[str]:
             seen[word] += 1
             window = " ".join(lines[number - 1 : number + 1])
             if not re.search(REASON_WORDS, window, re.IGNORECASE):
-                advisories.append(
-                    f"line {number}: emphatic '{word}' has no reason beside it. "
-                    "State the consequence, or drop the emphasis."
-                )
+                advisories.append(f"line {number}: emphatic '{word}' has no reason beside it")
     for word, count in seen.items():
         if count > 1:
-            advisories.append(f"emphatic '{word}' appears {count} times. Spend emphasis once, on the rule that causes real damage.")
+            advisories.append(f"emphatic '{word}' appears {count} times")
 
-    return advisories
+    return advisories[:MAX_ADVISORIES]

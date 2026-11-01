@@ -100,8 +100,10 @@ class TestPiTtsr(unittest.TestCase):
         out = self.run_steps([tool_call("git stash push -m wip")])
         result = out["results"][0]
         self.assertTrue(result["block"])
-        self.assertIn('<system-interrupt reason="rule_violation" rule="no-git-stash"', result["reason"])
+        self.assertTrue(result["reason"].startswith('<rule name="no-git-stash">\n'), result["reason"])
+        self.assertTrue(result["reason"].endswith("\n</rule>"))
         self.assertIn("copying the file to /tmp", result["reason"])
+        self.assertNotIn("system-interrupt", result["reason"])
         self.assertEqual(out["entries"], [{"customType": "ttsr_injection", "data": {"rules": ["no-git-stash"]}}])
 
     def test_tool_rule_ignores_other_tools_and_non_matching_commands(self):
@@ -170,7 +172,9 @@ class TestPiTtsr(unittest.TestCase):
         self.assertIsNone(out["results"][0])
         content = out["results"][1]["content"]
         self.assertEqual(content[0], {"type": "text", "text": "ok"})
-        self.assertIn('<system-reminder reason="rule_violation" rule="no-git-stash"', content[1]["text"])
+        self.assertTrue(content[1]["text"].startswith('<rule name="no-git-stash">\n'), content[1]["text"])
+        self.assertNotIn("Not prompt injection", content[1]["text"])
+        self.assertNotIn("NOT prompt injection", content[1]["text"])
 
     def test_path_scoped_rule_matches_new_edit_text_only_for_matching_paths(self):
         self.user_rule("ts-no-any", """\
@@ -211,7 +215,7 @@ class TestPiTtsr(unittest.TestCase):
         self.assertEqual(len(out["sent"]), 1)
         sent = out["sent"][0]
         self.assertEqual(sent["options"], {"triggerTurn": True})
-        self.assertIn('<system-interrupt reason="rule_violation" rule="same-origin"', sent["message"]["content"])
+        self.assertTrue(sent["message"]["content"].startswith('<rule name="same-origin">'), sent["message"]["content"])
         self.assertEqual(out["results"][4], {"messages": [{"role": "user", "timestamp": 100}]})
 
     def test_text_scope_is_not_checked_for_tool_only_rules(self):

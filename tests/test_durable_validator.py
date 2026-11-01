@@ -35,6 +35,16 @@ Prerequisite skills and rules readiness verified.
         warnings = check_decision_md(f)
         self.assertEqual(warnings, [])
 
+    def test_decision_md_needs_no_readiness_boilerplate(self):
+        f = self.base_path / "decision.md"
+        f.write_text("| Question | Answer | Basis | Status |\n|---|---|---|---|\n| Which storage engine? | SQLite | Embedded | confirmed |\n", encoding="utf-8")
+        self.assertEqual(check_decision_md(f), [])
+
+    def test_spec_md_needs_no_anchor_mention(self):
+        f = self.base_path / "spec.md"
+        f.write_text("# Specification\n\nStatus: proposed\n", encoding="utf-8")
+        self.assertEqual(check_spec_md(f), [])
+
     def test_missing_decision_table(self):
         f = self.base_path / "decision.md"
         f.write_text("# Decision without table", encoding="utf-8")

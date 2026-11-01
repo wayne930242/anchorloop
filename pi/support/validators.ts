@@ -37,6 +37,7 @@ const RED_LINE_MARKERS = new RegExp(
 	`${wordAround("never|must not|do not|don't|forbidden|barred|prohibited|avoid")}|不要|禁止|不得|不准|嚴禁`,
 	"giu",
 );
+const MAX_ADVISORIES = 3;
 const RED_LINE_MIN_BUDGET = 3;
 const RED_LINE_DENSITY = 0.1;
 const EMPHATIC_WORDS = new RegExp(wordAround("(NEVER|ALWAYS|MUST NOT|MUST|FORBIDDEN|DO NOT)"), "gu");
@@ -151,27 +152,19 @@ function checkRulesFile(path: string): string[] {
 
 	const found = findDefensivePhrases(text, DEFENSIVE_PATTERNS);
 	if (found.length) {
-		warnings.push(
-			`detected defensive wording: ${found.join(", ")}. ` +
-				"State desired behavior directly; modern models do not need excessive red lines.",
-		);
+		warnings.push(`detected defensive wording: ${found.join(", ")}`);
 	}
 
 	const lines = splitlines(text)
 		.map((line) => line.trim())
 		.filter((line) => line && !line.startsWith("#"));
 	if (lines.length > 200) {
-		warnings.push(
-			`rule file has ${lines.length} non-empty lines. Consider consolidating into higher-level principles ` +
-				"or separating into specialized modules rather than accumulating micro-rules.",
-		);
+		warnings.push(`rule file has ${lines.length} non-empty lines (over 200)`);
 	}
 
 	const simplified = [...SIMPLIFIED_CHINESE_CHARS].filter((char) => text.includes(char));
 	if (simplified.length) {
-		warnings.push(
-			`possible Simplified Chinese detected (${simplified.slice(0, 5).join("")}). Always use Traditional Chinese.`,
-		);
+		warnings.push(`possible Simplified Chinese detected (${simplified.slice(0, 5).join("")})`);
 	}
 	return warnings;
 }
@@ -216,10 +209,7 @@ function checkSkillMd(path: string): string[] {
 	}
 
 	if (lines.length > SKILL_MAX_RECOMMENDED_LINES && !isDirectory(join(skillDir, "references"))) {
-		warnings.push(
-			`skill has ${lines.length} lines (exceeds recommended ${SKILL_MAX_RECOMMENDED_LINES}). ` +
-				"Move detailed guidelines or templates to references/ to keep SKILL.md streamlined.",
-		);
+		warnings.push(`skill has ${lines.length} lines (over ${SKILL_MAX_RECOMMENDED_LINES}) and no references/`);
 	}
 
 	// Broken markdown links, followed through every Markdown file SKILL.md reaches.
@@ -262,10 +252,7 @@ function checkSkillMd(path: string): string[] {
 
 	const defensive = findDefensivePhrases(text, DEFENSIVE_PATTERNS);
 	if (defensive.length) {
-		warnings.push(
-			`detected defensive anti-pattern(s): ${defensive.join(", ")}. ` +
-				"State expected behavior directly rather than constructing defensive red lines.",
-		);
+		warnings.push(`detected defensive anti-pattern(s): ${defensive.join(", ")}`);
 	}
 	return warnings;
 }
@@ -286,10 +273,7 @@ function checkSkillAdvisories(path: string): string[] {
 	const markers = (body.match(RED_LINE_MARKERS) ?? []).length;
 	const budget = Math.max(RED_LINE_MIN_BUDGET, Math.floor(lines.filter((line) => line.trim()).length * RED_LINE_DENSITY));
 	if (markers > budget) {
-		advisories.push(
-			`${markers} red-line markers exceed the budget of ${budget}. Keep a red line only when an ` +
-				"observed failure backs it, and delete the rest.",
-		);
+		advisories.push(`${markers} red-line markers exceed the budget of ${budget}`);
 	}
 
 	const seen = new Map<string, number>();
@@ -299,19 +283,16 @@ function checkSkillAdvisories(path: string): string[] {
 			seen.set(word, (seen.get(word) ?? 0) + 1);
 			const window = lines.slice(index, index + 2).join(" ");
 			if (!REASON_WORDS.test(window)) {
-				advisories.push(
-					`line ${index + 1}: emphatic '${word}' has no reason beside it. ` +
-						"State the consequence, or drop the emphasis.",
-				);
+				advisories.push(`line ${index + 1}: emphatic '${word}' has no reason beside it`);
 			}
 		}
 	});
 	for (const [word, count] of seen) {
 		if (count > 1) {
-			advisories.push(`emphatic '${word}' appears ${count} times. Spend emphasis once, on the rule that causes real damage.`);
+			advisories.push(`emphatic '${word}' appears ${count} times`);
 		}
 	}
-	return advisories;
+	return advisories.slice(0, MAX_ADVISORIES);
 }
 
 // ---- durable specs (durable_validator.py) ----
@@ -322,10 +303,6 @@ function checkDecisionMd(path: string): string[] {
 	if (!/\|\s*Question\s*\|\s*Answer\s*\|\s*Basis\s*\|\s*Status\s*\|/i.test(text)) {
 		warnings.push("decision.md should include a Question | Answer | Basis | Status table (Status: grounded, confirmed, or open).");
 	}
-	const lower = text.toLowerCase();
-	if (!lower.includes("rule") && !lower.includes("readiness") && !lower.includes("prerequisite") && !lower.includes("core")) {
-		warnings.push("confirm core rules readiness before implementation; note readiness in decision.md.");
-	}
 	return warnings;
 }
 
@@ -334,9 +311,6 @@ function checkSpecMd(path: string): string[] {
 	const text = readText(path);
 	if (!/Status:\s*(proposed|approved)/i.test(text)) {
 		warnings.push("spec.md must declare 'Status: proposed' or 'Status: approved' at the top.");
-	}
-	if (!text.toLowerCase().includes("reality anchor") && !text.toLowerCase().includes("anchor")) {
-		warnings.push("spec.md should name the chosen reality anchor and its checkpoint.");
 	}
 	return warnings;
 }
@@ -351,18 +325,13 @@ function checkVerificationMd(path: string): string[] {
 		const results = [...text.matchAll(/\|\s*[^|]+\s*\|\s*[^|]+\s*\|\s*([a-zA-Z]+)\s*\|/g)].map((match) => match[1].toLowerCase());
 		const invalid = [...new Set(results.filter((result) => !VALID_VERIFICATION_RESULTS.has(result) && result !== "result"))];
 		if (invalid.length) {
-			warnings.push(
-				`invalid verification Result values found: ${invalid.join(", ")}. Result must be one of: pass, fail, unknown.`,
-			);
+			warnings.push(`invalid verification Result values found: ${invalid.join(", ")} (use pass, fail, unknown)`);
 		}
 	}
 
 	const defensive = findDefensivePhrases(text, DEFENSIVE_PATTERNS);
 	if (defensive.length) {
-		warnings.push(
-			`detected defensive wording in verification/review: ${defensive.join(", ")}. ` +
-				"Reviews of new rules and skills must focus on adjustment and tuning, not adding defensive red lines.",
-		);
+		warnings.push(`detected defensive wording in verification/review: ${defensive.join(", ")}`);
 	}
 	return warnings;
 }
@@ -399,5 +368,5 @@ export function validateFile(filePath: string, cwd: string): string | undefined 
 
 	const rel = relative(base, target);
 	const shown = rel.startsWith("..") || isAbsolute(rel) ? target : rel;
-	return `⚠ [anchorloop] Validation suggestions for ${shown}:\n${warnings.map((warning) => `  - ${warning}`).join("\n")}`;
+	return `validator ${shown}:\n${warnings.map((warning) => `  - ${warning}`).join("\n")}`;
 }
