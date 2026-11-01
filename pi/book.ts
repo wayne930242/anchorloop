@@ -408,6 +408,7 @@ export default function (pi: ExtensionAPI) {
 	/** Opens the loop at the first todo create as `inline`: the first todo's subject is the intent, a stated `Reality anchor:` line or its `metadata.anchor` the anchor. */
 	function openFromTodo(ctx: ExtensionContext, details: unknown): Book {
 		const book = createBook(ctx);
+		touchRepo(book, join(ctx.cwd, "_"));
 		const first = (taskDetails(details) ?? [])[0];
 		book.entries.push(appendEntry(book.path, "kind", { kind: "inline", auto: true, ...(first?.subject ? { intent: clip(first.subject.replace(/\s+/g, " ").trim(), 200) } : {}) }));
 		recordPriorAnchor(book, ctx);

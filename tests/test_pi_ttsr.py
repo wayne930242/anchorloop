@@ -100,7 +100,7 @@ class TestPiTtsr(unittest.TestCase):
         out = self.run_steps([tool_call("git stash push -m wip")])
         result = out["results"][0]
         self.assertTrue(result["block"])
-        self.assertTrue(result["reason"].startswith('<rule name="no-git-stash">\n'), result["reason"])
+        self.assertTrue(result["reason"].startswith('<rule name="no-git-stash" blocking>\n'), result["reason"])
         self.assertTrue(result["reason"].endswith("\n</rule>"))
         self.assertIn("copying the file to /tmp", result["reason"])
         self.assertNotIn("system-interrupt", result["reason"])
@@ -215,7 +215,7 @@ class TestPiTtsr(unittest.TestCase):
         self.assertEqual(len(out["sent"]), 1)
         sent = out["sent"][0]
         self.assertEqual(sent["options"], {"triggerTurn": True})
-        self.assertTrue(sent["message"]["content"].startswith('<rule name="same-origin">'), sent["message"]["content"])
+        self.assertTrue(sent["message"]["content"].startswith('<rule name="same-origin" interrupted>'), sent["message"]["content"])
         self.assertEqual(out["results"][4], {"messages": [{"role": "user", "timestamp": 100}]})
 
     def test_text_scope_is_not_checked_for_tool_only_rules(self):

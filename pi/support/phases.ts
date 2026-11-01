@@ -281,7 +281,7 @@ function evaluate(name: string, ctx: Ctx): Status {
 		}
 		case "anchor": {
 			const index = lastWhere(entries, from, (entry) => entry.stage === "anchor");
-			return index >= 0 ? done(name, String(entries[index].check ?? "")) : missing(name, "a `Reality anchor:` line, or `anchor` on the kind call");
+			return index >= 0 ? done(name, String(entries[index].check ?? "")) : missing(name, "a `Reality anchor:` line, `metadata.anchor` on the first todo, or `anchor` on the kind call");
 		}
 		case "act":
 			return lastWhere(entries, from, (entry) => entry.stage === "edit") >= 0 ? done(name) : missing(name, "a change to the code");

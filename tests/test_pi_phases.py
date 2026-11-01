@@ -3,7 +3,7 @@
 import subprocess
 import unittest
 
-from tests.pi_harness import bash_result, stage, todo_create, tool_call, tool_result
+from tests.pi_harness import assistant, bash_result, stage, todo_create, tool_call, tool_result
 from tests.test_pi_book import BookCase, answers, edit, subagent_result, text_of
 
 DIR = "docs/specs/2026-10-29-x"
@@ -280,6 +280,20 @@ class TestReclassify(PhaseCase):
         self.assertIn("→ verify (missing: reach 3 files / 2 modules (lib, src)", self.line([]))
         self.assertEqual(self.line([stage(stage="kind", kind="inline", reason="three one-line renames")]), "inline · phase verify ✓ → close")
         self.assertEqual(self.entries("kind")[-1]["crossed"], ["files", "modules"])
+
+    def test_a_todo_only_loop_measures_bash_made_changes_and_sees_a_commit_as_act(self):
+        self.git_repo()
+        out = self.replay([todo_create(), assistant("Reality anchor: pytest -q"), {"file": "src/a.py", "text": "a\n"}, {"file": "src/b.py", "text": "b\n"}, {"file": "lib/c.py", "text": "c\n"}, bash_result("pytest -q", 0, "ok")])
+        self.assertIn("anchorloop: reach 3 files / 2 modules (lib, src)", text_of(out["results"][-1]))
+        self.assertEqual(len(self.entries("base")), 1)
+
+    def test_a_todo_only_loop_sees_a_commit_as_act(self):
+        self.git_repo()
+        (self.cwd / "app.py").write_text("print(2)\n")
+        self.replay([todo_create(), assistant("Reality anchor: pytest -q")])
+        subprocess.run(["git", "-C", str(self.cwd), "commit", "-qam", "wip"], check=True, capture_output=True)
+        self.replay([bash_result("git commit -am wip", 0, "[main abc] wip")])
+        self.assertEqual(self.entries("edit")[0]["via"], "commit")
 
     def test_upgrading_answers_the_reach_and_a_reviewed_loop_is_never_asked(self):
         self.git_repo()

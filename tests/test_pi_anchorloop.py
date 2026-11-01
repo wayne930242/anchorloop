@@ -59,7 +59,7 @@ class TestAnchorGate(ExtensionCase):
         out = self.replay([*self.loop(), *touch("edit"), *touch("write"), user_start("now the import"), *touch("edit")])
         self.assertEqual(self.warned_steps(out), [4])
         [(_, message)] = self.lines(out)
-        self.assertEqual(message, "anchorloop: before act, still missing: anchor (a `Reality anchor:` line, or `anchor` on the kind call).")
+        self.assertEqual(message, "anchorloop: before act, still missing: anchor (a `Reality anchor:` line, `metadata.anchor` on the first todo, or `anchor` on the kind call).")
         # The warning is the only addition to the edit's own result; later edits are untouched.
         self.assertEqual([block["text"] for block in out["results"][5]["content"]], ["ok", message])
         self.assertTrue(all(result is None for result in out["results"][6:]))

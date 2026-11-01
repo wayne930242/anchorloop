@@ -62,8 +62,8 @@ const ENTRY_TYPE = "ttsr_injection";
 const MESSAGE_TYPE = "ttsr-injection";
 
 // One wrapper for every injection: the body is the instruction, and the rule's file path is user-facing configuration.
-export function render(rule: Rule): string {
-	return `<rule name="${rule.name}">\n${rule.content.trim()}\n</rule>`;
+export function render(rule: Rule, flag?: string): string {
+	return `<rule name="${rule.name}"${flag ? ` ${flag}` : ""}>\n${rule.content.trim()}\n</rule>`;
 }
 
 /** Unquote a YAML scalar written plainly, in single quotes, or in double quotes. */
@@ -434,7 +434,7 @@ export default function (pi: ExtensionAPI) {
 		pi.sendMessage(
 			{
 				customType: MESSAGE_TYPE,
-				content: rules.map((rule) => render(rule)).join("\n\n"),
+				content: rules.map((rule) => render(rule, "interrupted")).join("\n\n"),
 				display: true,
 				details: { rules: rules.map((rule) => rule.name) },
 			},
@@ -465,7 +465,7 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`TTSR: blocked ${event.toolName} by rule ${blocking.map((rule) => rule.name).join(", ")}`, "warning");
 			return {
 				block: true,
-				reason: [...blocking.map((rule) => render(rule)), ...passive.map((rule) => render(rule))].join("\n\n"),
+				reason: [...blocking.map((rule) => render(rule, "blocking")), ...passive.map((rule) => render(rule, "passive"))].join("\n\n"),
 			};
 		}
 		toolReminders.set(event.toolCallId, passive);

@@ -9,7 +9,7 @@ Every entry skill (`answering`, `investigating`, `inspecting`, `coding`, `writin
 
 ## Align
 
-Pick the entry's playbook from its index; with none fitting, run the loop bare. `todo` holds real work items only, optionally with `metadata.anchor` (a task's own check) and `metadata.ref` (`<path>#<heading>`). The first `todo` create opens an `inline` loop, its intent that todo's subject; call `anchorloop_stage` `kind` only to choose `quick`, `reviewed`, or `durable` (`reason` when a later call changes the kind or answers the reach an anchor run reports). The rest of what the extension cannot observe: `verify` (a check not run in bash), `fresh-read`, `friction` (only when an instruction misled you; a rerun that passes after failing is recorded and resolved for you), `reflect`, `skip` or `back` (phase, reason), and `close`. Edits, anchor runs, reviews, and spec files are read from evidence; a phase that starts before an earlier one is complete warns once (`read` if you disagree), and `close` refuses only while an open todo lacks `metadata.followup` (a ticket id, `memory`, or `drop — <reason>`).
+Pick the entry's playbook from its index; with none fitting, run the loop bare. `todo` holds real work items only, optionally with `metadata.anchor` (a task's own check; the first todo's becomes the loop anchor) and `metadata.ref` (`<path>#<heading>`). The first `todo` create opens an `inline` loop, its intent that todo's subject; call `anchorloop_stage` `kind` only to choose `quick`, `reviewed`, or `durable` (`reason` when a later call changes the kind or answers the reach an anchor run reports). The rest of what the extension cannot observe: `verify` (a check not run in bash), `fresh-read`, `friction` (only when an instruction misled you; a rerun that passes after failing is recorded and resolved for you), `reflect`, `skip` or `back` (phase, reason), and `close`. Edits, anchor runs, reviews, and spec files are read from evidence; a phase that starts before an earlier one is complete warns once (`read` if you disagree), and `close` refuses only while an open todo lacks `metadata.followup` (a ticket id, `memory`, or `drop — <reason>`).
 
 ## Anchor
 
@@ -29,7 +29,7 @@ The reply names a [principle](PRINCIPLES.md) only with the decision it changed.
 
 ### Friction Notes
 
-Each time an attempt fails and a later attempt reveals why, record it with `anchorloop_stage friction` before continuing. An anchor that passed, failed, and passed again is recorded by the extension; reflect on that entry like any other.
+An anchor that passed, failed, and passed again is recorded and reflected as resolved by the extension. Record `anchorloop_stage friction` yourself only for a failure whose cause a later attempt revealed, or when an instruction misled an attempt (`led_by`).
 
 ### Decision Trail
 
