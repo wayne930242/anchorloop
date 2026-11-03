@@ -343,24 +343,13 @@ export function lastIndex(entries: Entry[], ...stages: string[]): number {
 }
 
 /**
- * The book's entries with the change entries and anchor runs of its linked children merged in by time, each marked `child`, so
- * a coordinator whose edits are all made by children still shows an act, and a child's anchor run on what the coordinator
- * now holds is its verify. A child's run drops its reach, which the child's own loop answers. Children are linked only
- * through pi-herdr-agents (`PI_SUBAGENT_ID`); pi itself has no subagents. Indexes into the result differ from indexes into
- * `entries`.
+ * The book's entries with the change entries of its linked children merged in by time, each marked `child`, so a coordinator
+ * whose edits are all made by children still shows an act. Indexes into the result differ from indexes into `entries`.
  */
-export function withChildWork(entries: Entry[], env: NodeJS.ProcessEnv = process.env): Entry[] {
+export function withChildActs(entries: Entry[], env: NodeJS.ProcessEnv = process.env): Entry[] {
 	const acts: Entry[] = [];
 	for (const id of childIds(entries)) {
-		for (const { book } of findChildBooks(id, env)) {
-			for (const entry of book.entries) {
-				if (entry.stage === "edit") acts.push({ ...entry, child: id });
-				else if (entry.stage === "check") {
-					const { reach: _reach, ...run } = entry;
-					acts.push({ ...run, child: id });
-				}
-			}
-		}
+		for (const { book } of findChildBooks(id, env)) acts.push(...book.entries.filter((entry) => entry.stage === "edit").map((entry) => ({ ...entry, child: id })));
 	}
 	if (acts.length === 0) return entries;
 	acts.sort((a, b) => a.ts.localeCompare(b.ts));
@@ -372,18 +361,9 @@ export function withChildWork(entries: Entry[], env: NodeJS.ProcessEnv = process
 	return [...merged, ...acts];
 }
 
-/**
- * The index of the latest change entry (a production write or edit, a commit), or -1. A merge that lands a tree an earlier
- * passing anchor run checked (a child's run in its worktree, then a fast-forward) changes nothing that run did not see.
- */
+/** The index of the latest change entry (a production write or edit, a commit), or -1. */
 export function lastActIndex(entries: Entry[]): number {
-	const checked = new Set<string>();
-	let last = -1;
-	entries.forEach((entry, index) => {
-		if (entry.stage === "check" && entry.exit === 0 && Array.isArray(entry.trees)) for (const tree of entry.trees) checked.add(String(tree));
-		if (entry.stage === "edit" && !(typeof entry.tree === "string" && checked.has(entry.tree))) last = index;
-	});
-	return last;
+	return lastIndex(entries, "edit");
 }
 
 export function reviews(entries: Entry[]): Entry[] {
@@ -408,7 +388,7 @@ export function reviewTrend(entries: Entry[]): string {
 
 /** A review recorded after the last change with no blocking finding on it. */
 export function reviewClearAfterLastAct(raw: Entry[]): boolean {
-	const entries = withChildWork(raw);
+	const entries = withChildActs(raw);
 	const review = lastIndex(entries, "review");
 	return review >= 0 && review > lastActIndex(entries) && entries[review].blocking === false;
 }
@@ -430,7 +410,7 @@ function evidenceLine(entry: Entry): string {
 
 /** The latest check or verify entry after the last change, or undefined when none follows it. */
 export function verifyAfterLastAct(raw: Entry[]): Entry | undefined {
-	const entries = withChildWork(raw);
+	const entries = withChildActs(raw);
 	const index = lastIndex(entries, "check", "verify");
 	return index >= 0 && index > lastActIndex(entries) ? entries[index] : undefined;
 }
@@ -593,9 +573,37 @@ export function workingTree(repo: string): string | undefined {
 	}
 }
 
-/** The tree of `repo`'s HEAD commit. */
-export function headTree(repo: string): string | undefined {
-	return git(repo, ["rev-parse", "HEAD^{tree}"]);
+/** The working-state tree of each repo in `repos`, leaving out a repo git cannot build one for. */
+export function workingTrees(repos: Iterable<string>): string[] {
+	return [...new Set(repos)].map(workingTree).filter((tree): tree is string => tree !== undefined);
+}
+
+/** The command without the `cd <dir> &&` (or `;`) steps that lead it, so one anchor run from two checkouts reads the same. */
+function anchorBody(command: string): string {
+	let rest = command.trim();
+	for (let step = /^cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/.exec(rest); step; step = /^cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/.exec(rest)) rest = rest.slice(step[0].length);
+	return rest.replace(/\s+/g, " ");
+}
+
+/**
+ * The linked child whose latest run of `anchor` passed on exactly the state `trees` holds: every tree that run recorded is
+ * one of `trees`. Only a pi-herdr-agents child is linked (`PI_SUBAGENT_ID`); pi itself has no subagents.
+ */
+export function adoptableRun(entries: Entry[], anchor: string, trees: string[], env: NodeJS.ProcessEnv = process.env): { name: string; run: Entry } | undefined {
+	const body = anchorBody(anchor);
+	for (const id of childIds(entries)) {
+		const runs = findChildBooks(id, env)
+			.flatMap(({ book }) => book.entries)
+			.filter((entry) => entry.stage === "check" && typeof entry.command === "string" && anchorBody(entry.command) === body)
+			.sort((a, b) => a.ts.localeCompare(b.ts));
+		const run = runs.at(-1);
+		const checked = Array.isArray(run?.trees) ? (run.trees as unknown[]).map(String) : [];
+		if (run && run.exit === 0 && checked.length > 0 && checked.every((tree) => trees.includes(tree))) {
+			const link = entries.find((entry) => entry.stage === "link" && entry.child === id);
+			return { name: String(link?.name ?? id), run };
+		}
+	}
+	return undefined;
 }
 
 function existingDir(path: string): string {

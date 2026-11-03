@@ -24,7 +24,7 @@ import {
 	lastIndex,
 	repoRootOf,
 	specFolder,
-	withChildWork,
+	withChildActs,
 } from "./book.ts";
 
 export const SEQUENCES: Record<Kind, readonly string[]> = {
@@ -324,7 +324,7 @@ function evaluate(name: string, ctx: Ctx): Status {
 export function computePhases(book: Pick<Book, "entries">, inputs: Omit<Inputs, "entries">): Phases {
 	const kind = currentKind(book.entries);
 	const seq = SEQUENCES[kind ?? "inline"];
-	const entries = withChildWork(book.entries);
+	const entries = withChildActs(book.entries);
 	const ctx: Ctx = { ...inputs, entries, seq, folder: specFolder(entries, inputs.todos, inputs.cwd), lastAct: lastActIndex(entries) };
 	const statuses = seq.filter((name) => name !== "close").map((name) => evaluate(name, ctx));
 	let prefix = 0;

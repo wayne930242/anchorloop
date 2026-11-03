@@ -32,7 +32,6 @@ import {
 	findChildBooks,
 	frictionOf,
 	guarded,
-	headTree,
 	isOpenTask,
 	latestTasks,
 	openLoop,
@@ -54,7 +53,8 @@ import {
 	touchRepoBeforeMerge,
 	validFollowup,
 	verifyAfterLastAct,
-	workingTree,
+	workingTrees,
+	adoptableRun,
 } from "./support/book.ts";
 import { classify } from "./support/jev.ts";
 import { REVIEWLESS, SEQUENCES, computePhases, describe, incompleteBefore, outsideWork, reachLine, reachOf, unansweredReach } from "./support/phases.ts";
@@ -620,16 +620,32 @@ export default function (pi: ExtensionAPI) {
 		return reach && unansweredReach(book.entries, reach).length > 0 ? `anchorloop: ${reachLine(reach, currentKind(book.entries))}.` : undefined;
 	}
 
-	/**
-	 * The working-state tree of each repo a child's loop works in, recorded on its anchor runs: a coordinator's merge that
-	 * lands one of them needs no second run (`lastActIndex`).
-	 */
-	function treesField(book: Book, cwd: string): { trees?: string[] } {
-		const repos = new Set(bases(book.entries).map((base) => base.repo));
+	/** The working-state tree of each repo the loop works in: the repos it changed and the one it runs in. */
+	function loopTrees(book: Book, cwd: string): string[] {
+		const repos = bases(book.entries).map((base) => base.repo);
 		const here = repoRootOf(join(cwd, "_"));
-		if (here) repos.add(here);
-		const trees = [...repos].map(workingTree).filter((tree): tree is string => tree !== undefined);
+		return workingTrees(here ? [...repos, here] : repos);
+	}
+
+	/** A child's anchor run carries the trees it ran on, so the coordinator can tell whether it holds that same state. */
+	function treesField(book: Book, cwd: string): { trees?: string[] } {
+		const trees = loopTrees(book, cwd);
 		return trees.length ? { trees } : {};
+	}
+
+	/**
+	 * Records a linked child's passing run of the loop anchor as this loop's verify when the loop now holds exactly the state
+	 * that run checked (after a merge lands a worker's branch, or when a child that worked in this checkout returns), so the
+	 * coordinator does not run the anchor a second time. Any other state, or another command, leaves verify to its own run.
+	 */
+	function adoptChildRun(book: Book, cwd: string): void {
+		const anchor = anchorCommand(book.entries);
+		if (!anchor || verifyAfterLastAct(book.entries) || !book.entries.some((entry) => entry.stage === "link")) return;
+		const trees = loopTrees(book, cwd);
+		const found = adoptableRun(book.entries, anchor, trees);
+		if (!found) return;
+		const last = `adopted from ${found.name}${found.run.last ? `: ${String(found.run.last)}` : ""}`.slice(0, 200);
+		book.entries.push(appendEntry(book.path, "verify", { command: anchor.slice(0, 200), exit: 0, last, adopted: found.name, trees, ...reachField(book, cwd) }));
 	}
 
 	/**
@@ -662,12 +678,12 @@ export default function (pi: ExtensionAPI) {
 		}
 		autoFriction(book);
 		const merged = mergeRun(command);
-		if (exit === 0 && merged && !/Already up[ -]to[ -]date/i.test(last ?? "") && book.entries.at(-1)?.stage !== "edit") {
-			const dir = resolve(String(book.header.cwd ?? process.cwd()), merged.dir);
-			touchRepoBeforeMerge(book, dir, merged.verb);
-			const repo = repoRootOf(join(dir, "_"));
-			const tree = repo ? headTree(repo) : undefined;
-			book.entries.push(appendEntry(book.path, "edit", { via: "merge", ...(tree ? { tree } : {}) }));
+		if (exit === 0 && merged && !/Already up[ -]to[ -]date/i.test(last ?? "")) {
+			if (book.entries.at(-1)?.stage !== "edit") {
+				touchRepoBeforeMerge(book, resolve(String(book.header.cwd ?? process.cwd()), merged.dir), merged.verb);
+				book.entries.push(appendEntry(book.path, "edit", { via: "merge" }));
+			}
+			adoptChildRun(book, cwd);
 		}
 		if (exit === 0 && /\bgit\b[^|;&]*\bcommit\b/.test(command) && !book.entries.some((entry) => entry.stage === "edit")) {
 			const cwd = String(book.header.cwd ?? "");
@@ -848,6 +864,7 @@ function headAndTail(text: string): string {
 				showStatus(ctx);
 			}
 			if (message.role !== "custom" || message.customType !== "subagent_result" || subagent) return;
+			adoptChildRun(book, ctx.cwd);
 			const agent = String(message.details?.agent ?? "");
 			if (REVIEWERS.has(agent)) {
 				const d = message.details ?? {};

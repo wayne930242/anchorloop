@@ -1,6 +1,7 @@
 """The phase machine over the loop book: sequences per kind, completion from evidence, regression, skip and back, the read phase, reflect."""
 
 import subprocess
+from pathlib import Path
 import unittest
 
 from tests.pi_harness import assistant, bash_result, stage, todo_create, tool_call, tool_result
@@ -428,61 +429,77 @@ class TestReachEdges(PhaseCase):
         self.assertIn("kind with reason: reviewed, or why inline fits", text_of(out["results"][-1]))
 
 class TestChildVerify(PhaseCase):
-    """A linked pi-herdr-agents child's passing anchor run counts as the coordinator's verify when it ran on what main now holds."""
+    """A linked pi-herdr-agents child's passing anchor run is the coordinator's verify when the coordinator holds the very state it checked."""
 
     CHILD = {"PI_SUBAGENT_ID": "kid", "PI_SUBAGENT_NAME": "worker-1"}
     link = tool_result("subagent", {}, "started", details={"id": "kid", "name": "worker-1", "agent": "worker", "status": "started"})
+    returned = subagent_result("worker", "worker-1", "done")
 
     def git(self, *args: str, where=None) -> str:
         return subprocess.run(["git", "-C", str(where or self.cwd), *args], check=True, capture_output=True, text=True).stdout.strip()
 
-    def child_run(self, where, *steps: dict) -> None:
+    def child_run(self, where, *steps: dict, anchor: str = "pytest -q") -> None:
         """Replays `steps` as the child, its pi started in `where`."""
         main, self.cwd = self.cwd, where
         try:
-            self.replay([*self.open_loop("inline", "child work", anchor="pytest -q"), *steps], env=self.CHILD)
+            self.replay([*self.open_loop("inline", "child work", anchor=anchor), *steps], env=self.CHILD)
         finally:
             self.cwd = main
 
-    def worktree_child(self):
-        """Main opens its loop and links the child; the child edits in its worktree, passes the anchor, and commits."""
-        self.git_repo()
-        self.replay([*self.open_loop(anchor="pytest -q"), self.link])
+    def verifies(self) -> list[dict]:
+        main = next(path for path in self.book_files() if "agents" not in path.parts)
+        return self.entries("verify", main)
+
+    def coordinator(self, *steps: dict, repo: bool = True) -> None:
+        if repo:
+            self.git_repo()
+        self.replay([*self.open_loop(anchor="pytest -q"), self.link, *steps])
+
+    def worktree(self) -> Path:
         tree = self.cwd.parent / "wt"
         self.git("worktree", "add", "-q", "-b", "feature", str(tree))
         (tree / "app.py").write_text("print(2)\n")
-        self.child_run(tree, edit("app.py"), bash_result("pytest -q", 0, "5 passed"))
-        self.git("commit", "-qam", "feature", where=tree)
+        return tree
 
-    def test_a_childs_passing_anchor_run_in_the_same_checkout_is_the_coordinators_verify(self):
-        self.git_repo()
-        self.replay([*self.open_loop(anchor="pytest -q"), self.link])
-        self.child_run(self.cwd, edit(), bash_result("pytest -q", 0, "5 passed"))
-        self.assertEqual(self.line([]), "inline · phase verify ✓ → close")
+    def worktree_child(self, *before: dict, repo: bool = True) -> Path:
+        """The child edits in its worktree, passes the anchor (run from its own directory), and commits."""
+        self.coordinator(*before, repo=repo)
+        tree = self.worktree()
+        command = f"cd {tree} && pytest -q"
+        self.child_run(tree, edit("app.py"), bash_result(command, 0, "5 passed"), anchor=command)
+        self.git("commit", "-qam", "feature", where=tree)
+        return tree
+
+    def test_a_child_that_passed_the_anchor_in_this_checkout_is_the_verify_when_it_returns(self):
+        self.coordinator()
+        self.child_run(self.cwd, {"file": "app.py", "text": "print(2)\n"}, edit("app.py"), bash_result("pytest -q", 0, "5 passed"))
+        self.assertEqual(self.line([self.returned]), "inline \u00b7 phase verify \u2713 \u2192 close")
+        self.assertEqual(self.verifies()[-1]["last"], "adopted from worker-1: 5 passed")
 
     def test_a_coordinator_change_after_the_childs_run_needs_its_own_run(self):
-        self.git_repo()
-        self.replay([*self.open_loop(anchor="pytest -q"), self.link])
-        self.child_run(self.cwd, edit(), bash_result("pytest -q", 0, "5 passed"))
-        self.assertIn("phase act ✓ → verify (missing: a passing run of `pytest -q`", self.line([edit()]))
+        self.coordinator()
+        self.child_run(self.cwd, {"file": "app.py", "text": "print(2)\n"}, edit("app.py"), bash_result("pytest -q", 0, "5 passed"))
+        self.assertIn("\u2192 verify (missing: a passing run of `pytest -q`", self.line([{"file": "app.py", "text": "print(3)\n"}, edit("app.py"), self.returned]))
 
-    def test_a_childs_failing_run_sends_the_coordinator_to_fix(self):
-        self.git_repo()
-        self.replay([*self.open_loop(anchor="pytest -q"), self.link])
-        self.child_run(self.cwd, edit(), bash_result("pytest -q", 1, "1 failed"))
-        self.assertIn("→ fix (missing: the anchor exited 1 after the last change)", self.line([]))
+    def test_a_childs_failing_or_other_command_is_not_the_verify(self):
+        self.coordinator()
+        self.child_run(self.cwd, {"file": "app.py", "text": "print(2)\n"}, edit("app.py"), bash_result("pytest -q", 1, "1 failed"))
+        self.assertIn("\u2192 verify (missing", self.line([self.returned]))
+        self.child_run(self.cwd, bash_result("pytest -k one", 0, "1 passed"), anchor="pytest -k one")
+        self.assertIn("\u2192 verify (missing", self.line([self.returned]))
 
-    def test_an_unlinked_childs_run_does_not_count(self):
+    def test_an_unlinked_childs_run_is_not_the_verify(self):
         self.git_repo()
         self.replay(self.open_loop(anchor="pytest -q"))
-        self.child_run(self.cwd, edit(), bash_result("pytest -q", 0, "5 passed"))
-        self.assertIn("phase act ✓ → verify (missing", self.line([edit()]))
+        self.child_run(self.cwd, {"file": "app.py", "text": "print(2)\n"}, edit("app.py"), bash_result("pytest -q", 0, "5 passed"))
+        self.replay([self.returned])
+        self.assertEqual(self.verifies(), [])
 
     def test_a_merge_that_lands_the_tree_the_child_ran_on_needs_no_second_run(self):
         self.worktree_child()
         self.git("merge", "-q", "--ff-only", "feature")
-        self.assertEqual(self.line([bash_result("git merge --ff-only feature", 0, "Fast-forward")]), "inline · phase verify ✓ → close")
-        self.assertEqual(self.entries("edit")[-1]["tree"], self.git("rev-parse", "HEAD^{tree}"))
+        self.assertEqual(self.line([bash_result("git merge --ff-only feature", 0, "Fast-forward")]), "inline \u00b7 phase verify \u2713 \u2192 close")
+        self.assertEqual(self.verifies()[-1]["adopted"], "worker-1")
 
     def test_a_merge_onto_a_main_that_moved_needs_the_coordinators_run(self):
         self.worktree_child()
@@ -490,20 +507,24 @@ class TestChildVerify(PhaseCase):
         self.git("add", "other.py")
         self.git("commit", "-qm", "main moved")
         self.git("merge", "-q", "--no-ff", "-m", "merge feature", "feature")
-        self.assertIn("phase act ✓ → verify (missing: a passing run of `pytest -q`", self.line([bash_result("git merge feature", 0, "Merge made")]))
-        self.assertIn("inline · phase verify ✓ → close", self.line([bash_result("pytest -q", 0, "ok")]))
+        self.assertIn("\u2192 verify (missing: a passing run of `pytest -q`", self.line([bash_result("git merge feature", 0, "Merge made")]))
+        self.assertEqual(self.line([bash_result("pytest -q", 0, "ok")]), "inline \u00b7 phase verify \u2713 \u2192 close")
+
+    def test_a_coordinator_edit_the_worker_never_saw_needs_the_coordinators_run(self):
+        self.git_repo()
+        (self.cwd / "lib.py").write_text("x = 2\n")
+        self.worktree_child(edit("lib.py"), repo=False)
+        self.git("merge", "-q", "--ff-only", "feature")
+        self.assertIn("\u2192 verify (missing", self.line([bash_result("git merge --ff-only feature", 0, "Fast-forward")]))
 
     def test_an_untracked_file_the_child_ran_with_but_did_not_commit_needs_the_coordinators_run(self):
-        self.git_repo()
-        self.replay([*self.open_loop(anchor="pytest -q"), self.link])
-        tree = self.cwd.parent / "wt"
-        self.git("worktree", "add", "-q", "-b", "feature", str(tree))
-        (tree / "app.py").write_text("print(2)\n")
+        self.coordinator()
+        tree = self.worktree()
         (tree / "conftest.py").write_text("x = 1\n")
         self.child_run(tree, edit("app.py"), bash_result("pytest -q", 0, "5 passed"))
         self.git("commit", "-qm", "feature", "app.py", where=tree)
         self.git("merge", "-q", "--ff-only", "feature")
-        self.assertIn("→ verify (missing", self.line([bash_result("git merge --ff-only feature", 0, "Fast-forward")]))
+        self.assertIn("\u2192 verify (missing", self.line([bash_result("git merge --ff-only feature", 0, "Fast-forward"), self.returned]))
 
 
 if __name__ == "__main__":
