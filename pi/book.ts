@@ -20,6 +20,7 @@ import {
 	anchorCommand,
 	appendEntry,
 	artifactKind,
+	bases,
 	childId,
 	childIds,
 	childLines,
@@ -31,11 +32,13 @@ import {
 	findChildBooks,
 	frictionOf,
 	guarded,
+	headTree,
 	isOpenTask,
 	latestTasks,
 	openLoop,
 	replayTodos,
 	refsOf,
+	repoRootOf,
 	retryPairs,
 	resolveRef,
 	reviewTrend,
@@ -51,6 +54,7 @@ import {
 	touchRepoBeforeMerge,
 	validFollowup,
 	verifyAfterLastAct,
+	workingTree,
 } from "./support/book.ts";
 import { classify } from "./support/jev.ts";
 import { REVIEWLESS, SEQUENCES, computePhases, describe, incompleteBefore, outsideWork, reachLine, reachOf, unansweredReach } from "./support/phases.ts";
@@ -617,6 +621,18 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
+	 * The working-state tree of each repo a child's loop works in, recorded on its anchor runs: a coordinator's merge that
+	 * lands one of them needs no second run (`lastActIndex`).
+	 */
+	function treesField(book: Book, cwd: string): { trees?: string[] } {
+		const repos = new Set(bases(book.entries).map((base) => base.repo));
+		const here = repoRootOf(join(cwd, "_"));
+		if (here) repos.add(here);
+		const trees = [...repos].map(workingTree).filter((tree): tree is string => tree !== undefined);
+		return trees.length ? { trees } : {};
+	}
+
+	/**
 	 * Records what a finished bash call shows: runs of the loop anchor, of task anchors, and a first commit as the change.
 	 * Returns the re-classification line when an anchor run of an unreviewed loop measured a reach no `kind` answer covers.
 	 */
@@ -631,9 +647,10 @@ export default function (pi: ExtensionAPI) {
 		// A failed run keeps its key line, so a rerun that passes can name what failed without the whole output.
 		const keyOf = (code: unknown) => (typeof code === "number" && code !== 0 ? { key: keyLine(output) } : {});
 		if (anchor && anchorRun(command, anchor)) {
-			const recorded = childId() !== undefined || currentKind(book.entries) === "quick" ? "check" : "verify";
+			const child = childId() !== undefined;
+			const recorded = child || currentKind(book.entries) === "quick" ? "check" : "verify";
 			const code = anchorExit(command, anchor, exit);
-			const entry = appendEntry(book.path, recorded, { command: anchor.slice(0, 200), exit: code, last, ...keyOf(code), ...reachField(book, cwd) });
+			const entry = appendEntry(book.path, recorded, { command: anchor.slice(0, 200), exit: code, last, ...keyOf(code), ...reachField(book, cwd), ...(child ? treesField(book, cwd) : {}) });
 			book.entries.push(entry);
 			const reach = reachNotice(book, entry);
 			if (reach) notices.push(reach);
@@ -646,8 +663,11 @@ export default function (pi: ExtensionAPI) {
 		autoFriction(book);
 		const merged = mergeRun(command);
 		if (exit === 0 && merged && !/Already up[ -]to[ -]date/i.test(last ?? "") && book.entries.at(-1)?.stage !== "edit") {
-			touchRepoBeforeMerge(book, resolve(String(book.header.cwd ?? process.cwd()), merged.dir), merged.verb);
-			book.entries.push(appendEntry(book.path, "edit", { via: "merge" }));
+			const dir = resolve(String(book.header.cwd ?? process.cwd()), merged.dir);
+			touchRepoBeforeMerge(book, dir, merged.verb);
+			const repo = repoRootOf(join(dir, "_"));
+			const tree = repo ? headTree(repo) : undefined;
+			book.entries.push(appendEntry(book.path, "edit", { via: "merge", ...(tree ? { tree } : {}) }));
 		}
 		if (exit === 0 && /\bgit\b[^|;&]*\bcommit\b/.test(command) && !book.entries.some((entry) => entry.stage === "edit")) {
 			const cwd = String(book.header.cwd ?? "");

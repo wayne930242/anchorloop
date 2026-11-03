@@ -7,8 +7,8 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { closeSync, constants, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, unlinkSync, writeSync } from "node:fs";
-import { homedir } from "node:os";
+import { closeSync, constants, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, writeSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
 export const KINDS = ["quick", "inline", "reviewed", "durable"] as const;
@@ -343,13 +343,24 @@ export function lastIndex(entries: Entry[], ...stages: string[]): number {
 }
 
 /**
- * The book's entries with the change entries of its linked children merged in by time, each marked `child`, so a coordinator
- * whose edits are all made by children still shows an act. Indexes into the result differ from indexes into `entries`.
+ * The book's entries with the change entries and anchor runs of its linked children merged in by time, each marked `child`, so
+ * a coordinator whose edits are all made by children still shows an act, and a child's anchor run on what the coordinator
+ * now holds is its verify. A child's run drops its reach, which the child's own loop answers. Children are linked only
+ * through pi-herdr-agents (`PI_SUBAGENT_ID`); pi itself has no subagents. Indexes into the result differ from indexes into
+ * `entries`.
  */
-export function withChildActs(entries: Entry[], env: NodeJS.ProcessEnv = process.env): Entry[] {
+export function withChildWork(entries: Entry[], env: NodeJS.ProcessEnv = process.env): Entry[] {
 	const acts: Entry[] = [];
 	for (const id of childIds(entries)) {
-		for (const { book } of findChildBooks(id, env)) acts.push(...book.entries.filter((entry) => entry.stage === "edit").map((entry) => ({ ...entry, child: id })));
+		for (const { book } of findChildBooks(id, env)) {
+			for (const entry of book.entries) {
+				if (entry.stage === "edit") acts.push({ ...entry, child: id });
+				else if (entry.stage === "check") {
+					const { reach: _reach, ...run } = entry;
+					acts.push({ ...run, child: id });
+				}
+			}
+		}
 	}
 	if (acts.length === 0) return entries;
 	acts.sort((a, b) => a.ts.localeCompare(b.ts));
@@ -361,9 +372,18 @@ export function withChildActs(entries: Entry[], env: NodeJS.ProcessEnv = process
 	return [...merged, ...acts];
 }
 
-/** The index of the latest change entry (a production write or edit, a commit), or -1. */
+/**
+ * The index of the latest change entry (a production write or edit, a commit), or -1. A merge that lands a tree an earlier
+ * passing anchor run checked (a child's run in its worktree, then a fast-forward) changes nothing that run did not see.
+ */
 export function lastActIndex(entries: Entry[]): number {
-	return lastIndex(entries, "edit");
+	const checked = new Set<string>();
+	let last = -1;
+	entries.forEach((entry, index) => {
+		if (entry.stage === "check" && entry.exit === 0 && Array.isArray(entry.trees)) for (const tree of entry.trees) checked.add(String(tree));
+		if (entry.stage === "edit" && !(typeof entry.tree === "string" && checked.has(entry.tree))) last = index;
+	});
+	return last;
 }
 
 export function reviews(entries: Entry[]): Entry[] {
@@ -388,7 +408,7 @@ export function reviewTrend(entries: Entry[]): string {
 
 /** A review recorded after the last change with no blocking finding on it. */
 export function reviewClearAfterLastAct(raw: Entry[]): boolean {
-	const entries = withChildActs(raw);
+	const entries = withChildWork(raw);
 	const review = lastIndex(entries, "review");
 	return review >= 0 && review > lastActIndex(entries) && entries[review].blocking === false;
 }
@@ -410,7 +430,7 @@ function evidenceLine(entry: Entry): string {
 
 /** The latest check or verify entry after the last change, or undefined when none follows it. */
 export function verifyAfterLastAct(raw: Entry[]): Entry | undefined {
-	const entries = withChildActs(raw);
+	const entries = withChildWork(raw);
 	const index = lastIndex(entries, "check", "verify");
 	return index >= 0 && index > lastActIndex(entries) ? entries[index] : undefined;
 }
@@ -541,12 +561,41 @@ export function validFollowup(followup: unknown): boolean {
 
 // --- git -----------------------------------------------------------------------------------------
 
-function git(cwd: string, args: string[]): string | undefined {
+function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): string | undefined {
 	try {
-		return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf-8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] }).trim();
+		return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf-8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"], env: env ?? process.env }).trim();
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * The tree a commit of everything in `repo`'s working state would have (tracked and untracked, ignored files and `scratch/`
+ * left out), built in a copy of the index so the repo's own index is untouched; undefined when git cannot build it.
+ */
+export function workingTree(repo: string): string | undefined {
+	const index = git(repo, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
+	if (!index) return undefined;
+	const dir = mkdtempSync(join(tmpdir(), "anchorloop-tree-"));
+	try {
+		const env = { ...process.env, GIT_INDEX_FILE: join(dir, "index") };
+		if (existsSync(index)) {
+			// The copy keeps the index's mtime: git trusts an entry's stat only when it is older than the index, and a file
+			// changed in the second the index was written but kept its size would otherwise be taken as unchanged.
+			copyFileSync(index, env.GIT_INDEX_FILE);
+			const { atime, mtime } = statSync(index);
+			utimesSync(env.GIT_INDEX_FILE, atime, mtime);
+		}
+		if (git(repo, ["add", "-A", "--", ".", ":(exclude)scratch"], env) === undefined) return undefined;
+		return git(repo, ["write-tree"], env);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+/** The tree of `repo`'s HEAD commit. */
+export function headTree(repo: string): string | undefined {
+	return git(repo, ["rev-parse", "HEAD^{tree}"]);
 }
 
 function existingDir(path: string): string {
