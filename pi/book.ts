@@ -620,11 +620,14 @@ export default function (pi: ExtensionAPI) {
 		return reach && unansweredReach(book.entries, reach).length > 0 ? `anchorloop: ${reachLine(reach, currentKind(book.entries))}.` : undefined;
 	}
 
-	/** The working-state tree of each repo the loop works in: the repos it changed and the one it runs in. */
-	function loopTrees(book: Book, cwd: string): string[] {
-		const repos = bases(book.entries).map((base) => base.repo);
+	/** The repos the loop works in: the repos it changed and the one it runs in. */
+	function loopRepos(book: Book, cwd: string): string[] {
 		const here = repoRootOf(join(cwd, "_"));
-		return workingTrees(here ? [...repos, here] : repos);
+		return [...new Set([...bases(book.entries).map((base) => base.repo), ...(here ? [here] : [])])];
+	}
+
+	function loopTrees(book: Book, cwd: string): string[] {
+		return workingTrees(loopRepos(book, cwd));
 	}
 
 	/** A child's anchor run carries the trees it ran on, so the coordinator can tell whether it holds that same state. */
@@ -641,8 +644,9 @@ export default function (pi: ExtensionAPI) {
 	function adoptChildRun(book: Book, cwd: string): void {
 		const anchor = anchorCommand(book.entries);
 		if (!anchor || verifyAfterLastAct(book.entries) || !book.entries.some((entry) => entry.stage === "link")) return;
-		const trees = loopTrees(book, cwd);
-		const found = adoptableRun(book.entries, anchor, trees);
+		const repos = loopRepos(book, cwd);
+		const trees = workingTrees(repos);
+		const found = adoptableRun(book.entries, anchor, trees, repos, cwd);
 		if (!found) return;
 		const last = `adopted from ${found.name}${found.run.last ? `: ${String(found.run.last)}` : ""}`.slice(0, 200);
 		book.entries.push(appendEntry(book.path, "verify", { command: anchor.slice(0, 200), exit: 0, last, adopted: found.name, trees, ...reachField(book, cwd) }));

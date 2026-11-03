@@ -578,27 +578,41 @@ export function workingTrees(repos: Iterable<string>): string[] {
 	return [...new Set(repos)].map(workingTree).filter((tree): tree is string => tree !== undefined);
 }
 
-/** The command without the `cd <dir> &&` (or `;`) steps that lead it, so one anchor run from two checkouts reads the same. */
-function anchorBody(command: string): string {
+const CD_STEP = /^cd\s+("[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/;
+
+/**
+ * The command without the leading `cd <dir> &&` (or `;`) steps whose directory is one of `roots`, the roots of the loop's
+ * repos, so one anchor run from two checkouts reads the same; a `cd` into a subdirectory stays, since it runs other tests.
+ */
+function anchorBody(command: string, roots: string[], cwd: string): string {
 	let rest = command.trim();
-	for (let step = /^cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/.exec(rest); step; step = /^cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/.exec(rest)) rest = rest.slice(step[0].length);
+	for (let step = CD_STEP.exec(rest); step; step = CD_STEP.exec(rest)) {
+		const target = step[1].replace(/^(["'])(.*)\1$/, "$2").replace(/^~(?=\/|$)/, homedir());
+		if (!roots.includes(real(resolve(cwd, target)))) break;
+		rest = rest.slice(step[0].length);
+	}
 	return rest.replace(/\s+/g, " ");
 }
 
 /**
- * The linked child whose latest run of `anchor` passed on exactly the state `trees` holds: every tree that run recorded is
- * one of `trees`. Only a pi-herdr-agents child is linked (`PI_SUBAGENT_ID`); pi itself has no subagents.
+ * The linked child whose latest run of `anchor` passed on exactly the state the coordinator holds: the trees that run
+ * recorded are the coordinator's `trees`, no more and no fewer, so a repo only one side worked in is never taken as checked.
+ * `roots` and `cwd` are the coordinator's repo roots and directory. Only a pi-herdr-agents child is linked
+ * (`PI_SUBAGENT_ID`); pi itself has no subagents.
  */
-export function adoptableRun(entries: Entry[], anchor: string, trees: string[], env: NodeJS.ProcessEnv = process.env): { name: string; run: Entry } | undefined {
-	const body = anchorBody(anchor);
+export function adoptableRun(entries: Entry[], anchor: string, trees: string[], roots: string[], cwd: string, env: NodeJS.ProcessEnv = process.env): { name: string; run: Entry } | undefined {
+	const body = anchorBody(anchor, roots, cwd);
+	const held = new Set(trees);
 	for (const id of childIds(entries)) {
-		const runs = findChildBooks(id, env)
-			.flatMap(({ book }) => book.entries)
-			.filter((entry) => entry.stage === "check" && typeof entry.command === "string" && anchorBody(entry.command) === body)
-			.sort((a, b) => a.ts.localeCompare(b.ts));
-		const run = runs.at(-1);
-		const checked = Array.isArray(run?.trees) ? (run.trees as unknown[]).map(String) : [];
-		if (run && run.exit === 0 && checked.length > 0 && checked.every((tree) => trees.includes(tree))) {
+		const runs = findChildBooks(id, env).flatMap(({ book }) => {
+			const home = String(book.header.cwd ?? "");
+			const here = home ? repoRootOf(join(home, "_")) : undefined;
+			const childRoots = [...bases(book.entries).map((base) => base.repo), ...(here ? [here] : [])];
+			return book.entries.filter((entry) => entry.stage === "check" && typeof entry.command === "string" && anchorBody(entry.command, childRoots, home) === body);
+		});
+		const run = runs.sort((a, b) => a.ts.localeCompare(b.ts)).at(-1);
+		const checked = new Set(Array.isArray(run?.trees) ? (run.trees as unknown[]).map(String) : []);
+		if (run && run.exit === 0 && checked.size === held.size && [...checked].every((tree) => held.has(tree))) {
 			const link = entries.find((entry) => entry.stage === "link" && entry.child === id);
 			return { name: String(link?.name ?? id), run };
 		}

@@ -487,6 +487,23 @@ class TestChildVerify(PhaseCase):
         self.assertIn("\u2192 verify (missing", self.line([self.returned]))
         self.child_run(self.cwd, bash_result("pytest -k one", 0, "1 passed"), anchor="pytest -k one")
         self.assertIn("\u2192 verify (missing", self.line([self.returned]))
+        self.child_run(self.cwd, bash_result("cd sub && pytest -q", 0, "1 passed"), anchor="cd sub && pytest -q")
+        self.assertIn("\u2192 verify (missing", self.line([self.returned]))
+
+    def test_a_repo_only_the_coordinator_worked_in_needs_the_coordinators_run(self):
+        self.coordinator()
+        other = self.cwd / "vendor-repo"
+        other.mkdir()
+        for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "t"]):
+            self.git(*args, where=other)
+        (other / "x.txt").write_text("x\n")
+        self.git("add", ".", where=other)
+        self.git("commit", "-qm", "base", where=other)
+        (self.cwd / ".gitignore").write_text("vendor-repo/\n")
+        self.replay([tool_call("edit", str(other / "x.txt")), {"file": "vendor-repo/x.txt", "text": "y\n"}, edit(str(other / "x.txt"))])
+        self.child_run(self.cwd, {"file": "app.py", "text": "print(2)\n"}, edit("app.py"), bash_result("pytest -q", 0, "5 passed"))
+        self.replay([self.returned])
+        self.assertEqual(self.verifies(), [])
 
     def test_an_unlinked_childs_run_is_not_the_verify(self):
         self.git_repo()
