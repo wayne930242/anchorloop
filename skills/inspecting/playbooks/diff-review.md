@@ -51,7 +51,7 @@ from the implementation.
 
 Read what the diff cannot show: serialized shapes (JSON, a DB column, a wire format) and the other-language readers of the same bytes, flags, timing and teardown order, and the pinned source of each dependency the change calls, because grep stops at callers. Keep the risks you confirmed and list those you checked and cleared apart.
 
-When a load-bearing scenario fails, run it on the base too. A failure present on both is recorded against the base and blocks only when the diff copies it or newly reaches it. When the base lacks the feature, check the behavior the diff adds and compare no ratio between unlike scenarios.
+When a load-bearing scenario fails, run it on the base too. A failure present on both is recorded against the base and blocks only when the diff copies it or newly reaches it. When the base lacks the feature, check the behavior the diff adds, and judge a performance number by the [benchmark checklist](../../coding/references/benchmark-checklist.md).
 
 **Reply:** separate `Standards` and `Spec` verdicts with file/hunk evidence, and
 a finding count and worst issue within each axis, never one combined score,
