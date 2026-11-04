@@ -9,11 +9,17 @@ Every entry skill (`answering`, `investigating`, `inspecting`, `coding`, `writin
 
 ## Align
 
+Open the first reply on any task but a fully specified one-line edit, in the user's language, with:
+
+    Alignment: <the user's goal, the problem it solves, and, when the task ships a change, the smallest change expected to meet it>
+
+Proceed without waiting for confirmation: a misreading caught here costs one message instead of a wrong change. When the evidence rules out the change the user asked for, show it and stop.
+
 Pick the entry's playbook from its index; with none fitting, run the loop bare. `todo` holds real work items only, optionally with `metadata.anchor` (a task's own check; the first todo's becomes the loop anchor) and `metadata.ref` (`<path>#<heading>`). The first `todo` create opens an `inline` loop, its intent that todo's subject; call `anchorloop_stage` `kind` only to choose `quick`, `reviewed`, or `durable` (`reason` when a later call changes the kind or answers the reach an anchor run reports). The rest of what the extension cannot observe: `verify` (a check not run in bash), `fresh-read`, `friction` (only when an instruction misled you; a rerun that passes after failing is recorded and resolved for you), `reflect`, `skip` or `back` (phase, reason), and `close`. Edits, anchor runs, reviews, and spec files are read from evidence; a phase that starts before an earlier one is complete warns once (`read` if you disagree), and `close` refuses only while an open todo lacks `metadata.followup` (a ticket id, `memory`, or `drop — <reason>`).
 
 ## Anchor
 
-Before the first change the loop has an anchor: a `Reality anchor: <the exact check that observes the result, and its checkpoint>` line, `metadata.anchor` on the first todo, or `anchor` on a `kind` call. The first edit without one gets a one-line reminder in its result.
+Before the first change the loop has an anchor: a `Reality anchor: <the exact check that observes the result, and its checkpoint>` line, `metadata.anchor` on the first todo, or `anchor` on a `kind` call.
 
 Size the anchor to the change's reach and pick one method: an executable check, a user operation, human judgment, or a focused review. A coordinator's anchor governs: it hands the anchor to the worker, whose passing run on what the coordinator then holds, in the same checkout or as the exact tree a merge lands, is the coordinator's verify; the coordinator runs it again only when its own change or the integration altered that tree. Pick a review anchor when the change touches a shared contract, authorization or permission data, a migration, or security; other changes rest on their check and the author's own read of the diff. A review anchor names the realistic use it judges against and blocks on P0 and P1 findings only, recording lower ones as follow-ups. Answer each finding with a fix, a contest citing evidence the reviewer could read, or an escalation to the user when that evidence lives elsewhere; when a finding stems from a misreading, fix the text that misled the reviewer. After fixes it re-checks only those findings and the lines the fixes changed; when two consecutive rounds still raise new blocking findings, stop and hand the trend to the user, because a fresh exploratory review each round finds new edge cases, not convergence. The checkpoint is normally once, after the last increment.
 
@@ -41,7 +47,7 @@ Exercise the anchor and report what it observed. A requirement the anchor did no
 
 A review anchor stays open until an independent reviewer returns its verdict. When none can run or its result is lost, report `blocked: independent review` and keep merge and release closed, because the author's review, green tests, and CI each miss what an independent reader catches.
 
-Write the reply the playbook's `Reply:` line names, with the anchor's evidence. The Jev second thought (`next:` and its concerns) is advisory and speaks only when it has something to act on: recheck the evidence it questions, then decide. When a calling workflow supplies an artifact, write the results into it, not a separate report or plan.
+Write the reply the playbook's `Reply:` line names, opening with the user's goal and carrying the anchor's evidence. The Jev second thought (`next:` and its concerns) is advisory: recheck the evidence it questions, then decide. When a calling workflow supplies an artifact, write the results into it, not a separate report or plan.
 
 ### Reflexive Pass
 
