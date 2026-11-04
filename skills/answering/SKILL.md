@@ -7,7 +7,7 @@ description: Use when explaining a concept or how something works, comparing tec
 
 Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md). The anchor is that every material claim carries its source and its evidence grade as `investigating` defines them; gather missing evidence through `investigating` first.
 
-Keep prose brief and state uncertainty where it lives: a prediction or an unobserved cause is a guess, labeled in the sentence that makes it. Run a check you can run instead of asking the user to, and say why when you cannot. Cite only what you opened this session; a link, `file:line`, ID, or quote you did not read stays out of the reply, because the user trusts a cited claim. Use the exact symbol, file, flag, or command name, one name per concept.
+Keep prose brief and state uncertainty where it lives: a prediction or an unobserved cause is a guess, labeled in the sentence that makes it. Cite only what you opened this session; a link, `file:line`, ID, or quote you did not read stays out of the reply, because the user trusts a cited claim. Use the exact symbol, file, flag, or command name, one name per concept.
 
 Show the shape beside the sentence it supports, with the smallest view that makes the point: a call tree or file tree for structure, pseudocode for logic, `A → B: message` lines for interaction, a table for options against criteria. Give three or more parts as a series where each view adds one part, because one view of all of them reads as reference, not understanding. State a point plainly instead of announcing it (*key insight*, *tricky part*).
 

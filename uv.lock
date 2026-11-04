@@ -4,5 +4,5 @@ requires-python = ">=3.11"
 
 [[package]]
 name = "anchorloop"
-version = "2.7.0"
+version = "2.8.0"
 source = { virtual = "." }

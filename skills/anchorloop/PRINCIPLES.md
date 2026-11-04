@@ -17,7 +17,7 @@ Each entry: the name, when it applies, and the rule. Playbooks cite them by name
 - **Migrate callers, then delete.** Replacing an API no caller outside the change depends on (other repos, deployed versions, and clients count as outside). Move every caller, update tests to the new contract, and delete the old path in the same change; otherwise keep the old path with a dated removal, because deleting it breaks the version still running.
 - **Make operations idempotent.** A script, command, or loop that mutates state. Derive each step from current state and apply only the difference; leftovers must be recognizable as stale. Test: run it twice, and crash it at each step, and the end state matches.
 - **Separate before serializing shared state.** Parallel workers, retries, or several writers of one file, key, or branch. Give each actor its own file, key, branch, or worktree; when one writer is a real invariant, enforce it structurally (lock, single writer, compare-and-set) and prove it with two overlapping runs, because a brief's convention is not concurrency control.
-- **Type discipline.** Any typed language. Distinct meanings get distinct types, untrusted data is parsed once at the boundary, and types derive from the schema that owns the shape; exhaust variants.
+- **Type system discipline.** Any typed language. Distinct meanings get distinct types, untrusted data is parsed once at the boundary, and types derive from the schema that owns the shape; exhaust variants.
 
 ## Verification
 
