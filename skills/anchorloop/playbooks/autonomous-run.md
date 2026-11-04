@@ -2,11 +2,12 @@
 
 **You own the exit condition.**
 
-1. Align: state the exit condition as a predicate a command or artifact can pass or fail; a duration is not one.
-2. Anchor: the predicate is the anchor. Set the wake mechanism: `MonitorCreate` with `onDone` or `onSignal` for an event (CI, a merge, a job), a `LoopCreate` heartbeat otherwise, plus one safety deadline.
+1. Align: state the exit condition as a predicate a command or artifact can pass or fail; a duration is not one. Also state the units remaining and the riskiest unknown, and show that sizing in the first reply (it proceeds without confirmation). Quote the user's authorization verbatim in the first trail row.
+2. Anchor: the predicate is the anchor. Set the wake mechanism: `MonitorCreate` with `onDone` or `onSignal` for an event (CI, a merge, a job), a `LoopCreate` heartbeat otherwise, plus one safety deadline. Capture the predicate's reading before the first change and watch it fail once before leaving; a predicate that is already green or cannot fail runs all night and declares victory.
+   Judge a delegated worker by commits, files, and processes, not its status text; after two failed retries by the same cause, drop the unit and replan.
 3. Act: each iteration makes the smallest change the evidence justifies, checks it against the predicate, commits when it advanced, and discards it when it did not.
-4. Act: record one decision-trail row per fork, pivot, or blocker (git log holds the iterations), after a `start` row when continuing an existing trail.
-5. Act: fix reversible mid-run discoveries yourself in their own commits, then return to the predicate. Bring only irreversible actions, user-owned decisions, or a real dead end to the user, and leave them in the trail when the user is asleep.
-6. Verify: stop when the predicate holds. On a plateau, change approach; never relax the predicate to declare victory. A genuine dead end ends the run with a written reason.
+4. Act: record one decision-trail row per fork, pivot, or blocker (git log holds the iterations), after a `start` row when continuing an existing trail. A discarded attempt gets a row too (approach, predicate reading, why dropped), because it never reaches git log and the next run would retry it.
+5. Act: fix reversible mid-run discoveries yourself in their own commits, then return to the predicate. Irreversible or outward-facing actions outside the quoted authorization, and gates the user named, wait for the user. For a user-owned decision, continue other work; when nothing can proceed without it, apply the safest reversible default and row it with the alternative (`result: default applied; alternative = <x>`).
+6. Verify: stop when the predicate holds. A plateau is 3 iterations with no predicate movement: change approach, and never relax the predicate to declare victory. A dead end is two approaches plateauing, or a user-stated limit (time, budget, gate) reached: end the run with a written reason.
 
-**Reply:** the exit condition, iterations run, what landed, what was discarded, and the final predicate state.
+**Reply:** the exit condition, iterations run, what landed, what was discarded, and the final predicate state, then the calls waiting on the user: for each, the question, your pick, the evidence, the risk, and what waiting costs, enough to decide from the reply alone and none cut for length.

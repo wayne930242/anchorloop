@@ -10,6 +10,8 @@ This repository is the `pi-anchorloop` package: the workflow skills in `skills/`
 - Work runs through an entry skill over the loop in `skills/anchorloop/SKILL.md`; `pi/anchor-gate.ts` warns when an edit runs before a Reality anchor is stated.
 - Commit messages must not mention AI tools.
 
+- `pi/book.ts` adds no new recognition of anchor command forms until the 2026-11-18 review of how many real failures the book caught; unrecognized forms go through `anchorloop_stage verify`.
+
 ## Versioning & Release Directives
 
 - Bump the version in `package.json` and `pyproject.toml` together whenever package capabilities, workflow contracts, or configurations change.
