@@ -4,7 +4,7 @@ Each entry: the name, when it applies, and the rule. Playbooks cite them by name
 
 ## Core
 
-- **Subtract before you add.** Sizing any change. Delete dead code, one-caller wrappers, redundant checks, and stale prose first; the smallest change that solves the problem ships. One source of truth per decision, passed on as a result; no validators or guards beyond the spec; a reference with no novel content is deleted, not stubbed.
+- **Subtract before you add.** Sizing any change. Delete dead code, one-caller wrappers, redundant checks, and stale prose first; the smallest change that solves the problem ships. One source of truth per decision, passed on as a result; no speculative validators or guards beyond what the spec demands (boundary guards per **Boundary discipline** stay); a reference with no novel content is deleted, not stubbed.
 - **Foundational thinking.** Before writing logic or integrating a new requirement. Choose the data shape and its organizing structure first, as if the requirement had been there from day one, so the code that follows is obvious. Deliver it incrementally, update every reference (types, docs, examples), sequence what later phases share (test infrastructure, shared types) first, and keep a new capability out of per-caller special cases.
 - **Attack the premise.** Two fixes resting on one premise failed the same check. Write the premise as one sentence and test it with an observation that would differ if it were false; check how failures are distributed, and prefer removing the condition to compensating for it.
 - **Minimize reader load.** Shaping code or prose that is hard to trace. Count the layers between question and answer and the state a reader must hold; collapse what does not earn its place. The test: a new reader answers "where does X come from?" and "what can change X?" in 30 seconds; derive state instead of syncing it.
@@ -30,7 +30,7 @@ Each entry: the name, when it applies, and the rule. Playbooks cite them by name
 
 ## Delegation
 
-- **Never block on the human.** Reversible execution. Proceed and present the result; bring only irreversible or outward-facing actions outside the user's quoted authorization, and user-owned decisions, to the user.
+- **Never block on the human.** Reversible execution. Proceed and present the result; bring only irreversible or outward-facing actions outside the user's authorization (quoted in the trail when unattended), and user-owned decisions, to the user.
 
 ---
 

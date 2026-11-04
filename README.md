@@ -12,7 +12,7 @@ anchorloop            core loop · principles · playbooks: autonomous-run, paus
 ├─ investigating research · diagnose
 ├─ inspecting    diff-review · qa-release
 ├─ coding        bug-fix · feature · refactoring · perf · prototype  (+ Mini SDD)
-├─ writing       draft · tighten · comments
+├─ writing       draft · tighten · comments · pr-description
 └─ solid-loop    apply-friction · author-skill · bootstrap
 shared           grilling · domain-modeling · human-feedback · agent-terse
 ```
@@ -55,7 +55,7 @@ uv run --with pytest pytest -q          # validators and the pi extensions (need
 
 ## Acknowledgments
 
-- [pstack](https://github.com/backnotprop/pstack) by Lauren Tan (MIT), mirror revision `e44668c` of [cursor/plugins](https://github.com/cursor/plugins/tree/main/pstack), and its port [pstack-claude](https://github.com/michael-denyer/pstack-claude) by Michael Denyer (MIT): task-type playbooks, named principles, the lifecycle playbooks, the decision trail, the closed review gate, fresh-subagent hand-off, and evidence grades.
+- [pstack](https://github.com/backnotprop/pstack) by Lauren Tan (MIT), mirror revision `e44668c` of [cursor/plugins](https://github.com/cursor/plugins/tree/main/pstack) (the 2.8.0 engineering-standard additions from cursor/plugins `c742dd6`), and its port [pstack-claude](https://github.com/michael-denyer/pstack-claude) by Michael Denyer (MIT): task-type playbooks, named principles, the lifecycle playbooks, the decision trail, the closed review gate, fresh-subagent hand-off, and evidence grades.
 - [google-research/harness2](https://github.com/google-research/harness2) (Apache-2.0), revision `1cfe254`: solid-loop's placement test, cheapest-mechanism order, and declining a lesson without a before/after contrast.
 - [mattpocock/skills](https://github.com/mattpocock/skills) (MIT): grilling, domain-modeling, the diff review, the prototype playbook, and the feature playbook's interface checks.
 - [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) (Apache-2.0), revision `bad48a0`: the terse voice in `agent-terse`.

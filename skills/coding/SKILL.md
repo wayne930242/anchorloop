@@ -28,3 +28,8 @@ Point the anchor at what the change touches: a one-line edit anchors on the test
 - [refactoring](playbooks/refactoring.md): structure changes, behavior does not.
 - [perf](playbooks/perf.md): a measured slowness to improve against a baseline.
 - [prototype](playbooks/prototype.md): disposable code that settles a design or behavior question.
+
+## References
+
+- [Benchmark checklist](references/benchmark-checklist.md): the measurement checks `perf` runs before reporting a number.
+- [Design red flags](references/design-red-flags.md): the shape screen `feature` runs on a new interface.

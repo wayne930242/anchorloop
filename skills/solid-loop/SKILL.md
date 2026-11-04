@@ -5,7 +5,7 @@ description: Use when creating, editing, or auditing agent skills and instructio
 
 # Solid Loop
 
-Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md). The anchor is `uv run python hooks/validate_all.py .` or the project's own validator, clean, every edited section passing the no-op test, and, when the change answers a recorded failure, a fresh-context rerun of that task in which the failure no longer occurs (see [author-skill](playbooks/author-skill.md)).
+Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md). The anchor is `uv run python hooks/validate_all.py .` or the project's own validator, clean, every edited section passing the no-op test, and, when the change answers a recorded failure, a fresh-context rerun of that task in which the failure no longer occurs, or `rerun: n/a — <reason>` when no safe slice exists (see [author-skill](playbooks/author-skill.md)).
 
 The root virtue is **predictability**: each instruction sends the next run straight to the work, with no detour and no unneeded read.
 
