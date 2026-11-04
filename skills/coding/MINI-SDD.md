@@ -36,7 +36,7 @@ Approved from: <the user reply that approved it, empty while proposed>
 
 Choose the smallest approach that fits the approved spec and architecture. Follow the matching playbook's design steps ([feature](playbooks/feature.md) for interfaces and seams, [prototype](playbooks/prototype.md) when a named question is cheaper to settle by experiment) and the project's exact skill.
 
-The file holds the chosen approach; interfaces and data flow affected; existing precedent; decisions, trade-offs, and risks; the method selected inside the reality anchor.
+The file holds the chosen approach; interfaces and data flow affected; existing precedent; decisions, trade-offs, and risks, with at least one rejected alternative or the reason none exists; the method selected inside the reality anchor.
 
 **Complete when:** implementation invents no product behavior or architecture.
 
