@@ -5,17 +5,17 @@ description: Use when creating, editing, or auditing agent skills and instructio
 
 # Solid Loop
 
-Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md). The anchor is `uv run python hooks/validate_all.py .` or the project's own validator, clean, and every edited section passing the no-op test.
+Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md). The anchor is `uv run python hooks/validate_all.py .` or the project's own validator, clean, every edited section passing the no-op test, and, when the change answers a recorded failure, a fresh-context rerun of that task in which the failure no longer occurs (see [author-skill](playbooks/author-skill.md)).
 
 The root virtue is **predictability**: each instruction sends the next run straight to the work, with no detour and no unneeded read.
 
 ## Placement
 
-Put each fact where it stays true. One that holds for every task type goes to the `anchorloop` core; one that holds for one task type goes to its entry skill or playbook; one that holds for one project goes to that project's `AGENTS.md` or `CLAUDE.md`. A multi-step procedure no skill owns becomes a playbook, or a skill when no entry fits.
+Put each fact where it stays true. One that holds for every task type goes to the `anchorloop` core; one that holds for one task type goes to its entry skill or playbook; one that holds for one project goes to that project's `AGENTS.md` or `CLAUDE.md`. A multi-step procedure no skill owns becomes a playbook, or a skill when no entry fits; propose one in the reply when you meet the same workflow a second time.
 
 ## Mechanism
 
-Enforce at the highest level that works, because nothing fails when an agent skips prose: architecture that removes the wrong path; a script for repeated deterministic work; a type, lint, or test; a tool-loop lever (pi extension hook, stream rule, validator) for a check the model demonstrably skips, with a message that names the fix. Prove the check fails on the recorded mistake. Prose is for judgment calls. A `Found` fact the agent system already states in prose is a repeat: escalate it in the same change. List each enforced rule beside its enforcer in the owning instruction file's rule table, and drop the row once the mistake can no longer happen.
+Enforce at the highest level that works, because nothing fails when an agent skips prose: architecture that removes the wrong path; a script for repeated deterministic work; a type, lint, or test; a tool-loop lever (pi extension hook, stream rule, validator) for a check the model demonstrably skips, with a message that names the fix. Prove the check fails on the recorded mistake. A check that existing code already violates fails only on additions; an exception sits on its line with a reason, an expiry, and the user's approval; the same command runs locally and in CI, because a rule that differs between them makes the rule table lie. Prose is for judgment calls. A `Found` fact the agent system already states in prose is a repeat: escalate it in the same change. List each enforced rule beside its enforcer in the owning instruction file's rule table, and drop the row once the mistake can no longer happen.
 
 ## Hold the Size
 

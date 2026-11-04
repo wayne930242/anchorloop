@@ -47,6 +47,12 @@ Quote or point to the governing requirement for each finding. When no spec is
 available, mark this axis insufficient evidence instead of reconstructing intent
 from the implementation.
 
+### Beyond the diff
+
+Read what the diff cannot show: serialized shapes (JSON, a DB column, a wire format) and the other-language readers of the same bytes, flags, timing and teardown order, and the pinned source of each dependency the change calls, because grep stops at callers. Keep the risks you confirmed and list those you checked and cleared apart.
+
+Run the load-bearing scenario on the base as well. A failure present on both is recorded against the base and blocks only when the diff copies it or newly reaches it. When the base lacks the feature, check the behavior the diff adds and compare no ratio between unlike scenarios.
+
 **Reply:** separate `Standards` and `Spec` verdicts with file/hunk evidence, and
 a finding count and worst issue within each axis, never one combined score,
 because success on one axis cannot mask failure on the other.

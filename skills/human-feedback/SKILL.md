@@ -80,4 +80,4 @@ confirmed correction target.
 
 ## 5. Reflexive System Placement
 
-When feedback conveys a preference or convention rather than an isolated code bug, hand the preference to `reflecting-to-root` and any procedure change to `solid-loop`.
+When feedback conveys a preference or convention rather than an isolated code bug, hand the preference to `reflecting-to-root` and any procedure change to `solid-loop`. A correction of a mistake an instruction already forbids is a repeat: invoke `solid-loop` in the same change to raise its enforcement, because restating the prose rule has already failed once.

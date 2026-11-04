@@ -24,7 +24,7 @@ Terse cuts words inside a brief, never its fields, because a thin brief sends a 
 - `context`: the situation and the facts that change judgment (who is waiting, which environment, what an earlier round found).
 - `scope`: what it owns, and what is out of scope.
 - `others`: what sibling agents own or already found, so it neither repeats nor overlaps them.
-- `constraints`: authorizations and decisions quoted verbatim, plus limits on method.
+- `constraints`: authorizations and decisions quoted verbatim, plus limits on method, and whether the agent may delegate further (default: it delegates nothing, because the session that holds the request keeps the anchor, todo, and reply).
 - `acceptance`: the check that proves done, and the report shape to return.
 
 A reader that finds the goal, context, or reason unclear restates its reading in one or two lines, or asks the sender, before it acts.

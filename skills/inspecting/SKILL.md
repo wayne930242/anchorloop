@@ -45,5 +45,5 @@ For each scoped item:
 | [item] | [verdict] | [evidence] |
 ```
 
-Lead with the conclusion. Prioritize failures and recommended actions by impact. Name any unverified boundary instead of implying full coverage.
+Lead with the conclusion. Prioritize failures and recommended actions by impact. Name any unverified boundary instead of implying full coverage. Count the findings you rejected or could not reproduce, each with its reason; zero findings is a valid result, stated as such, because a report of survivors alone cannot tell "found nothing" from "found five and dropped them".
 
