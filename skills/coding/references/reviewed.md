@@ -1,10 +1,10 @@
 # Reviewed changes
 
-Read before the first edit of a change classified Reviewed.
+Read before the first edit of a change classified Reviewed, and when a change is re-classified as Reviewed.
 
 ## Premises
 
-Before the first edit, write its premises in the todo's `metadata.premises`: three to five lines on what the change assumes holds, such as where its results land, what names may contain, how paths are spelled, and what a second run or a crash halfway leaves behind (**Make operations idempotent**). Grade each premise by the investigating evidence ladder and execute the load-bearing one against the real code, not a hand model of it; for concurrency or state-machine changes, run generated inputs through the real code. Look for readers that a symbol grep cannot see: JSON an API returns, a database column, a wire format, another language reading the same bytes, a feature flag, code three hops downstream.
+Before the first edit, write its premises in the todo's `metadata.premises`: three to five lines on what the change assumes holds, such as where its results land, what names may contain, how paths are spelled, and what a second run or a crash halfway leaves behind ([**Make operations idempotent**](../../anchorloop/principles/make-operations-idempotent.md)). Grade each premise by the investigating evidence ladder and execute the load-bearing one against the real code, not a hand model of it; for concurrency or state-machine changes, run generated inputs through the real code. Look for readers that a symbol grep cannot see: JSON an API returns, a database column, a wire format, another language reading the same bytes, a feature flag, code three hops downstream.
 
 ## Review
 

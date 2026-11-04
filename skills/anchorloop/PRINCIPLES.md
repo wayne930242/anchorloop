@@ -1,6 +1,6 @@
 # Principles
 
-Read this index, then open each entry the task triggers; playbooks cite entries by name, and the user steers with the same names.
+Read this index at Align, and open an entry whenever its trigger fires, at Align or later in the run; playbooks cite entries by name, and the user steers with the same names.
 
 ## Core
 
@@ -13,8 +13,8 @@ Read this index, then open each entry the task triggers; playbooks cite entries 
 ## Architecture
 
 - [**Model the domain**](principles/model-the-domain.md): logic that branches a lot or repeats a shape across files.
-- [**Boundary discipline**](principles/boundary-discipline.md): wiring validation and errors.
-- [**Migrate callers, then delete**](principles/migrate-callers-then-delete.md): replacing an API no caller outside the change depends on (other repos, deployed versions, and clients count as outside).
+- [**Boundary discipline**](principles/boundary-discipline.md): wiring validation and errors, or shaping a public type or API.
+- [**Migrate callers, then delete**](principles/migrate-callers-then-delete.md): replacing an API.
 - [**Make operations idempotent**](principles/make-operations-idempotent.md): a script, command, or loop that mutates state.
 - [**Separate before serializing shared state**](principles/separate-before-serializing-shared-state.md): parallel workers, retries, or several writers of one file, key, or branch.
 - [**Type system discipline**](principles/type-system-discipline.md): any typed language.
@@ -30,7 +30,7 @@ Read this index, then open each entry the task triggers; playbooks cite entries 
 
 ## Delegation
 
-- [**Never block on the human**](principles/never-block-on-the-human.md): reversible execution.
+- [**Never block on the human**](principles/never-block-on-the-human.md): deciding whether to proceed or ask the user.
 
 ---
 

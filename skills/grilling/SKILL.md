@@ -19,7 +19,7 @@ Format each question like this:
 
 Each answer reshapes the tree. Recompute the frontier before the next round. A question that still depends on another open decision belongs to a later round.
 
-Finding facts is the agent's job. Use the environment and available tools; delegate independent fact-finding only when it materially saves time. Settle observable questions by **Observe, don't ask** ([principles](../anchorloop/PRINCIPLES.md)), with a check or the `coding` prototype playbook. The decisions are the user's: put each remaining product or preference question to them and wait.
+Finding facts is the agent's job. Use the environment and available tools; delegate independent fact-finding only when it materially saves time. Settle observable questions by [**Observe, don't ask**](../anchorloop/principles/observe-dont-ask.md), with a check or the `coding` prototype playbook. The decisions are the user's: put each remaining product or preference question to them and wait.
 
 When terminology or a durable architectural decision emerges, invoke `domain-modeling` at that point.
 
