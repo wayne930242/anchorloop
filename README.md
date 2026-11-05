@@ -14,12 +14,12 @@ anchorloop            core loop · principles · playbooks: autonomous-run, paus
 ├─ coding        bug-fix · feature · refactoring · perf · prototype  (+ Mini SDD)
 ├─ writing       draft · tighten · comments · pr-description
 └─ solid-loop    apply-friction · author-skill · bootstrap
-shared           grilling · domain-modeling · human-feedback · agent-terse
+shared           grilling · domain-modeling · human-feedback (uat) · agent-terse
 ```
 
 - **`anchorloop`** holds what is true for every task type: restate the task, pick the entry's playbook, keep real work items in `todo` (its first create opens a loop), declare the loop with `anchorloop_stage` (kind, intent, anchor command) before the first change, work in small increments deleting before adding, verify against the anchor, and record friction in the loop book. The Reflexive pass hands reflected friction to `solid-loop`. `PRINCIPLES.md` names the principles playbooks cite and the user can steer with. The lifecycle playbooks cover unattended runs, clean pauses, and picking up a prior run.
 - **Entry skills** each name the anchor for their task type and index their playbooks. A playbook has an ownership line, numbered steps, and a `Reply:` line that sets what the final report contains.
-- **Shared skills** are called by entries: `grilling` for user-owned decisions, `domain-modeling` for terms and ADRs, `human-feedback` for reactions to working output, `agent-terse` for text only agents read: briefs, reports, and agent messages.
+- **Shared skills** are called by entries: `grilling` for user-owned decisions, `domain-modeling` for terms and ADRs, `human-feedback` for reactions to working output and UAT (a person checks the screenshots of an e2e flow), `agent-terse` for text only agents read: briefs, reports, and agent messages.
 
 ## Extensions
 
@@ -38,6 +38,12 @@ Install the npm package `pi-anchorloop`; it is the recommended way to use anchor
 
 ```bash
 pi install npm:pi-anchorloop
+```
+
+The `human-feedback` UAT playbook opens its screenshot review page with the `show_doc` tool of [pi-herdr-doc-review](https://github.com/wayne930242/pi-herdr-doc-review), so install it beside anchorloop. Without it the playbook lists the screenshot paths in the reply instead.
+
+```bash
+pi install npm:pi-herdr-doc-review
 ```
 
 A local checkout loads in place, so edits take effect on `/reload`:

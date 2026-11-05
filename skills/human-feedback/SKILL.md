@@ -1,12 +1,12 @@
 ---
 name: human-feedback
-description: Use when evaluating human feedback or conducting interactive UI verification.
+description: Use when evaluating human feedback, conducting interactive UI verification, or running UAT (驗收), where a person checks screenshots of an e2e flow in a web app, desktop app, or terminal before the change is accepted.
 ---
 
 # Human Feedback
 
 Turn a person's reaction to working output into an evidence-backed root cause and
-a correction made at that root. This skill owns diagnosis, not implementation.
+a correction made at that root.
 
 ## 1. Enter
 
@@ -15,8 +15,9 @@ Two entries:
 - **Detected:** a person reacts to working code, design, or documentation.
   Invoke on the reaction itself, before answering it.
 - **Invited:** verification covers UI or a human-use scenario and the user
-  accepted a feedback pass. Name the real interface and the flows to operate,
-  then collect what the person observed.
+  accepted a feedback pass. When screenshots can show the result, run the
+  [uat](playbooks/uat.md) playbook; otherwise name the real interface and the
+  flows to operate, then collect what the person observed.
 
 Route a crash or reproducible failure to the `coding` bug-fix playbook and a
 request for new behavior to its feature playbook. A reaction with no
