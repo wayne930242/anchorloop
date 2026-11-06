@@ -18,15 +18,15 @@ Six, defined once in `skills/integrating/references/seams.md`:
 | Seam | Decides | Default when unbound |
 |---|---|---|
 | Handoff route | How a slip reaches the owner and the answers return | The session is its own coordinator and owner; no other coordinator is awaited |
-| Batch owner | Who assembles, gates, merges, deploys; how it is named and closed | The session, in a worktree `train-<code>` beside the repository |
-| Approval | Who authorizes a merge and each deploy target; how the words reach `auth` | The user, asked once per round naming the branch and every target; every target `strict` |
+| Batch owner | Who assembles, gates, merges, deploys; how it is named and closed | The session, in a worktree `<repo>-train-<code>` beside the git root |
+| Approval | Who authorizes a merge and each deploy target; how the words reach `auth` | The user, asked once per round naming the branch, `pre-dev/<code>` where pushed, `base` when unnamed, and every target; every target `strict` |
 | Record | The ledger | `scratch/trains/<app>.json` under the git root, machine-local, kept out of commits |
-| Escalation route | `blocked`, `idle`, and announcement of a deploy the owner starts | The session says it to the user; no announcement |
-| Settings | `base`, `stages`, `targets`, `maxCars`, `maxWaitMin`, project skill name | The project's instructions; unnamed: remote default branch, `merge` only, no target, 4, 60, and a missing project skill is `blocked` |
+| Escalation route | `blocked`, `idle`, and announcement of a deploy the owner starts | The session says it to the user, the announcement included |
+| Settings | `base`, `stages`, `targets`, `maxCars`, `maxWaitMin`, project skill name | The project's instructions; unnamed: `base` asked in the Approval round, `merge` only, no target, 4, 60, and a missing project skill is `blocked` |
 
 ### Binding form
 
-A host adds one block to the session's instructions (the project's instructions may hold it too). Each line names a seam and its mechanism; an unnamed seam keeps its default:
+A host adds one block to the session's instructions (the project's instructions may hold it too). Each line names a seam and its mechanism; an unnamed seam keeps its default. When both hold a block, the session's line wins per seam; a Settings key the bound source omits takes its default:
 
     ## Seam bindings
     - Handoff route: <mechanism>
