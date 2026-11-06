@@ -10,5 +10,6 @@
 | Nothing from `integrator.md`'s procedure is lost | Every row of the source mapping in `design.md` has a home; a token sweep of 60 phrases from `integrator.md` over the new files found only `show_doc` and `blank box`, which the `human-feedback` uat playbook (step 4) owns and the UAT stage links | pass |
 | The skills name no host | A grep of the new skills for the host's name, its tools, and its relay vocabulary found nothing | pass |
 | The deployment rules' four items are in `deploying` | `skills/deploying/SKILL.md` Rules 1 to 4 against `weihung-basic-agent/rules/deployment.md` | pass |
+| Review findings AIDR-F001 to F009 fixed | Each changed file re-read against its finding; validators and tests rerun on the fix commit | pass |
 | A fresh-context agent running the new skills reproduces the source behavior | Not run: the brief excludes a reviewer and no recorded failure exists to replay; the read above was the author's own, not independent. `rerun: n/a — new skills, no recorded failure` | unknown |
 | A host can bind the seams from its own session prompt | Binding block specified in `spec.md` and `seams.md`; no host consumed it yet | unknown |

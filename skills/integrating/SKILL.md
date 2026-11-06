@@ -1,6 +1,6 @@
 ---
 name: integrating
-description: Use when reviewed work is ready to enter a shared integration branch alongside other work, such as batching branches into a merge train, assembling and gating a batch, merging a car to develop or main, handling a red integration branch, or taking an urgent or fix-forward car.
+description: Use when reviewed work is ready to enter a shared integration branch in a project that batches reviewed branches into a merge train, such as batching branches into a merge train, assembling and gating a batch, merging a car to develop or main, handling a red integration branch, or taking an urgent or fix-forward car.
 ---
 
 # Integrating
@@ -19,7 +19,7 @@ A car's anchor before handoff is its review (P0 and P1 clear), behaviour tests a
 
 ## Project skill contract
 
-The project skill holds every concrete check, found by these headings exactly as written; add nothing it does not say.
+The project skill holds every concrete check, found by these headings exactly as written; add nothing it does not say. A project skill that triggers for the same work names this skill as its procedure.
 
 | Heading | Read by | Holds |
 |---|---|---|

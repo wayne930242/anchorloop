@@ -4,7 +4,7 @@
 
 ## Binding
 
-The session's instructions or the project's instructions hold at most one block. Each line binds one seam to a mechanism; a seam the block leaves out keeps its default:
+The session's instructions and the project's instructions each hold at most one block. Each line binds one seam to a mechanism; a seam the block leaves out keeps its default:
 
     ## Seam bindings
     - Handoff route: <how a car slip reaches the batch owner and how its answers come back>
@@ -14,7 +14,7 @@ The session's instructions or the project's instructions hold at most one block.
     - Escalation route: <where blocked, idle, and deploy announcements go>
     - Settings: <where the integration branch, stages, targets, and thresholds come from>
 
-Read the block before the first step. A binding whose mechanism the session cannot reach is a blocker: report it through the Escalation route and keep the stage closed, because the default would silently move a decision to a party the host did not choose.
+Read the block before the first step. When both hold a block, the session's line wins per seam; a seam neither binds takes its default. A Settings key the bound source omits takes the default below. A binding whose mechanism the session cannot reach is a blocker: report it through the Escalation route and keep the stage closed, because the default would silently move a decision to a party the host did not choose. When the Escalation route itself cannot be reached, say the blocker to the user.
 
 ## Terms
 
@@ -29,11 +29,11 @@ Read the block before the first step. A binding whose mechanism the session cann
 | Seam | Decides | Default when unbound |
 |---|---|---|
 | Handoff route | How a car slip reaches the batch owner; how the train number, a returned car, and the landed notice reach the coordinator. | The session is its own coordinator and batch owner: it writes each slip into the ledger and answers itself. It awaits no other coordinator. |
-| Batch owner | Who receives cars, assembles, gates, merges, and deploys, and how the owner is named and closed. | The session itself, in a worktree `train-<code>` beside the repository. It closes when its ledger holds no open train. |
-| Approval | Who authorizes a merge to the integration branch and each deploy target, and how the words reach the slip's `auth`. | The user. The session asks one question round naming the integration branch and every deploy target the cars list, and quotes the reply in `auth`. Every target is `strict`. |
-| Record | Where the ledger lives. | `scratch/trains/<app>.json` under the git root. It is machine-local state: stage files by name and keep it out of commits. |
-| Escalation route | Where `blocked`, `idle`, and the announcement of a deploy the owner starts itself go. | The session says it in its reply to the user. No announcement is needed because no other session shares the targets. |
-| Settings | The integration branch, the stages, the targets, `maxCars`, `maxWaitMin`, and the project skill's name. | The project's instructions name them. Left unnamed: `base` is the remote's default branch, `stages` is `merge`, no target is listed, `maxCars` is 4, `maxWaitMin` is 60, and a missing project skill is a `blocked`. |
+| Batch owner | Who receives cars, assembles, gates, merges, and deploys, where its train worktrees live, and how it is named and closed. | The session itself, in a worktree `<repo>-train-<code>`, a sibling directory of the git root. It closes when its ledger holds no open train. |
+| Approval | Who authorizes a merge to the integration branch and each deploy target, and how the words reach the slip's `auth`. | The user. The session asks one question round naming the integration branch, `pre-dev/<code>` where `Merge` pushes it, `base` when Settings leave it unnamed, and every deploy target the cars list, and quotes the reply in `auth`. Every target is `strict`. |
+| Record | Where the ledger lives. | `scratch/trains/<app>.json` under the git root (`<app>` is the repository's name when it has one app). It is machine-local state: stage files by name and keep it out of commits. |
+| Escalation route | Where `blocked`, `idle`, and the announcement of a deploy the owner starts itself go. | The session says it in its reply to the user. The announcement goes in the reply too. |
+| Settings | The integration branch, the stages, the targets, `maxCars`, `maxWaitMin`, and the project skill's name. | The project's instructions name them. Left unnamed: `base` is asked in the Approval round, `stages` is `merge`, no target is listed, `maxCars` is 4, `maxWaitMin` is 60, and a missing project skill is a `blocked`. |
 
 ## Settings keys
 
@@ -45,4 +45,4 @@ Read the block before the first step. A binding whose mechanism the session cann
 
 ## Ledger
 
-One file per app with the train's `<code>`, each car (tickets, branch, head SHA, slip), the train's SHAs, the current stage, the deployed version per target, and each UAT verdict. The batch owner keeps one `todo` per train.
+One file per app with the train's `<code>`, each car (tickets, branch, head SHA, slip), the train's SHAs, the current stage, the deployed version per target, and each UAT verdict.

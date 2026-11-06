@@ -61,7 +61,7 @@ Source files, read only: `P` = `pi-straw-boss/prompts/integrator.md` at `47b91ba
 | `H` Hand-off and routing (relay, forwarding to the one owner, opening and closing it) | host-specific: handoff route and batch owner bindings |
 | `H` Integrator (owns `pre-dev`, assembles locally, one review, gates once, pushes only green, ledger, name, "exception to never merge into an integration base") | covered by `train.md` and `seams.md`; the last clause and the name are host-specific |
 | `H` Stages | `I/SKILL.md` Stages; `Dp/playbooks/deploy.md` |
-| `T1` Q4 (coordinator closes tickets; owner only when the session is gone), Q5 (each car keeps its review, the owner adds one of the merged result), Q7 (an urgent car does not interrupt a gate unless the skill says so) | `I/SKILL.md` After the train, Principle; `I/SKILL.md` contract row `Urgent lane`; `urgent-car.md` step 2 |
+| `T1` Q4 (coordinator closes tickets; owner only when the session is gone), Q5 (each car keeps its review, the owner adds one of the merged result), Q7 (an urgent car does not interrupt a gate unless the skill says so) | `I/SKILL.md` After the train, Principle; `I/SKILL.md` contract row `Urgent lane`; `urgent-car.md` step 2 (Load and red-pipeline conditions still hold) |
 | `T2` Why: an older pipeline deployed after a newer one | `deploy.md` step 3 |
 | `T2` Why: a merge gated on a monitor finishing, not on the run's conclusion | `train.md` step 4; `deploy.md` step 7 |
 | `T2` Why: a healthy rollout reverted by a health deadline | `rollback.md` step 1 (a healthy report is not the proof; read the version) |
@@ -84,9 +84,10 @@ The rules file becomes one line: `Deploy work follows the `deploying` skill's Ru
 1. The host drops the generic procedure from its integrator prompt and keeps the host-specific items above, loading `integrating` and `deploying` instead.
 2. The host's session prompt gains a `Seam bindings` block. For a relay-and-owner host it reads, in outline:
    - Handoff route: the slip goes to the relay with reason `shared`; the relay forwards it to the project's one owner; answers return by direct message.
-   - Batch owner: the project's one integrator session, named by the host's rule, opened and closed by the relay.
+   - Batch owner: the project's one integrator session, named by the host's rule, opened and closed by the relay; worktrees at `~/.herdr/worktrees/<repo>/train-<code>`.
    - Approval: the boss; `auth` quotes the boss's words; questions go through the question tool.
    - Record: the host's trains folder, `<project>/<app>.json`.
    - Escalation route: the relay with reasons `blocked` and `milestone` (idle); an announced deploy goes with reason `shared` naming the target.
    - Settings: the host's `apps.json` (`integration` fields).
 3. The shared rules file's deployment text is replaced by the one-line pointer.
+4. A project integration skill (moldplan-center `integrate`) gains one line under its title: "Run under anchorloop `integrating` (merge) and `deploying` (deploy, UAT); this file holds only the headings they read." Its Light checks slip source becomes `integrating/playbooks/receive-car.md`.
