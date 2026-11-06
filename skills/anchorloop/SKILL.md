@@ -5,7 +5,7 @@ description: Use when doing loop work (change, check, iterate) that no skill was
 
 # Anchor Loop
 
-Every entry skill (`answering`, `investigating`, `inspecting`, `coding`, `writing`, `solid-loop`) runs this loop and supplies the steps through one of its playbooks. The target project's instructions and an exact project skill govern where they speak.
+Every entry skill (`answering`, `investigating`, `inspecting`, `coding`, `integrating`, `deploying`, `writing`, `solid-loop`) runs this loop and supplies the steps through one of its playbooks. The target project's instructions and an exact project skill govern where they speak.
 
 ## Align
 
