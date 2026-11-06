@@ -11,7 +11,7 @@ skills/deploying/    SKILL.md · playbooks/{deploy,rollback}.md
 
 ## Source mapping
 
-Source files, read only: `P` = `pi-straw-boss/prompts/integrator.md` at `e94c496`, `A` = `prompts/apps-config.md` (Merge train section and `integration` fields), `L` = `prompts/planning.md` (integration block, line 37), `H` = `docs/how-it-works.md` (Merge train), `T1` = `docs/specs/2026-10-30-merge-train.md`, `T2` = `docs/specs/2026-11-05-train-stages.md`, `D` = `weihung-basic-agent/rules/deployment.md`. `I` = `skills/integrating`, `Dp` = `skills/deploying`.
+Source files, read only: `P` = `pi-straw-boss/prompts/integrator.md` at `47b91ba`, `A` = `prompts/apps-config.md` (Merge train section and `integration` fields), `L` = `prompts/planning.md` (integration block, line 37), `H` = `docs/how-it-works.md` (Merge train), `T1` = `docs/specs/2026-10-30-merge-train.md`, `T2` = `docs/specs/2026-11-05-train-stages.md`, `D` = `weihung-basic-agent/rules/deployment.md`. `I` = `skills/integrating`, `Dp` = `skills/deploying`.
 
 ### `P` (integrator.md)
 
@@ -30,14 +30,14 @@ Source files, read only: `P` = `pi-straw-boss/prompts/integrator.md` at `e94c496
 | Receiving a car: slip block | `I/playbooks/receive-car.md` step 1 |
 | Receiving a car: the five checks and the return of a failing car | `I/playbooks/receive-car.md` step 2 |
 | Receiving a car: answer with train number and departure conditions | `I/playbooks/receive-car.md` step 3 |
-| Departure: `maxCars` 4, `maxWaitMin` 60, every coordinator arrived, `Load` (omitted: 1-minute load vs cores), pipeline not red | `I/playbooks/train.md` step 1; `seams.md` Settings keys |
+| Departure: `maxCars` 4, `maxWaitMin` 60, every coordinator arrived, `Load` (omitted: 1-minute load vs cores), pipeline not red (a fix-forward car excepted) | `I/playbooks/train.md` step 1; `seams.md` Settings keys |
 | Assembly: `train/<code>` from the latest base in a worktree, `merge --no-ff` in arrival order, plain conflicts resolved and logged, semantic conflicts back to the later car, run `Train assembly` | `I/playbooks/train.md` step 2 (worktree location: batch owner default in `seams.md`) |
 | Review: fresh-context reviewer on `train/<code>` for interactions, conflict resolutions, migration order; P0/P1 of one car back to it, of assembly the owner fixes | `I/playbooks/train.md` step 3 |
 | `Full gates` once per train; green then `Merge`, `Post-merge`; push `pre-dev/<code>` only after green; no force push | `I/playbooks/train.md` step 4 and opening line |
 | Red: find the guilty car per `Full gates`, drop, rebuild; tell the coordinator car, failing tests, log path, `train` SHA; session gone means `blocked` | `I/playbooks/train.md` step 5 |
 | Every head change (dropped car, post-push `git revert -m1`) re-runs `Train assembly`, a delta recheck, `Full gates`; after a revert, before `Merge` | `I/playbooks/train.md` step 6 |
 | `urgent` only on the approver's "first", a P0 defect in a live target, or a fix-forward car; still reviewed and gated | `I/playbooks/urgent-car.md` step 1 |
-| Fix-forward car: only the fix of a red branch, author's read allowed, departs at once and alone, first full-depth review by the train's reviewer, other report-less cars returned | `I/playbooks/urgent-car.md` steps 3, 4; `receive-car.md` step 2 |
+| Fix-forward car (as tightened in `47b91ba`): only the fix of the branch's red pipeline, which the owner checks is the latest and red else returns the car; slip `review` reads `author's read`; departs as the next train, alone, red or not, once `Load` allows; interrupts a running gate only if `Urgent lane` says so; the reviewer's full-depth review also checks the car holds only that fix (more means returned); each new SHA gets the full review until one passes; other report-less cars returned | `I/playbooks/urgent-car.md` steps 2 to 4; `receive-car.md` steps 1, 2; `train.md` step 1 |
 | Deploy: `Deploy` per `auto` target and per slip-named target in the skill's order | `Dp/playbooks/deploy.md` step 1 |
 | Deploy: a `strict` target needs `auth` on every car; else skip, ask, a held car is not landed, held before `Merge` leaves like a dropped car; ask before `Merge` where merging deploys a `strict` target | `Dp/playbooks/deploy.md` step 2 |
 | Deploy: one train per target; later `Merge` waits where merging deploys | `Dp/playbooks/deploy.md` step 3 |

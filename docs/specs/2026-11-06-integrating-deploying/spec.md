@@ -43,7 +43,7 @@ A binding whose mechanism the session cannot reach is a blocker reported through
 - The project skill heading table, with the required set (`Light checks`, `Full gates`, `Merge`, plus `Deploy` and `Deploy verify` for a `deploy` stage and `UAT` for a `uat` stage); a missing required heading stops departure with `blocked`.
 - The car slip with its seven lines, and the receive-check.
 - Departure (`maxCars` 4, `maxWaitMin` 60, `Load`, pipeline not red), assembly (`merge --no-ff` in arrival order, plain conflicts logged, semantic conflicts back to the later car), the fresh-context review of the train, `Full gates` once, `pre-dev/<code>` pushed only after green, red handling by dropping the guilty car, a delta recheck on every head change.
-- The urgent lane and the fix-forward car.
+- The urgent lane and the fix-forward car (named red pipeline checked latest and red, `author's read`, next train alone, full review of the whole diff and of the one-fix scope, a full review per new SHA until one passes).
 - Per-target approval (`auto`, `strict`), serialization per target, `Deploy verify` as the version running on the target, rollback, UAT on the deployed result, and the landed notice.
 
 ### What stays host-specific
