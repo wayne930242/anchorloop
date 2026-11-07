@@ -40,7 +40,7 @@ Read the block before the first step. When both hold a block, the session's line
 ## Settings keys
 
 - `base`: the integration branch.
-- `stages`: ordered; `merge` is first and always present, then optionally `deploy`. There is no `uat` stage: acceptance happens before handoff.
+- `stages`: ordered; `merge` is first and always present, then optionally `deploy`. There is no `uat` stage: acceptance happens before handoff. A `stages` that still lists `uat` (bindings before 2.11.0) is a configuration error: the train does not depart and reports `blocked`, asking the project to move it into `accept` and rename the project skill's `## UAT` to `## Acceptance`.
 - `accept`: the acceptance kinds a car must show evidence of at receipt, such as `e2e` or `uat`; empty means none. Each car's author runs them on its own branch with the approver's nod.
 - `targets`: each deploy target to `auto` or `strict`. `auto` takes every train with no per-car approval, since the setting is the approver's standing word; only the approver sets it, and an `auto` entry is added or widened only with their words quoted in the commit message. `strict`, the default for an unlisted target, takes only cars whose `auth` names it.
 - `maxCars`, `maxWaitMin`: departure thresholds; the project skill may override them.
@@ -48,4 +48,4 @@ Read the block before the first step. When both hold a block, the session's line
 
 ## Ledger
 
-One file per app with the train's `<code>`, each car (tickets, branch, head SHA, slip), the train's SHAs, the current stage, the deployed version per target, and the evidence of each car's acceptance.
+Kept where the Record seam says (one file per app, or an index per app and one file per train), with the train's `<code>`, each car (tickets, branch, head SHA, slip), the train's SHAs, the current stage, the deployed version per target, and the evidence of each car's acceptance.
