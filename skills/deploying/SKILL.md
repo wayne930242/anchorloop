@@ -1,6 +1,6 @@
 ---
 name: deploying
-description: Use when shipping a build to a target such as a test environment, staging, production, a server, or a cluster, when running the deploy or UAT stage of a merge train, syncing files to a host (rsync, Ansible), rolling back a failed deploy, or checking that a target runs the version just shipped.
+description: Use when shipping a build to a target such as a test environment, staging, production, a server, or a cluster, when running the deploy stage of a merge train, syncing files to a host (rsync, Ansible), rolling back a failed deploy, or checking that a target runs the version just shipped.
 ---
 
 # Deploying
@@ -11,7 +11,7 @@ A deploy ships every car in the train at once, and a target someone depends on t
 
 ## Seams
 
-All six seams of [seams](../integrating/references/seams.md) apply with the same defaults and bindings. A train-less deploy (one change, the session as its own owner) follows the same steps, and the reply carries what the ledger would.
+All seven seams of [seams](../integrating/references/seams.md) apply with the same defaults and bindings. Each command of deploy, verify, and rollback runs through the Step runner; the owner of a train orders its targets per `Deploy`. A train-less deploy (one change, the session as its own owner) follows the same steps, and the reply carries what the ledger would.
 
 ## Rules
 
@@ -23,17 +23,6 @@ All six seams of [seams](../integrating/references/seams.md) apply with the same
 ## Where the commands come from
 
 The project skill's `## Deploy` and `## Deploy verify` hold them (heading contract in [integrating](../integrating/SKILL.md)). With no project skill, the project's instructions do; with neither, ask the approver for the target's procedure before the first step, because a guessed deploy command is the one that cannot be undone.
-
-## UAT stage
-
-Stage `uat` runs after `Deploy verify`, for the cars with a `uat` file, on the deployed result (captures taken on a dev server before the merge do not show what ships). Run the [uat](../human-feedback/playbooks/uat.md) playbook with these changes:
-
-- The checkpoints are the cars' `uat` files; `UAT` says where and how the deployed result is captured and by whom.
-- One page per train, one `review` block, an item per checkpoint: `label` is `<ticket>: <flow>, <state>`, `body` its steps and expected result. Open it as soon as it is ready; it does not wait for the approver to be present.
-- A later train may deploy meanwhile; the captures are the record.
-- A comment returns its car: send the coordinator the comments, the captures, and the deployed version. `UAT` says whether to revert first; a revert on the base goes as its own train ([rollback](playbooks/rollback.md)). The fix returns as a new car whose commented checkpoints are captured again, or all of its checkpoints after a revert.
-- The owner never fixes a defect it sees in a capture: it returns that car as a comment does (uat step 3's fix and step 5's Diagnose do not apply).
-- A `uat` car counts as landed only after the page accepts it.
 
 ## Playbooks
 
