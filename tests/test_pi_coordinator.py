@@ -723,6 +723,14 @@ class TestOrphans(CoordinatorCase):
         self.assertIn("w1: no result; process unknown; no child book", text)
         self.assertNotIn("w2:", text)
 
+    def test_a_link_from_before_2_11_reads_as_result_unknown_not_as_no_result(self):
+        self.replay(self.open_loop())
+        book = self.book_files()[0]
+        book.write_text(book.read_text() + json.dumps({"ts": "2026-11-01T00:00:00.000Z", "stage": "link", "child": "old", "name": "legacy", "agent": "worker"}).join(["- ", "\n"]))
+        text = self.read_text([])
+        self.assertIn("legacy: result unknown (pre-2.11 link)", text)
+        self.assertNotIn("legacy: no result", text)
+
     def test_a_live_process_is_alive(self):
         alive = subprocess.Popen(["sleep", "30"])
         try:

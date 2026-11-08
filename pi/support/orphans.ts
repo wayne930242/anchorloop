@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { type Entry, findChildBooks, git, isClosed, stagesDone } from "./book.ts";
 import { type Link, liveness } from "./host.ts";
 
-/** The links of the book with no `result` entry. */
+/** The links of the book with no `result` entry. A link recorded before 2.11 (no `cwd`) comes from a book that kept no results, so its result is unknown, not missing. */
 export function pendingLinks(entries: Entry[]): Entry[] {
 	const latest = new Map<string, Entry>();
 	for (const entry of entries) if (entry.stage === "link" && typeof entry.child === "string") latest.set(entry.child, entry);
@@ -33,6 +33,6 @@ function worktreeState(link: Entry): string | undefined {
 export function orphanLines(entries: Entry[], env: NodeJS.ProcessEnv = process.env): string[] {
 	return pendingLinks(entries).map((link) => {
 		const alive = liveness(link as unknown as Link);
-		return [`${String(link.name ?? link.child)}: no result`, `process ${alive}`, bookState(String(link.child), env), worktreeState(link)].filter(Boolean).join("; ");
+		return [`${String(link.name ?? link.child)}: ${typeof link.cwd === "string" ? "no result" : "result unknown (pre-2.11 link)"}`, `process ${alive}`, bookState(String(link.child), env), worktreeState(link)].filter(Boolean).join("; ");
 	});
 }
