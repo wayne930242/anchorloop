@@ -109,12 +109,19 @@ function landedKeys(entries: Entry[]): Set<string> {
 	return new Set(entries.filter((entry) => entry.stage === "land" && entry.verified !== false).map((entry) => `${String(entry.child ?? "self")}\0${String(entry.head ?? "")}`));
 }
 
+// The integration ref of a repo is looked up once per session: it changes only when the user retargets the branch.
+const ownRefCache = new Map<string, string | undefined>();
+function ownRef(repo: string): string | undefined {
+	if (!ownRefCache.has(repo)) ownRefCache.set(repo, integrationRef(repo, {}));
+	return ownRefCache.get(repo);
+}
+
 /** The ref of each own base's repo, which a push of the coordinator's own commits moves. */
 function ownRefs(entries: Entry[]): Watch[] {
 	const found: Watch[] = [];
 	for (const base of ownBases(entries)) {
 		if (!existsSync(base.repo)) continue;
-		const ref = integrationRef(base.repo, {});
+		const ref = ownRef(base.repo);
 		if (ref) found.push({ key: watchKey(base.repo, ref), dir: base.repo, ref });
 	}
 	return found;
@@ -154,14 +161,36 @@ function movedByFetch(dir: string, ref: string): boolean | undefined {
 	return !subject.startsWith("update by push");
 }
 
+/** The tip of each watch, one `for-each-ref` per directory; a ref that is not a branch name falls back to its own lookup. */
+function tipsOf(watches: Watch[]): Map<string, string> {
+	const tips = new Map<string, string>();
+	const byDir = new Map<string, Watch[]>();
+	for (const watch of watches) byDir.set(watch.dir, [...(byDir.get(watch.dir) ?? []), watch]);
+	for (const [dir, group] of byDir) {
+		const patterns = group.flatMap((watch) => [`refs/remotes/${watch.ref}`, `refs/heads/${watch.ref}`]);
+		const listed = new Map<string, string>();
+		for (const line of (git(dir, ["for-each-ref", "--format=%(objectname) %(refname:short)", ...patterns]) ?? "").split("\n")) {
+			const [sha, name] = line.split(" ");
+			if (sha && name) listed.set(name, sha);
+		}
+		for (const watch of group) {
+			const tip = listed.get(watch.ref) ?? refSha(dir, watch.ref);
+			if (tip) tips.set(watch.key, tip);
+		}
+	}
+	return tips;
+}
+
 /**
  * The tip of every watched ref now, recording a baseline for a ref seen the first time. Taken before a bash call, so the call's own
  * moves of a ref can be told from moves made elsewhere.
  */
 export function watchTips(book: Book): Record<string, string> {
 	const tips: Record<string, string> = {};
-	for (const watch of watched(book.entries)) {
-		const tip = refSha(watch.dir, watch.ref);
+	const watches = watched(book.entries);
+	const now = tipsOf(watches);
+	for (const watch of watches) {
+		const tip = now.get(watch.key);
 		if (!tip) continue;
 		tips[watch.key] = tip;
 		if (lastSeen(book.entries, watch) === undefined) book.entries.push(appendEntry(book.path, "watch", { key: watch.key, ref: watch.ref, sha: tip }));
@@ -232,8 +261,10 @@ export function partialLines(entries: Entry[]): string[] {
  */
 export function checkLandings(book: Book, before: Record<string, string> = {}): Entry[] {
 	const recorded: Entry[] = [];
-	for (const watch of watched(book.entries)) {
-		const tip = refSha(watch.dir, watch.ref);
+	const watches = watched(book.entries);
+	const now = tipsOf(watches);
+	for (const watch of watches) {
+		const tip = now.get(watch.key);
 		const last = lastSeen(book.entries, watch);
 		if (!tip || tip === last) continue;
 		book.entries.push(appendEntry(book.path, "watch", { key: watch.key, ref: watch.ref, sha: tip }));

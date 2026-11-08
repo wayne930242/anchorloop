@@ -44,6 +44,19 @@ class CoordinatorCase(BookCase):
         self.sh("remote", "add", "origin", str(remote))
         self.sh("push", "-q", "-u", "origin", "main")
 
+    def wrapper(self) -> dict:
+        """A `git` on PATH that logs each call's arguments, so a test counts the spawns."""
+        import shutil
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        log = self.root / "git.log"
+        log.unlink(missing_ok=True)
+        script = bin_dir / "git"
+        script.write_text(f'#!/bin/sh\necho "$*" >> "{log}"\nexec {shutil.which("git")} "$@"\n')
+        script.chmod(0o755)
+        self.gitlog = log
+        return {"PATH": f"{bin_dir}:{self.env()['PATH']}"}
+
     def worktree(self, name: str = "wt", branch: str = "feature", start: str = "HEAD") -> Path:
         tree = self.root / name
         self.sh("worktree", "add", "-q", "-b", branch, str(tree), start)
@@ -360,6 +373,16 @@ class TestLanding(LandingCase):
         self.replay(self.bash(run("git", "pull", "-q", "--ff-only"), command="git pull"))
         self.assertEqual([entry for entry in self.lands() if "child" not in entry], [])
 
+    def test_each_bash_call_costs_one_ref_lookup_per_repo_however_many_refs_are_watched(self):
+        self.start()
+        self.sh("update-ref", "refs/remotes/origin/release", self.base)
+        self.replay([spawn("kid2", "w2", worktree={"path": str(self.tree), "branch": "feature", "baseRef": "origin/release", "baseSha": self.base})])
+        env = self.wrapper()
+        self.replay([*self.bash(command="ls"), *self.bash(command="ls")], env=env)
+        calls = self.gitlog.read_text().splitlines() if self.gitlog.exists() else []
+        self.assertLessEqual(len([call for call in calls if "@{upstream}" in call]), 1, calls)
+        self.assertLessEqual(len(calls), 5, calls)
+
     def test_a_squash_landing_is_proven_by_the_content_of_every_path_it_touched(self):
         self.start(commits=2)
         other = self.root / "squasher"
@@ -455,6 +478,53 @@ class TestLanding(LandingCase):
         self.replay(self.bash(run("git", "push", "-q", "origin", "HEAD:main")))
         own = [entry for entry in self.lands() if "child" not in entry]
         self.assertEqual([(entry["rule"], entry["self"]) for entry in own], [("ancestor", True)])
+
+
+class TestPlainSession(CoordinatorCase):
+    """A book with no host child links is read exactly as 2.10.1 read it, with no landing work."""
+
+    # The git subcommands only landing detection runs; 2.10.1 ran none of them.
+    LANDING_GIT = ("@{upstream}", "symbolic-ref", "cherry", "merge-base", "rev-list", "for-each-ref", "reflog")
+
+    def upstream_commit(self) -> None:
+        other = self.root / "other-clone"
+        subprocess.run(["git", "clone", "-q", str(self.root / "remote.git"), str(other)], check=True, capture_output=True)
+        for args in (["config", "user.email", "t@example.com"], ["config", "user.name", "t"]):
+            self.sh(*args, where=other)
+        (other / "up.txt").write_text("x\n")
+        self.sh("add", "-A", where=other)
+        self.sh("commit", "-qm", "upstream", where=other)
+        self.sh("push", "-q", "origin", "main", where=other)
+
+    def test_edit_commit_untracked_pass_push_and_pull_read_as_2_10_1_read_them_with_no_landing_git_calls(self):
+        env = self.wrapper()
+        self.shared_repo()
+        self.replay(self.open_loop(anchor="pytest -q"), env=env)
+        seen: list[str] = []
+
+        def step(*steps: dict) -> None:
+            seen.append(text_of(self.replay([*steps, stage(stage="read")], env=env)["results"][-1]).splitlines()[0])
+
+        step(tool_call("write", "app.py"), edit("app.py"))
+        (self.cwd / "app.py").write_text("print(3)\n")
+        step(bash_call("git commit -qam own"), run("git", "commit", "-qam", "own"), bash_result("git commit -qam own", 0, ""))
+        (self.cwd / "notes.txt").write_text("todo\n")
+        step(bash_result("pytest -q", 0, "ok"))
+        step(bash_call("git push"), run("git", "push", "-q", "origin", "HEAD:main"), bash_result("git push", 0, ""))
+        self.upstream_commit()
+        step(bash_call("git pull"), run("git", "pull", "-q", "--ff-only"), bash_result("git pull", 0, "Fast-forward"))
+        seen.append(text_of(self.replay([stage(stage="close", verdict="landed")], env=env, branch=[todo_state({"subject": "write the fix", "status": "completed"})])["results"][0]))
+        # Captured by running this scenario on 72078f9.
+        self.assertEqual(seen, [
+            "inline \u00b7 phase act \u2713 \u2192 verify (missing: a passing run of `pytest -q` after the last change)",
+            "inline \u00b7 phase act \u2713 \u2192 verify (missing: a passing run of `pytest -q` after the last change)",
+            "inline \u00b7 phase verify \u2713 \u2192 close",
+            "inline \u00b7 phase verify \u2713 \u2192 close",
+            "inline \u00b7 phase act \u2713 \u2192 verify (missing: a passing run of `pytest -q` after the last change)",
+            "closed (landed). not complete: verify (a passing run of `pytest -q` after the last change). Clear the todo list.",
+        ])
+        calls = self.gitlog.read_text().splitlines()
+        self.assertEqual([call for call in calls if any(word in call for word in self.LANDING_GIT) and not call.startswith(("push", "pull", "commit"))], [])
 
 
 class TestObserve(LandingCase):
