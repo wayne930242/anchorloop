@@ -32,7 +32,7 @@ export function booksRoot(env: NodeJS.ProcessEnv = process.env): string {
 	return join(env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"), "anchorloop", "books");
 }
 
-function real(path: string): string {
+export function real(path: string): string {
 	try {
 		return realpathSync(path);
 	} catch {
@@ -325,14 +325,14 @@ export function currentIntent(entries: Entry[]): string | undefined {
 	return found?.intent as string | undefined;
 }
 
-const NOT_STAGES = new Set(["base", "link", "close", "task", "taskrun", "verification", "skip", "back", "friction", "reflect", "goldfish"]);
+const NOT_STAGES = new Set(["base", "link", "result", "watch", "close", "task", "taskrun", "verification", "skip", "back", "friction", "reflect", "goldfish"]);
 
 /** The stages the book shows, in order of first appearance; `edit` entries read as `act`. */
 export function stagesDone(entries: Entry[]): string[] {
 	const seen: string[] = [];
 	for (const entry of entries) {
 		if (NOT_STAGES.has(entry.stage)) continue;
-		const name = entry.stage === "edit" ? "act" : entry.stage;
+		const name = entry.stage === "edit" || entry.stage === "land" ? "act" : entry.stage;
 		if (!seen.includes(name)) seen.push(name);
 	}
 	return seen;
@@ -362,9 +362,13 @@ export function withChildActs(entries: Entry[], env: NodeJS.ProcessEnv = process
 	return [...merged, ...acts];
 }
 
-/** The index of the latest change entry (a production write or edit, a commit), or -1. */
+/** A landing changes what the coordinator holds only when it pushed or merged it itself and the ref now differs from what was checked. */
+const reopensVerify = (entry: Entry): boolean => entry.stage === "land" && entry.verified !== false && entry.self === true && entry.exact !== true;
+
+/** The index of the latest change entry (a production write or edit, a commit, a landing the coordinator made that no check covered), or -1. */
 export function lastActIndex(entries: Entry[]): number {
-	return lastIndex(entries, "edit");
+	for (let i = entries.length - 1; i >= 0; i--) if (entries[i].stage === "edit" || reopensVerify(entries[i])) return i;
+	return -1;
 }
 
 export function reviews(entries: Entry[]): Entry[] {
@@ -585,7 +589,7 @@ const CD_STEP = /^cd\s+("[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/;
  * The command without the leading `cd <dir> &&` (or `;`) steps whose directory is one of `roots`, the roots of the loop's
  * repos, so one anchor run from two checkouts reads the same; a `cd` into a subdirectory stays, since it runs other tests.
  */
-function anchorBody(command: string, roots: string[], cwd: string): string {
+export function anchorBody(command: string, roots: string[], cwd: string): string {
 	let rest = command.trim();
 	for (let step = CD_STEP.exec(rest); step; step = CD_STEP.exec(rest)) {
 		const target = step[1].replace(/^(["'])(.*)\1$/, "$2").replace(/^~(?=\/|$)/, homedir());
@@ -619,6 +623,24 @@ export function adoptableRun(entries: Entry[], anchor: string, trees: string[], 
 		}
 	}
 	return undefined;
+}
+
+/**
+ * The latest passing `check` of the linked child `id` that ran the coordinator's `anchor` (any passing check when the coordinator has no
+ * anchor command), whatever tree it ran on. Used for a landing: the ref now holds the child's change, and the integrator's gates ran on it.
+ */
+export function passingRunOf(entries: Entry[], id: string, anchor: string | undefined, roots: string[], cwd: string, env: NodeJS.ProcessEnv = process.env): { name: string; run: Entry } | undefined {
+	const body = anchor ? anchorBody(anchor, roots, cwd) : undefined;
+	const runs = findChildBooks(id, env).flatMap(({ book }) => {
+		const home = String(book.header.cwd ?? "");
+		const here = home ? repoRootOf(join(home, "_")) : undefined;
+		const childRoots = [...ownBases(book.entries).map((base) => base.repo), ...(here ? [here] : [])];
+		return book.entries.filter((entry) => entry.stage === "check" && entry.exit === 0 && (body === undefined || (typeof entry.command === "string" && anchorBody(entry.command, childRoots, home) === body)));
+	});
+	const run = runs.sort((a, b) => a.ts.localeCompare(b.ts)).at(-1);
+	if (!run) return undefined;
+	const link = entries.find((entry) => entry.stage === "link" && entry.child === id);
+	return { name: String(link?.name ?? id), run };
 }
 
 function existingDir(path: string): string {

@@ -284,7 +284,7 @@ function evaluate(name: string, ctx: Ctx): Status {
 			return index >= 0 ? done(name, String(entries[index].check ?? "")) : missing(name, "a `Reality anchor:` line, `metadata.anchor` on the first todo, or `anchor` on the kind call");
 		}
 		case "act":
-			return lastWhere(entries, from, (entry) => entry.stage === "edit") >= 0 ? done(name) : missing(name, "a change to the code");
+			return lastWhere(entries, from, (entry) => entry.stage === "edit" || (entry.stage === "land" && entry.verified !== false)) >= 0 ? done(name) : missing(name, "a change to the code");
 		case "check":
 		case "verify": {
 			const index = lastWhere(entries, Math.max(from, ctx.lastAct + 1), (entry) => entry.stage === "verify" || entry.stage === "check");

@@ -212,11 +212,11 @@ class TestToolSchemas(BookCase):
         self.assertLessEqual(len(stage_tool["description"]) / 4, 150)
         parameters = stage_tool["parameters"]
         self.assertEqual(parameters["required"], ["stage"])
-        self.assertEqual(parameters["properties"]["stage"]["enum"], ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "back", "close", "read"])
+        self.assertEqual(parameters["properties"]["stage"]["enum"], ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "back", "landed", "close", "read"])
         self.assertEqual(parameters["properties"]["kind"]["enum"], ["quick", "inline", "reviewed", "durable"])
         self.assertEqual(parameters["properties"]["verdict"]["enum"], ["landed", "blocked", "abandoned"])
         self.assertEqual(parameters["properties"]["class"]["enum"], ["misdirection", "gap", "resolved"])
-        self.assertLessEqual(len(json.dumps(stage_tool)) / 4, 400)
+        self.assertLessEqual(len(json.dumps(stage_tool)) / 4, 450)
 
     def test_the_decision_tool_description_stays_near_60_tokens_and_names_what_a_row_is_for(self):
         decision_tool = self.schemas()["anchorloop_decision"]

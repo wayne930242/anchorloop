@@ -60,13 +60,13 @@ import {
 } from "./support/book.ts";
 import { type Link, isChild, linkFrom, resultFrom } from "./support/host.ts";
 import { classify } from "./support/jev.ts";
-import { integrationRef, linkNotes, refSha } from "./support/landing.ts";
+import { checkLandings, declareLanded, integrationRef, landLines, linkNotes, partialLines, refSha, watchTips } from "./support/landing.ts";
 import { linkOfResult, priorSpawns } from "./support/links.ts";
 import { REVIEWLESS, SEQUENCES, computePhases, describe, incompleteBefore, outsideWork, reachLine, reachOf, unansweredReach } from "./support/phases.ts";
 import { type Snapshot, snapshot } from "./support/snapshot.ts";
 
 export const SESSION_ENTRY = "anchorloop-loop";
-const STAGES = ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "back", "close", "read"] as const;
+const STAGES = ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "back", "landed", "close", "read"] as const;
 const REVIEWERS = new Set(["reviewer", "adversarial-reviewer"]);
 const BLOCKING = /Blocking\s*:?\**\s*:?\s*P0\s*=\s*(\d+)\D{0,5}P1\s*=\s*(\d+)/gi;
 const ANCHOR_LINE = /Reality anchor:[ \t]*(.*)/;
@@ -88,6 +88,9 @@ type Params = {
 	reason?: string;
 	verdict?: "landed" | "blocked" | "abandoned";
 	view?: "summary" | "all";
+	sha?: string;
+	ref?: string;
+	task?: number;
 };
 
 type Block = { type?: string; text?: string };
@@ -342,6 +345,8 @@ const reply = (text: string) => ({ content: [{ type: "text" as const, text }], d
 
 export default function (pi: ExtensionAPI) {
 	const subagent = isChild();
+	// Watched-ref tips taken before each bash call, by call id.
+	const tipsBefore = new Map<string, Record<string, string>>();
 	function todosOf(ctx: ExtensionContext) {
 		return replayTodos(ctx.sessionManager.getBranch());
 	}
@@ -369,6 +374,8 @@ export default function (pi: ExtensionAPI) {
 			`reviews: ${reviewTrend(book.entries)}; open todos: ${open}; friction: ${friction.length} (${friction.filter((item) => !item.reflected).length} unreflected)`,
 			...childLines(book.entries).map((line) => `child ${line}`),
 			...linkNotes(book.entries),
+			...landLines(book.entries),
+			...partialLines(book.entries),
 			...friction.filter((item) => item.owner !== "main").map((item) => `friction ${item.ref}: ${item.tried} → ${item.found}${item.reflected ? ` [${item.class}]` : ""}`),
 			...freshReadLine(book, phases),
 		];
@@ -514,7 +521,7 @@ export default function (pi: ExtensionAPI) {
 		name: "anchorloop_stage",
 		label: "Loop stage",
 		description:
-			"Loop book; the first `todo` create opens a loop as inline. stage: kind (kind, intent, anchor; reason to change the kind or answer a reach notice), verify (note; only for a check not run in bash), fresh-read, friction (tried, found, led_by), reflect (friction ids, class, action), skip/back (phase, reason), close (verdict; refuses while an open todo lacks metadata.followup), read. Edits, anchor runs, reviews, and specs are read from evidence.",
+			"Loop book; the first `todo` create opens a loop as inline. stage: kind (kind, intent, anchor; reason to change the kind or answer a reach notice), verify (note; only for a check not run in bash), fresh-read, friction (tried, found, led_by), reflect (friction ids, class, action), skip/back (phase, reason), landed (sha, ref, task: an owner's landed notice, checked against git), close (verdict; refuses while an open todo lacks metadata.followup), read. Edits, anchor runs, reviews, and specs are read from evidence.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -534,6 +541,9 @@ export default function (pi: ExtensionAPI) {
 				reason: { type: "string" },
 				verdict: { type: "string", enum: ["landed", "blocked", "abandoned"] },
 				view: { type: "string", enum: ["summary", "all"] },
+				sha: { type: "string" },
+				ref: { type: "string" },
+				task: { type: "number" },
 			},
 			required: ["stage"],
 			additionalProperties: false,
@@ -566,6 +576,11 @@ export default function (pi: ExtensionAPI) {
 			const lines = [...summaryLines(book, ctx), ...taskLines(book.entries, todosOf(ctx), ctx.cwd)];
 			if (params.view === "all") lines.push("entries:", ...book.entries.map((entry) => JSON.stringify(entry).slice(0, 300)));
 			return reply(lines.join("\n"));
+		}
+		if (stage === "landed") {
+			// The ref may have moved since the last event; the state check records that landing first.
+			checkLandings(book);
+			return reply(declareLanded(book, { sha: params.sha, ref: params.ref, note: params.note, unit: params.task }).text);
 		}
 		if (stage === "close") {
 			if (!params.verdict) throw new Error("close needs a verdict: landed, blocked, or abandoned");
@@ -633,6 +648,8 @@ export default function (pi: ExtensionAPI) {
 				...swept.open.map((path) => `open loop book: ${path}`),
 			];
 			if (lines.length > 0) ctx.ui.notify(`anchorloop books\n${lines.join("\n")}`, "info");
+			const open = openLoop(ctx);
+			if (open) checkLandings(open);
 			showStatus(ctx);
 		}),
 	);
@@ -640,6 +657,12 @@ export default function (pi: ExtensionAPI) {
 	pi.on(
 		"tool_call",
 		guarded((event, ctx) => {
+			if (event.toolName === "bash") {
+				// The tips of the watched refs before the call, so a ref the call itself moves is told from one moved elsewhere.
+				const book = openLoop(ctx);
+				if (book) tipsBefore.set(event.toolCallId, watchTips(book));
+				return;
+			}
 			if (event.toolName !== "write" && event.toolName !== "edit") return;
 			const path = (event.input as { path?: unknown }).path;
 			const book = typeof path === "string" ? openLoop(ctx) : undefined;
@@ -786,6 +809,9 @@ export default function (pi: ExtensionAPI) {
 			if (event.toolName === "bash") {
 				const book = openLoop(ctx);
 				const notice = book ? recordBash(book, event, ctx.cwd) : undefined;
+				const before = tipsBefore.get(event.toolCallId);
+				tipsBefore.delete(event.toolCallId);
+				if (book) checkLandings(book, before);
 				// The line only appends text, so the bash call's structured output passes on unchanged.
 				return notice ? { content: [...((event.content as unknown[]) ?? []), { type: "text", text: notice }], structuredContent: event.structuredContent } : undefined;
 			}
@@ -914,6 +940,7 @@ function headAndTail(text: string): string {
 				...(handoff?.commitsAhead !== undefined ? { commitsAhead: handoff.commitsAhead } : {}),
 				...(handoff?.changedFiles ? { changedFiles: handoff.changedFiles.slice(0, 50) } : {}),
 			});
+			checkLandings(book);
 			adoptChildRun(book, ctx.cwd);
 			if (REVIEWERS.has(result.agent)) await recordReview(ctx, book, result.name || result.agent, textOf(result.resultContent), result.failed);
 			else await detectFreshRead(ctx, book, result);

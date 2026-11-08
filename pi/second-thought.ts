@@ -18,6 +18,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { currentKind, guarded, openLoop } from "./support/book.ts";
+import { checkLandings } from "./support/landing.ts";
 import { type Answers, classify } from "./support/jev.ts";
 import { type Snapshot, listTodos, snapshot } from "./support/snapshot.ts";
 import { isSubagent } from "./support/subagent.ts";
@@ -203,6 +204,8 @@ export default function (pi: ExtensionAPI) {
 			// A quick loop has no prompts but the close reminder.
 			if (!book || currentKind(book.entries) === "quick") return;
 			const id = String(book.header.id);
+			// A ref may have moved since the last tool call; record that landing before the entries are counted.
+			checkLandings(book);
 			if (book.entries.length <= (judged.get(id) ?? 0)) return;
 			judged.set(id, book.entries.length);
 			const snap = snapshot(book, ctx);

@@ -17,6 +17,7 @@ PI_DIR = Path(__file__).resolve().parent.parent / "pi"
 # Replays steps against the registered handlers and tools and prints what the extensions returned.
 HARNESS = """
 import { registerHooks } from "node:module";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 // pi provides its own package to extensions; the stub carries the one value export they use.
@@ -81,6 +82,10 @@ for (const step of JSON.parse(stepsJson)) {
       mkdirSync(dirname(resolve(cwd, step.file)), { recursive: true });
       writeFileSync(resolve(cwd, step.file), step.text);
       out.results.push(null);
+    } else if (step.exec) {
+      // A command the agent's bash call would have run, executed between the call and its result.
+      execFileSync(step.exec[0], step.exec.slice(1), { cwd: step.in ?? cwd, stdio: "ignore" });
+      out.results.push(null);
     } else if (step.branchAdd) {
       branch.push(...step.branchAdd);
       out.results.push(null);
@@ -141,6 +146,15 @@ def todo_state(*tasks: dict) -> dict:
 def write_file(path: str, text: str) -> dict:
     """A step that writes a file under the work directory while the replay runs."""
     return {"file": path, "text": text}
+
+
+def run(*command: str, where: str | None = None) -> dict:
+    """A step that runs `command` while the replay runs, as the bash call a tool_call and its tool_result bracket would have."""
+    return {"exec": list(command), **({"in": where} if where else {})}
+
+
+def bash_call(command: str, call_id: str = "c1") -> dict:
+    return {"event": "tool_call", "payload": {"toolName": "bash", "toolCallId": call_id, "input": {"command": command}}}
 
 
 def stage(**params) -> dict:

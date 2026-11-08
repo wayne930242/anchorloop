@@ -5,7 +5,7 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from tests.pi_harness import bash_result, stage, todo_create, tool_result
+from tests.pi_harness import bash_call, bash_result, run, stage, todo_create, tool_result
 from tests.test_pi_book import BookCase, edit, text_of
 
 
@@ -198,6 +198,177 @@ class TestLinks(CoordinatorCase):
         branch = [{"type": "message", "message": {"role": "toolResult", "toolName": "subagent", "toolCallId": "c1", "details": {"id": "kid", "name": "early", "agent": "worker", "status": "started"}}}]
         self.replay([stage(stage="kind", kind="inline", intent="x")], branch=branch)
         self.assertEqual([entry["child"] for entry in self.links()], ["kid"])
+
+
+class LandingCase(CoordinatorCase):
+    """A coordinator with one linked worker whose commit sits in a worktree, its passing check recorded in a child book."""
+
+    ANCHOR = "pytest -q"
+
+    def start(self, commits: int = 1, check: bool = True) -> Path:
+        self.shared_repo()
+        self.tree = self.worktree()
+        self.base = self.sh("rev-parse", "HEAD")
+        files = [("app.py", "print(2)\n"), ("b.py", "b = 1\n")]
+        for path, text in files[:commits]:
+            self.head = self.commit_in(self.tree, path, text, f"change {path}")
+        worktree = {"path": str(self.tree), "branch": "feature", "baseRef": "HEAD", "baseSha": self.base}
+        self.replay([*self.open_loop(anchor=self.ANCHOR), spawn("kid", "w1", "/s/kid.jsonl", worktree=worktree)])
+        if check:
+            self.child_check()
+        return self.tree
+
+    def child_check(self) -> None:
+        main, self.cwd = self.cwd, self.tree
+        try:
+            self.replay([*self.open_loop("inline", "child work", anchor=self.ANCHOR), edit("app.py"), bash_result(self.ANCHOR, 0, "5 passed")],
+                        env={"PI_SUBAGENT_ID": "kid", "PI_SUBAGENT_NAME": "w1"})
+        finally:
+            self.cwd = main
+
+    def main_book(self) -> Path:
+        return next(path for path in self.book_files() if "agents" not in path.parts)
+
+    def lands(self) -> list[dict]:
+        return self.entries("land", self.main_book())
+
+    def phase_line(self, *steps: dict) -> str:
+        return text_of(self.replay([*steps, stage(stage="read")])["results"][-1]).splitlines()[0]
+
+    def bash(self, *effects: dict, command: str = "land-it") -> list[dict]:
+        """The steps of one bash call: the tool_call, what the command did to the repos, and the result."""
+        return [bash_call(command), *effects, bash_result(command, 0, "ok")]
+
+    def push_from_worktree(self) -> list[dict]:
+        return self.bash(run("git", "push", "-q", "origin", "HEAD:main", where=str(self.tree)))
+
+    def integrator_picks(self, *shas: str) -> None:
+        """Another clone cherry-picks `shas` onto the current origin/main and pushes, then this checkout fetches."""
+        other = self.root / "integrator"
+        if not other.exists():
+            subprocess.run(["git", "clone", "-q", str(self.root / "remote.git"), str(other)], check=True, capture_output=True)
+            for args in (["config", "user.email", "t@example.com"], ["config", "user.name", "t"]):
+                self.sh(*args, where=other)
+        self.sh("fetch", "-q", "origin", where=other)
+        self.sh("fetch", "-q", str(self.tree), "feature", where=other)
+        self.sh("merge", "-q", "--ff-only", "origin/main", where=other)
+        for sha in shas:
+            self.sh("cherry-pick", sha, where=other)
+        self.sh("push", "-q", "origin", "HEAD:main", where=other)
+        self.sh("fetch", "-q", "origin")
+
+
+class TestLanding(LandingCase):
+    def test_a_push_from_the_worktree_is_a_landing_the_coordinator_made_with_the_tree_the_worker_checked(self):
+        self.start()
+        self.assertEqual(self.phase_line(*self.push_from_worktree()), "inline \u00b7 phase verify \u2713 \u2192 close")
+        (land,) = self.lands()
+        self.assertEqual((land["child"], land["rule"], land["exact"], land["self"], land["ref"]), ("kid", "ancestor", True, True, "origin/main"))
+        self.assertEqual(self.entries("verify", self.main_book())[-1]["adopted"], "w1")
+
+    def test_a_landing_is_the_act_of_a_coordinator_whose_worker_opened_no_book(self):
+        self.start(check=False)
+        self.assertIn("phase act \u2713 \u2192 verify (missing: a passing run of `pytest -q`", self.phase_line(*self.push_from_worktree()))
+        (land,) = self.lands()
+        self.assertEqual((land["rule"], land["exact"], land["self"]), ("ancestor", False, True))
+
+    def test_a_worker_rebased_by_the_coordinator_onto_a_moved_main_needs_the_coordinators_own_run(self):
+        self.start()
+        self.advance_origin(1)
+        pick = self.bash(run("git", "checkout", "-q", "-B", "land", "origin/main"), run("git", "cherry-pick", self.head), run("git", "push", "-q", "origin", "HEAD:main"))
+        self.assertIn("\u2192 verify (missing: a passing run of `pytest -q`", self.phase_line(*pick))
+        (land,) = self.lands()
+        self.assertEqual((land["rule"], land["exact"], land["self"]), ("patch-id", False, True))
+        self.assertEqual(self.phase_line(bash_result("pytest -q", 0, "ok")), "inline \u00b7 phase verify \u2713 \u2192 close")
+
+    def test_a_squash_landing_is_proven_by_the_content_of_every_path_it_touched(self):
+        self.start(commits=2)
+        other = self.root / "squasher"
+        subprocess.run(["git", "clone", "-q", str(self.root / "remote.git"), str(other)], check=True, capture_output=True)
+        for args in (["config", "user.email", "t@example.com"], ["config", "user.name", "t"]):
+            self.sh(*args, where=other)
+        (other / "app.py").write_text("print(2)\n")
+        (other / "b.py").write_text("b = 1\n")
+        self.sh("add", "-A", where=other)
+        self.sh("commit", "-qm", "squash", where=other)
+        self.sh("push", "-q", "origin", "main", where=other)
+        self.sh("fetch", "-q", "origin")
+        self.replay([{"event": "session_start", "payload": {}}])
+        (land,) = self.lands()
+        self.assertEqual((land["rule"], land["self"]), ("content", False))
+
+    def test_one_of_two_commits_upstream_is_no_landing_and_read_shows_the_part(self):
+        self.start(commits=2)
+        first = self.sh("rev-list", "--reverse", f"{self.base}..{self.head}", where=self.tree).splitlines()[0]
+        self.integrator_picks(first)
+        text = text_of(self.replay([{"event": "session_start", "payload": {}}, stage(stage="read")])["results"][-1])
+        self.assertEqual(self.lands(), [])
+        self.assertIn("w1: partial 1/2 in origin/main", text)
+
+    def test_an_integrators_landing_fetched_here_is_recorded_as_another_owners_and_the_workers_run_stands(self):
+        self.start()
+        self.integrator_picks(self.head)
+        line = self.phase_line({"event": "session_start", "payload": {}})
+        (land,) = self.lands()
+        self.assertEqual((land["rule"], land["self"]), ("patch-id", False))
+        self.assertEqual(line, "inline \u00b7 phase verify \u2713 \u2192 close")
+
+    def test_an_integrator_that_moved_main_first_still_leaves_the_workers_run_standing(self):
+        self.start()
+        self.advance_origin(1)
+        self.integrator_picks(self.head)
+        line = self.phase_line({"event": "session_start", "payload": {}})
+        (land,) = self.lands()
+        self.assertEqual((land["self"], land["exact"]), (False, False))
+        self.assertEqual(line, "inline \u00b7 phase verify \u2713 \u2192 close")
+
+    def test_the_coordinators_own_edit_after_the_spawn_keeps_the_workers_run_from_standing(self):
+        self.start()
+        self.replay([edit("lib.py")])
+        self.integrator_picks(self.head)
+        self.assertIn("\u2192 verify (missing", self.phase_line({"event": "session_start", "payload": {}}))
+
+    def test_a_ref_that_moved_without_a_landing_records_nothing(self):
+        self.start()
+        self.advance_origin(1)
+        self.replay([{"event": "session_start", "payload": {}}])
+        self.assertEqual(self.lands(), [])
+
+    def test_a_landed_notice_for_a_commit_not_in_the_ref_here_is_unverified_and_names_the_fetch(self):
+        self.start(check=False)
+        out = self.replay([stage(stage="landed", sha=self.head)])
+        self.assertIn("Fetch origin/main", text_of(out["results"][0]))
+        (land,) = self.lands()
+        self.assertIs(land["verified"], False)
+        self.assertIn("act (missing", self.phase_line())
+
+    def test_a_landed_notice_after_the_fetch_is_checked_by_the_rules_and_counts(self):
+        self.start()
+        self.integrator_picks(self.head)
+        out = self.replay([stage(stage="landed", sha=self.sh("rev-parse", "origin/main"))])
+        self.assertIn("w1", text_of(out["results"][0]))
+        (land,) = [entry for entry in self.lands() if entry.get("verified")]
+        self.assertEqual((land["child"], land["rule"], land["self"]), ("kid", "patch-id", False))
+        self.assertEqual(self.phase_line(), "inline \u00b7 phase verify \u2713 \u2192 close")
+
+    def test_a_landed_notice_with_no_sha_is_checked_against_the_watched_ref(self):
+        self.start()
+        self.integrator_picks(self.head)
+        out = self.replay([stage(stage="landed", note="integrator says landed")])
+        self.assertTrue(text_of(out["results"][0]).startswith("recorded") or text_of(out["results"][0]).startswith("already recorded"), text_of(out["results"][0]))
+        self.assertEqual([entry["verified"] for entry in self.lands()], [True])
+
+    def test_a_session_with_no_workers_lands_its_own_commits_by_push_and_is_told_apart_from_a_fetch(self):
+        self.shared_repo()
+        self.replay(self.open_loop(anchor="pytest -q"))
+        (self.cwd / "app.py").write_text("print(3)\n")
+        self.sh("commit", "-qam", "own change")
+        push = self.bash(run("git", "push", "-q", "origin", "HEAD:main"))
+        steps = [edit("app.py"), bash_result("pytest -q", 0, "ok"), *push]
+        self.assertEqual(self.phase_line(*steps), "inline \u00b7 phase verify \u2713 \u2192 close")
+        (land,) = self.lands()
+        self.assertNotIn("child", land)
+        self.assertEqual((land["rule"], land["exact"], land["self"]), ("ancestor", True, True))
 
 
 if __name__ == "__main__":
