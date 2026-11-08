@@ -338,9 +338,10 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 	if (!tip) return unconfirmed(`${ref} does not resolve here`);
 	if (params.sha && (refSha(dir, params.sha) === undefined || git(dir, ["merge-base", "--is-ancestor", params.sha, tip]) === undefined)) return unconfirmed(`${params.sha.slice(0, 12)} is not in ${ref} here`);
 	const done = landedKeys(book.entries);
-	const tipTree = git(dir, ["rev-parse", `${tip}^{tree}`]);
 	const lines: string[] = [];
 	for (const watch of wanted) {
+		const watchTip = refSha(watch.dir, watch.ref) ?? tip;
+		const watchTree = git(watch.dir, ["rev-parse", `${watchTip}^{tree}`]);
 		for (const candidate of candidatesOn(book.entries, watch)) {
 			if (done.has(`${candidate.child ?? "self"}\0${candidate.head}`)) continue;
 			if (params.children && candidate.child !== undefined && !params.children.includes(candidate.child)) continue;
@@ -351,13 +352,14 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 			}
 			const run = candidate.child ? childPassingRun(book, candidate.child) : undefined;
 			const checked = new Set(Array.isArray(run?.run.trees) ? (run?.run.trees as unknown[]).map(String) : []);
-			const exact = candidate.child ? tipTree !== undefined && checked.has(tipTree) : false;
+			const exact = candidate.child ? watchTree !== undefined && checked.has(watchTree) : false;
 			book.entries.push(
 				appendEntry(book.path, "land", {
 					...base,
 					...(candidate.child ? { child: candidate.child } : {}),
-						label: candidate.label,
-					sha: tip,
+					label: candidate.label,
+					ref: candidate.ref,
+					sha: watchTip,
 					head: candidate.head,
 					rule: found.rule,
 					exact,

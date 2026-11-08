@@ -460,6 +460,17 @@ class TestLanding(LandingCase):
         self.assertTrue(text_of(out["results"][0]).startswith("recorded") or text_of(out["results"][0]).startswith("already recorded"), text_of(out["results"][0]))
         self.assertEqual([entry["verified"] for entry in self.lands()], [True])
 
+    def test_a_declared_landing_with_no_ref_labels_each_branch_with_the_ref_it_landed_in(self):
+        self.start()
+        tree2 = self.worktree("wt2", "feature2")
+        head2 = self.commit_in(tree2, "c.py", "c = 1\n", "second")
+        worktree2 = {"path": str(tree2), "branch": "feature2", "baseRef": "origin/release", "baseSha": self.base}
+        self.sh("update-ref", "refs/remotes/origin/release", head2)
+        self.replay([spawn("kid2", "w2", worktree=worktree2)])
+        self.replay([stage(stage="landed", note="w2 landed")])
+        landed = [(entry["label"], entry["ref"]) for entry in self.lands() if entry.get("verified") and "child" in entry]
+        self.assertEqual(landed, [("w2", "origin/release")])
+
     def test_a_session_with_no_linked_worker_records_no_landing_of_its_own_commits(self):
         self.shared_repo()
         self.replay(self.open_loop(anchor="pytest -q"))
