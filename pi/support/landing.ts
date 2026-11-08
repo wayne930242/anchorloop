@@ -143,6 +143,18 @@ function lastSeen(entries: Entry[], watch: Watch): string | undefined {
 }
 
 /**
+ * True when the last move of a remote-tracking ref was a fetch or pull (the reflog subject is `fetch…` or `pull…`) rather than this
+ * checkout's own push (`update by push`): the ref then holds what others landed. Undefined for a ref that is not remote-tracking or has no reflog.
+ */
+function movedByFetch(dir: string, ref: string): boolean | undefined {
+	const full = git(dir, ["rev-parse", "--symbolic-full-name", ref]);
+	if (!full?.startsWith("refs/remotes/")) return undefined;
+	const subject = git(dir, ["reflog", "-1", "--format=%gs", full]);
+	if (!subject) return undefined;
+	return !subject.startsWith("update by push");
+}
+
+/**
  * The tip of every watched ref now, recording a baseline for a ref seen the first time. Taken before a bash call, so the call's own
  * moves of a ref can be told from moves made elsewhere.
  */
@@ -225,7 +237,7 @@ export function checkLandings(book: Book, before: Record<string, string> = {}): 
 		const last = lastSeen(book.entries, watch);
 		if (!tip || tip === last) continue;
 		book.entries.push(appendEntry(book.path, "watch", { key: watch.key, ref: watch.ref, sha: tip }));
-		const self = before[watch.key] !== undefined && before[watch.key] !== tip;
+		const self = before[watch.key] !== undefined && before[watch.key] !== tip && movedByFetch(watch.dir, watch.ref) !== true;
 		const done = landedKeys(book.entries);
 		const tipTree = git(watch.dir, ["rev-parse", `${tip}^{tree}`]);
 		// The coordinator's own commits count only for a push this session made, and not when a worker's landing already explains the move.

@@ -327,6 +327,39 @@ class TestLanding(LandingCase):
         self.assertEqual(line, "inline \u00b7 phase verify \u2713 \u2192 close")
         self.assertTrue([entry for entry in self.lands() if "child" not in entry][0]["exact"])
 
+    def upstream_push(self, name: str = "integrator2") -> None:
+        """Another clone pushes a commit to origin/main without this checkout fetching it."""
+        other = self.root / name
+        subprocess.run(["git", "clone", "-q", str(self.root / "remote.git"), str(other)], check=True, capture_output=True)
+        for args in (["config", "user.email", "t@example.com"], ["config", "user.name", "t"]):
+            self.sh(*args, where=other)
+        (other / "up.txt").write_text("x\n")
+        self.sh("add", "-A", where=other)
+        self.sh("commit", "-qm", "upstream", where=other)
+        self.sh("push", "-q", "origin", "main", where=other)
+
+    def test_the_coordinators_own_fetch_of_an_integrators_landing_is_landed_elsewhere_and_the_workers_run_stands(self):
+        self.start()
+        self.advance_origin(1)
+        self.replay([{"event": "session_start", "payload": {}}])
+        other = self.root / "integrator3"
+        subprocess.run(["git", "clone", "-q", str(self.root / "remote.git"), str(other)], check=True, capture_output=True)
+        for args in (["config", "user.email", "t@example.com"], ["config", "user.name", "t"]):
+            self.sh(*args, where=other)
+        self.sh("fetch", "-q", str(self.tree), "feature", where=other)
+        self.sh("cherry-pick", "-x", self.head, where=other)
+        self.sh("push", "-q", "origin", "HEAD:main", where=other)
+        line = self.phase_line(*self.bash(run("git", "fetch", "-q", "origin"), command="git fetch origin"))
+        (land,) = self.lands()
+        self.assertEqual((land["child"], land["self"]), ("kid", False))
+        self.assertEqual(line, "inline \u00b7 phase verify \u2713 \u2192 close")
+
+    def test_a_pull_that_brings_in_upstream_commits_is_no_landing_of_the_coordinators_own_commits(self):
+        self.start()
+        self.upstream_push()
+        self.replay(self.bash(run("git", "pull", "-q", "--ff-only"), command="git pull"))
+        self.assertEqual([entry for entry in self.lands() if "child" not in entry], [])
+
     def test_a_squash_landing_is_proven_by_the_content_of_every_path_it_touched(self):
         self.start(commits=2)
         other = self.root / "squasher"
