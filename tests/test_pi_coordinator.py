@@ -298,6 +298,24 @@ class TestLanding(LandingCase):
         self.assertIn("\u2192 verify (missing: a passing run of `pytest -q`", self.phase_line(*self.push_from_worktree()))
         self.assertEqual([entry for entry in self.entries("verify", self.main_book()) if entry.get("adopted")], [])
 
+    def test_a_worker_with_no_commits_of_its_own_that_updated_its_branch_from_main_is_not_landed_when_main_moves(self):
+        self.start(commits=0)
+        self.advance_origin(1)
+        self.replay([{"event": "session_start", "payload": {}}])
+        self.sh("merge", "-q", "--ff-only", "origin/main", where=self.tree)
+        self.advance_origin(1)
+        out = self.replay([{"event": "session_start", "payload": {}}, stage(stage="read")])
+        self.assertEqual(self.lands(), [])
+        self.assertEqual([entry for entry in self.entries("verify", self.main_book()) if entry.get("adopted")], [])
+        self.assertNotIn("landed w1", text_of(out["results"][-1]))
+        # Its real change lands later and is still watched.
+        self.sh("merge", "-q", "--ff-only", "origin/main", where=self.tree)
+        self.commit_in(self.tree, "real.py", "x = 1\n", "real work")
+        self.sh("push", "-q", "origin", "HEAD:main", where=self.tree)
+        self.sh("fetch", "-q", "origin")
+        self.replay([{"event": "session_start", "payload": {}}])
+        self.assertEqual([(entry["child"], entry["rule"]) for entry in self.lands()], [("kid", "ancestor")])
+
     def test_a_squash_landing_is_proven_by_the_content_of_every_path_it_touched(self):
         self.start(commits=2)
         other = self.root / "squasher"

@@ -235,6 +235,8 @@ export function checkLandings(book: Book, before: Record<string, string> = {}): 
 		for (const candidate of candidatesOn(book.entries, watch, own)) {
 			if (done.has(`${candidate.child ?? "self"}\0${candidate.head}`)) continue;
 			if (candidate.child === undefined && explained) continue;
+			// A worker whose head the ref already held before this move brought nothing to it (it only updated its branch from the ref).
+			if (candidate.child !== undefined && last !== undefined && aheadOf(candidate.repo, last, candidate.head) === 0) continue;
 			const found = standing(candidate.repo, candidate.ref, candidate.head, candidate.base);
 			if (!found.rule) continue;
 			if (candidate.child !== undefined) explained = true;
