@@ -472,6 +472,13 @@ class TestChildBook(CoordinatorCase):
         self.assertEqual([e["stage"] for e in entries if e["stage"] in ("kind", "anchor", "base", "edit")], ["base", "kind", "anchor", "edit"])
         self.assertEqual([e["check"] for e in entries if e["stage"] == "anchor"], ["pytest -q"])
 
+    def test_a_reality_anchor_line_the_child_stated_before_its_first_edit_is_its_anchor_when_it_has_no_todo(self):
+        self.git_repo()
+        branch = [{"type": "message", "message": {"role": "user", "content": "fix it"}},
+                  {"type": "message", "message": {"role": "assistant", "content": [{"type": "text", "text": "Reality anchor: pytest tests/test_export.py"}]}}]
+        self.replay(self.child_edit(), env=self.CHILD, branch=branch)
+        self.assertEqual([e["check"] for e in self.entries("anchor", self.child_book())], ["pytest tests/test_export.py"])
+
     def test_a_childs_run_of_the_parents_anchor_is_a_check_with_the_trees_it_ran_on(self):
         self.coordinator()
         self.replay([*self.child_edit(), bash_result("pytest -q", 0, "5 passed")], env=self.CHILD)

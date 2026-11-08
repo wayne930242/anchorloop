@@ -498,7 +498,8 @@ export default function (pi: ExtensionAPI) {
 		if (base) book.entries.push(appendEntry(book.path, "base", { ...base, dirty: {} }));
 		else touchRepo(book, join(ctx.cwd, "_"));
 		book.entries.push(appendEntry(book.path, "kind", { kind: "inline", auto: true, intent: clip(`work of ${String(book.header.owner)}`, 200) }));
-		const anchor = parentAnchorNow();
+		recordPriorAnchor(book, ctx);
+		const anchor = anchorCommand(book.entries) ? undefined : parentAnchorNow();
 		if (anchor) book.entries.push(appendEntry(book.path, "anchor", { check: anchor, parent: true }));
 		return book;
 	}
