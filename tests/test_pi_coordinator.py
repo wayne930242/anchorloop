@@ -330,6 +330,23 @@ class TestLanding(LandingCase):
         self.replay([{"event": "session_start", "payload": {}}])
         self.assertEqual([(entry["child"], entry["rule"]) for entry in self.lands()], [("kid", "ancestor")])
 
+    def test_a_worker_that_fetches_and_fast_forwards_in_one_step_before_any_commit_of_its_own_is_never_landed(self):
+        # The worker's fetch moves the refs it shares with this checkout, so no intermediate tip is ever seen.
+        self.start(commits=0)
+        self.upstream_push("integrator9")
+        self.sh("fetch", "-q", "origin", where=self.tree)
+        self.sh("merge", "-q", "--ff-only", "origin/main", where=self.tree)
+        out = self.replay([*self.bash(command="ls"), stage(stage="read")])
+        self.assertEqual(self.lands(), [])
+        self.assertEqual([entry for entry in self.entries("verify", self.main_book()) if entry.get("adopted")], [])
+        self.assertNotIn("landed w1", text_of(out["results"][-1]))
+        # Its real change lands later and is still watched.
+        self.commit_in(self.tree, "real.py", "x = 1\n", "real work")
+        self.sh("push", "-q", "origin", "HEAD:main", where=self.tree)
+        self.sh("fetch", "-q", "origin")
+        self.replay([{"event": "session_start", "payload": {}}])
+        self.assertEqual([(entry["child"], entry["rule"]) for entry in self.lands()], [("kid", "ancestor")])
+
     def test_an_untracked_file_does_not_reopen_verify_when_the_coordinators_push_holds_the_tree_it_checked(self):
         self.start(check=False)
         (self.cwd / "own.py").write_text("o = 1\n")

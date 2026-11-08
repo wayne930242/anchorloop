@@ -198,6 +198,19 @@ export function watchTips(book: Book): Record<string, string> {
 	return tips;
 }
 
+// Reflog subjects of the operations that create commits: a commit, cherry-pick, revert, am, a rebase that replays commits, a merge that is not a fast-forward.
+const MAKES_COMMITS = /^(commit|cherry-pick|revert|am)\b|\((pick|squash|fixup|reword|edit|merge)\)|^merge .*: (?!Fast-forward)/;
+
+/**
+ * Whether the branch ever held a commit made on it, read from its reflog: false for a branch that only started from a base and moved
+ * forward to what a ref already held (a fetch and fast-forward), which has nothing of its own to land. Undefined when no reflog says.
+ */
+function hasOwnCommits(repo: string, ref: string): boolean | undefined {
+	const log = git(repo, ["reflog", "show", "--format=%gs", ref]);
+	if (!log) return undefined;
+	return log.split("\n").some((subject) => MAKES_COMMITS.test(subject));
+}
+
 /**
  * The branches that can land on `watch`: each linked worker's. With `ownBase`, the tip the ref had before a bash call that moved it,
  * also the coordinator's own commits that call may have pushed: the commits of `HEAD` the ref did not hold before.
@@ -216,6 +229,8 @@ function candidatesOn(entries: Entry[], watch: Watch, ownBase?: string): Candida
 			(worktree?.branch ? refSha(repo, `refs/heads/${worktree.branch}`) : undefined);
 		const base = worktree?.baseSha ?? (typeof link.refSha === "string" ? link.refSha : undefined);
 		if (!head || !base) continue;
+		// A worker that never made a commit of its own (it only updated its branch from the ref) has nothing to land, whichever tip the ref took.
+		if (hasOwnCommits(repo, worktree?.branch ? `refs/heads/${worktree.branch}` : "HEAD") === false) continue;
 		found.push({ key: watch.key, dir: watch.dir, ref: watch.ref, label: String(link.name ?? link.child), child: String(link.child), head, base, repo });
 	}
 	if (ownBase !== undefined && existsSync(watch.dir) && ownBases(entries).some((base) => base.repo === watch.dir)) {
