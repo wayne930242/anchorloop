@@ -57,4 +57,4 @@ A train runs the app's `stages` in order (`merge`, then optionally `deploy`):
 
 ## After the train
 
-When a car has no stage left, tell its coordinator through the handoff route: "landed in `<version>`, your commit is `<sha>`". Where the host takes each car's outcome as a state (landed, returned, dropped) and sends the notice itself, set the state and wait for the host's delivery report before the step ends. The coordinator closes its ticket; the owner does so only when the coordinator's session is gone. When the queue is empty and no stage runs, escalate `idle` and let the host close the owner.
+When a car has no stage left, tell its coordinator through the handoff route: "landed in `<version>`, your commit is `<sha>`". Where the host takes each car's outcome as a state (landed, returned, dropped) and sends the notice itself, set the state and wait for the host's delivery report before the step ends. The coordinator records the notice with `anchorloop_stage landed` and closes its ticket; the owner does so only when the coordinator's session is gone. When the queue is empty and no stage runs, escalate `idle` and let the host close the owner.
