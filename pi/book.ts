@@ -59,7 +59,7 @@ import {
 import { classify } from "./support/jev.ts";
 import { REVIEWLESS, SEQUENCES, computePhases, describe, incompleteBefore, outsideWork, reachLine, reachOf, unansweredReach } from "./support/phases.ts";
 import { type Snapshot, snapshot } from "./support/snapshot.ts";
-import { isSubagent } from "./support/subagent.ts";
+import { isChild, linkFrom, resultFrom } from "./support/host.ts";
 
 export const SESSION_ENTRY = "anchorloop-loop";
 const STAGES = ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "back", "close", "read"] as const;
@@ -337,7 +337,7 @@ const WIDGET_KEY = "anchorloop";
 const reply = (text: string) => ({ content: [{ type: "text" as const, text }], details: undefined });
 
 export default function (pi: ExtensionAPI) {
-	const subagent = isSubagent();
+	const subagent = isChild();
 	function todosOf(ctx: ExtensionContext) {
 		return replayTodos(ctx.sessionManager.getBranch());
 	}
@@ -763,11 +763,8 @@ export default function (pi: ExtensionAPI) {
 			const book = openLoop(ctx);
 			if (!book) return;
 			if (event.toolName === "subagent") {
-				const id = (event.details as { id?: unknown } | undefined)?.id;
-				if (typeof id === "string") {
-					const details = event.details as { name?: unknown; agent?: unknown };
-					appendEntry(book.path, "link", { child: id, name: details.name, agent: details.agent });
-				}
+				const link = linkFrom(event.toolName, event.input, event.details);
+				if (link) appendEntry(book.path, "link", { child: link.child, name: link.name, agent: link.agent });
 				return;
 			}
 			if (event.toolName !== "write" && event.toolName !== "edit") return;
@@ -859,7 +856,7 @@ function headAndTail(text: string): string {
 	pi.on(
 		"message_end",
 		guarded(async (event, ctx) => {
-			const message = event.message as { role?: string; content?: unknown; customType?: string; details?: { agent?: unknown; name?: unknown; task?: unknown; resultContent?: unknown; error?: unknown; errorMessage?: unknown; exitCode?: unknown } };
+			const message = event.message as { role?: string; content?: unknown; customType?: string; details?: unknown };
 			const book = openLoop(ctx);
 			if (!book) return;
 			const stated = statedAnchor(message);
@@ -867,15 +864,11 @@ function headAndTail(text: string): string {
 				appendEntry(book.path, "anchor", { check: stated, line: true });
 				showStatus(ctx);
 			}
-			if (message.role !== "custom" || message.customType !== "subagent_result" || subagent) return;
+			const result = subagent ? undefined : resultFrom(message);
+			if (!result) return;
 			adoptChildRun(book, ctx.cwd);
-			const agent = String(message.details?.agent ?? "");
-			if (REVIEWERS.has(agent)) {
-				const d = message.details ?? {};
-				const failed = Boolean(d.error) || Boolean(d.errorMessage) || (typeof d.exitCode === "number" && d.exitCode !== 0);
-				await recordReview(ctx, book, String(d.name ?? agent), textOf(d.resultContent), failed);
-			}
-			else await detectFreshRead(ctx, book, message.details ?? {});
+			if (REVIEWERS.has(result.agent)) await recordReview(ctx, book, result.name || result.agent, textOf(result.resultContent), result.failed);
+			else await detectFreshRead(ctx, book, result);
 		}),
 	);
 }

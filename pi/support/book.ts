@@ -10,6 +10,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, constants, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, writeSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { childId as hostChildId, childName, childSession } from "./host.ts";
 
 export const KINDS = ["quick", "inline", "reviewed", "durable"] as const;
 export type Kind = (typeof KINDS)[number];
@@ -44,7 +45,7 @@ export function projectSlug(cwd: string): string {
 }
 
 export function childId(env: NodeJS.ProcessEnv = process.env): string | undefined {
-	return env.PI_SUBAGENT_ID || undefined;
+	return hostChildId(env);
 }
 
 function safe(id: string): string {
@@ -157,8 +158,8 @@ export function createBook(who: Who, env: NodeJS.ProcessEnv = process.env): Book
 	const header = {
 		// Unique per loop: the file name follows the session, so a reopened loop must not reuse an old id.
 		id: `${basename(path, ".yml")}-${randomUUID().slice(0, 8)}`,
-		owner: child ? env.PI_SUBAGENT_NAME || child : "main",
-		session: (child ? env.PI_SUBAGENT_SESSION : undefined) || who.sessionManager.getSessionFile?.() || null,
+		owner: child ? childName(env) || child : "main",
+		session: (child ? childSession(env) : undefined) || who.sessionManager.getSessionFile?.() || null,
 		cwd: real(who.cwd),
 		opened: new Date().toISOString(),
 	};
