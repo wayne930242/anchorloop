@@ -137,11 +137,12 @@ export function message(verdict: Verdict, snap: Snapshot, found: string[], atClo
 }
 
 /**
- * What makes two advisories the same: the next phase, the assessment findings, and the open todo ids; the wording of the gap may change.
- * Jev's move is left out: it alternates between advance and back on unchanged evidence, and each flip would resend the same advisory.
+ * What makes two advisories the same: Jev's move, the next phase, the assessment findings, and the open todo ids; the wording of the gap
+ * may change. The move stays in, so a turn to `back` or `ask-user` on new evidence is never taken for the advisory already sent. A book
+ * is judged again only when it holds new evidence, which keeps an unchanged state from flapping between moves.
  */
-function adviceKey(snap: Snapshot, found: string[]): string {
-	return JSON.stringify([snap.next, found, snap.unsettled.map((task) => task.id)]);
+function adviceKey(verdict: Verdict, snap: Snapshot, found: string[]): string {
+	return JSON.stringify([verdict.move, snap.next, found, snap.unsettled.map((task) => task.id)]);
 }
 
 // Entries that say something new about the work. Task, link, base, watch, and result entries change with every todo or spawn.
@@ -228,7 +229,7 @@ export default function (pi: ExtensionAPI) {
 			const proceed = !continued && continues(judgment.verdict, snap);
 			// Jev agrees and nothing needs the agent: the verdict is recorded and nothing is said.
 			const speaks = proceed || snap.unsettled.length > 0 || concerns(judgment.verdict, found).length > 0;
-			const key = adviceKey(snap, found);
+			const key = adviceKey(judgment.verdict, snap, found);
 			if (!speaks || told.get(id) === key) return { entries: [...earlier, verdictEntry] };
 			told.set(id, key);
 			if (proceed) continued = true;

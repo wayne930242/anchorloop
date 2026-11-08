@@ -415,14 +415,19 @@ class TestSecondThought(ExtensionCase):
         out = self.replay([*self.loop(), edit_result(), SETTLE, SETTLED, todo_update(1, "write the fix", "in_progress"), SETTLE], classify=answers())
         self.assertEqual(len(out["classifyCalls"]), 1)
 
-    def test_a_move_that_flaps_on_unchanged_evidence_sends_the_advisory_once(self):
-        # Jev's move alternates between advance and back; the next phase and the findings stay the same.
-        plan = [answers("advance", done=0.05), answers("back", done=0.05), answers("advance", done=0.05)]
+    def test_a_move_to_back_on_new_evidence_is_advised_and_the_same_move_again_is_not(self):
+        # Jev reads the new friction as a reason to go back: the advisory carries that, and a repeat of it stays quiet.
+        plan = [answers("advance", done=0.05), answers("back", done=0.05), answers("back", done=0.05)]
         out = self.replay([*self.loop(), edit_result(), SETTLE, SETTLED, stage(stage="friction", tried="a", found="b"), SETTLE, SETTLED, stage(stage="friction", tried="c", found="d"), SETTLE], classify=plan)
         self.assertEqual(len(out["classifyCalls"]), 3)
         self.assertIsNotNone(self.advice(out["results"][4]))
-        self.assertIsNone(self.advice(out["results"][7]))
+        self.assertIn("earlier evidence does not hold", self.advice(out["results"][7]) or "")
         self.assertIsNone(self.advice(out["results"][10]))
+
+    def test_a_settle_with_no_new_evidence_does_not_ask_jev_again_even_if_its_move_would_change(self):
+        plan = [answers("advance", done=0.05), answers("back", done=0.05)]
+        out = self.replay([*self.loop(), edit_result(), SETTLE, SETTLED, SETTLE], classify=plan)
+        self.assertEqual(len(out["classifyCalls"]), 1)
 
     def test_an_advisory_whose_gap_is_reworded_but_whose_next_phase_and_concerns_are_the_same_is_not_repeated(self):
         # The failing check's own output changes between settles, which rewords the gap only through the exit code.
