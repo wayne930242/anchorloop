@@ -5,7 +5,7 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from tests.pi_harness import bash_call, bash_result, run, stage, todo_create, tool_result
+from tests.pi_harness import bash_call, bash_result, run, stage, todo_create, tool_call, tool_result
 from tests.test_pi_book import BookCase, edit, text_of
 
 
@@ -429,6 +429,77 @@ class TestNudge(CoordinatorCase):
 
     def test_an_anchor_on_the_kind_call_is_a_structured_run_and_stays_quoted(self):
         self.assertIn("a passing run of `make test` after the last change", self.read_text([*self.open_loop(anchor="make test"), edit()]))
+
+
+class TestChildBook(CoordinatorCase):
+    """A pi-herdr child opens its book from its first change or run of the unit's anchor, with no todo, so the coordinator sees it."""
+
+    CHILD = {"PI_SUBAGENT_ID": "kid", "PI_SUBAGENT_NAME": "w1"}
+
+    def coordinator(self, anchor: str = "pytest -q") -> None:
+        self.git_repo()
+        self.replay([*self.open_loop(anchor=anchor), spawn("kid", "w1", "/s/kid.jsonl")])
+
+    def child_book(self) -> Path:
+        return next(path for path in self.book_files() if "agents" in path.parts)
+
+    def child_edit(self) -> list[dict]:
+        return [tool_call("write", "src/app.py"), edit()]
+
+    def test_a_childs_first_production_edit_opens_its_book_with_the_unit_anchor_and_no_todo(self):
+        self.coordinator()
+        self.replay(self.child_edit(), env=self.CHILD)
+        header, entries = self.book(self.child_book())
+        self.assertEqual(header["owner"], "w1")
+        self.assertEqual([e["stage"] for e in entries if e["stage"] in ("kind", "anchor", "base", "edit")], ["base", "kind", "anchor", "edit"])
+        self.assertEqual([e["check"] for e in entries if e["stage"] == "anchor"], ["pytest -q"])
+
+    def test_a_childs_run_of_the_parents_anchor_is_a_check_with_the_trees_it_ran_on(self):
+        self.coordinator()
+        self.replay([*self.child_edit(), bash_result("pytest -q", 0, "5 passed")], env=self.CHILD)
+        (check,) = self.entries("check", self.child_book())
+        self.assertEqual((check["command"], check["exit"]), ("pytest -q", 0))
+        self.assertEqual(len(check["trees"]), 1)
+
+    def test_a_run_of_the_parents_anchor_alone_opens_the_childs_book(self):
+        self.coordinator()
+        self.replay([bash_result("pytest -q", 0, "5 passed")], env=self.CHILD)
+        self.assertEqual([e["exit"] for e in self.entries("check", self.child_book())], [0])
+
+    def test_the_coordinators_act_comes_from_the_childs_edit(self):
+        self.coordinator()
+        self.replay(self.child_edit(), env=self.CHILD)
+        self.assertEqual(self.read_text([]).splitlines()[0], "inline \u00b7 phase act \u2713 \u2192 verify (missing: a passing run of `pytest -q` after the last change)")
+        self.assertIn("child w1: inline; stages kind, anchor, act", self.read_text([]))
+
+    def test_a_childs_commit_without_a_book_is_its_change(self):
+        self.coordinator()
+        (self.cwd / "app.py").write_text("print(2)\n")
+        self.sh("commit", "-qam", "change")
+        self.replay([bash_result("git commit -qam change", 0, "")], env=self.CHILD)
+        self.assertEqual([e.get("via") for e in self.entries("edit", self.child_book())], ["commit"])
+
+    def test_a_child_with_no_known_anchor_still_opens_its_book_on_an_edit_and_records_no_run(self):
+        self.git_repo()
+        self.replay([*self.child_edit(), bash_result("pytest -q", 0, "ok")], env=self.CHILD)
+        self.assertEqual(self.entries("check", self.child_book()), [])
+        self.assertEqual(len(self.entries("edit", self.child_book())), 1)
+
+    def test_a_main_session_with_no_loop_still_opens_nothing_on_an_edit(self):
+        self.git_repo()
+        self.replay(self.child_edit())
+        self.assertEqual(self.book_files(), [])
+
+    def test_a_scratch_edit_or_a_foreign_command_does_not_open_a_childs_book(self):
+        self.coordinator()
+        self.replay([tool_call("write", "scratch/n.json"), tool_result("write", {"path": "scratch/n.json"}), bash_result("ls", 0, "x")], env=self.CHILD)
+        self.assertEqual([path for path in self.book_files() if "agents" in path.parts], [])
+
+    def test_an_env_only_childs_first_edit_opens_a_book_and_links_nothing(self):
+        self.git_repo()
+        self.replay(self.child_edit(), env={"PI_SUBAGENT_CHILD": "1"})
+        self.assertEqual(len(self.entries("edit")), 1)
+        self.assertEqual(self.entries("link"), [])
 
 
 if __name__ == "__main__":

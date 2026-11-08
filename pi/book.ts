@@ -21,6 +21,7 @@ import {
 	appendEntry,
 	artifactKind,
 	bases,
+	real,
 	childId,
 	childIds,
 	childLines,
@@ -31,12 +32,14 @@ import {
 	diffAgainstBases,
 	findChildBooks,
 	frictionOf,
+	git,
 	guarded,
 	isOpenTask,
 	latestTasks,
 	observeItems,
 	openLoop,
 	ownBases,
+	parentAnchor,
 	repoOf,
 	replayTodos,
 	refsOf,
@@ -335,6 +338,15 @@ export function mergeRun(command: string): { verb: string; dir: string } | undef
 	return undefined;
 }
 
+/** True when `before` changes into a directory that is not one of the repo `roots`: a run after it tests something else. */
+function cdsOutside(before: string, roots: string[], cwd: string): boolean {
+	for (const found of before.matchAll(/\bcd\s+("[^"]*"|'[^']*'|[^\s;&|]+)/g)) {
+		const target = found[1].replace(/^(["'])(.*)\1$/, "$2").replace(/^~(?=\/|$)/, homedir());
+		if (!roots.includes(real(resolve(cwd, target)))) return true;
+	}
+	return false;
+}
+
 /** The text a `Reality anchor:` line states in an assistant message, if any. */
 function statedAnchor(message: { role?: string; content?: unknown } | undefined): string | undefined {
 	if (message?.role !== "assistant") return undefined;
@@ -456,6 +468,41 @@ export default function (pi: ExtensionAPI) {
 		return !entries.some((entry) => entry.stage === "kind" && typeof entry.kind === "string" && entry.auto !== true);
 	}
 
+	// A child looks up its parent's anchor on each bash call; the lookup scans books, so it is kept for a few seconds.
+	let parent: { at: number; anchor: string | undefined } | undefined;
+	function parentAnchorNow(): string | undefined {
+		const id = childId();
+		if (id === undefined) return undefined;
+		if (!parent || Date.now() - parent.at > 5000) parent = { at: Date.now(), anchor: parentAnchor(id) };
+		return parent.anchor;
+	}
+
+	/** A child's book, opened from its own evidence (a production edit, a commit, a run of its parent's anchor) with no todo: inline, the parent's anchor as its anchor. */
+	function openFromEvidence(ctx: ExtensionContext, base?: { repo: string; head: string }): Book {
+		const book = createBook(ctx);
+		if (base) book.entries.push(appendEntry(book.path, "base", { ...base, dirty: {} }));
+		else touchRepo(book, join(ctx.cwd, "_"));
+		book.entries.push(appendEntry(book.path, "kind", { kind: "inline", auto: true, intent: clip(`work of ${String(book.header.owner)}`, 200) }));
+		const anchor = parentAnchorNow();
+		if (anchor) book.entries.push(appendEntry(book.path, "anchor", { check: anchor, parent: true }));
+		return book;
+	}
+
+	/** Opens a child's book for a bash call that ran its parent's anchor or committed a production change; undefined for any other call. */
+	function openChildFromBash(ctx: ExtensionContext, event: { input: unknown; isError?: boolean; structuredContent?: unknown; content?: unknown }): Book | undefined {
+		const command = String((event.input as { command?: unknown }).command ?? "");
+		const anchor = parentAnchorNow();
+		if (anchor && anchorRun(command, anchor)) return openFromEvidence(ctx);
+		if (bashExit(event) !== 0 || !/\bgit\b[^|;&]*\bcommit\b/.test(command)) return undefined;
+		const repo = repoRootOf(join(ctx.cwd, "_"));
+		const head = repo ? git(repo, ["rev-parse", "HEAD"]) : undefined;
+		const names = repo ? (git(repo, ["show", "--name-only", "--format=", "HEAD"]) ?? "").split("\n").filter(Boolean) : [];
+		if (!repo || !head || !names.some((name) => !outsideWork(join(repo, name), ctx.cwd))) return undefined;
+		const book = openFromEvidence(ctx, { repo, head: git(repo, ["rev-parse", "HEAD~1"]) ?? head });
+		book.entries.push(appendEntry(book.path, "edit", { via: "commit" }));
+		return book;
+	}
+
 	/** Opens the loop at the first todo create as `inline`: the first todo's subject is the intent, a stated `Reality anchor:` line or its `metadata.anchor` the anchor. */
 	function openFromTodo(ctx: ExtensionContext, details: unknown): Book {
 		const book = createBook(ctx);
@@ -466,6 +513,8 @@ export default function (pi: ExtensionAPI) {
 		recordPriorLinks(book, ctx);
 		const anchor = first?.metadata?.anchor;
 		if (typeof anchor === "string" && anchor.trim() && !anchorCommand(book.entries)) book.entries.push(appendEntry(book.path, "anchor", { check: anchor.trim() }));
+		const inherited = !anchorCommand(book.entries) ? parentAnchorNow() : undefined;
+		if (inherited) book.entries.push(appendEntry(book.path, "anchor", { check: inherited, parent: true }));
 		const observe = first?.metadata?.observe;
 		if (Array.isArray(observe) && observe.length > 0) book.entries.push(appendEntry(book.path, "observe", { items: observe.map((item) => clip(String(item), 200)).slice(0, 10) }));
 		return book;
@@ -680,8 +729,11 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (event.toolName !== "write" && event.toolName !== "edit") return;
 			const path = (event.input as { path?: unknown }).path;
-			const book = typeof path === "string" ? openLoop(ctx) : undefined;
-			if (book && typeof path === "string") touchRepo(book, resolve(ctx.cwd, path));
+			if (typeof path !== "string") return;
+			let book = openLoop(ctx);
+			// A child's first production edit opens its book, before the file changes, so the base is the state it started from.
+			if (!book && isChild() && !artifactKind(path) && !outsideWork(path, ctx.cwd)) book = openFromEvidence(ctx);
+			if (book) touchRepo(book, resolve(ctx.cwd, path));
 		}),
 	);
 
@@ -742,11 +794,16 @@ export default function (pi: ExtensionAPI) {
 		const notices: string[] = [];
 		// A failed run keeps its key line, so a rerun that passes can name what failed without the whole output.
 		const keyOf = (code: unknown) => (typeof code === "number" && code !== 0 ? { key: keyLine(output) } : {});
-		if (anchor && anchorRun(command, anchor)) {
+		const inherited = parentAnchorNow();
+		for (const own of [...new Set([anchor, inherited].filter((item): item is string => item !== undefined))]) {
+			const run = anchorRun(command, own);
+			if (!run) continue;
+			// The parent's anchor, run from another directory, is another check.
+			if (own !== anchor && cdsOutside(command.slice(0, run.at), loopRepos(book, cwd), cwd)) continue;
 			const child = childId() !== undefined;
 			const recorded = child || currentKind(book.entries) === "quick" ? "check" : "verify";
-			const code = anchorExit(command, anchor, exit);
-			const entry = appendEntry(book.path, recorded, { command: anchor.slice(0, 200), exit: code, last, ...keyOf(code), ...reachField(book, cwd), ...(child ? treesField(book, cwd) : {}) });
+			const code = anchorExit(command, own, exit);
+			const entry = appendEntry(book.path, recorded, { command: own.slice(0, 200), exit: code, last, ...keyOf(code), ...reachField(book, cwd), ...(child ? treesField(book, cwd) : {}) });
 			book.entries.push(entry);
 			const reach = reachNotice(book, entry);
 			if (reach) notices.push(reach);
@@ -822,7 +879,7 @@ export default function (pi: ExtensionAPI) {
 		"tool_result",
 		guarded((event, ctx) => {
 			if (event.toolName === "bash") {
-				const book = openLoop(ctx);
+				const book = openLoop(ctx) ?? (isChild() ? openChildFromBash(ctx, event) : undefined);
 				const notice = book ? recordBash(book, event, ctx.cwd) : undefined;
 				const before = tipsBefore.get(event.toolCallId);
 				tipsBefore.delete(event.toolCallId);

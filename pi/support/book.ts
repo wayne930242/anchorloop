@@ -189,6 +189,40 @@ function setAside(path: string): void {
 	renameSync(path, join(dirname(path), `${stem}.closed-${n}.yml`));
 }
 
+/** The open books of the sessions that linked the child `id`, newest first: the inverse of `findChildBooks`. */
+export function findParentBooks(id: string, env: NodeJS.ProcessEnv = process.env): Book[] {
+	const root = booksRoot(env);
+	if (!existsSync(root)) return [];
+	const found: { book: Book; mtime: number }[] = [];
+	for (const project of readdirSync(root)) {
+		let files: string[];
+		try {
+			files = readdirSync(join(root, project)).filter((file) => file.endsWith(".yml"));
+		} catch {
+			continue;
+		}
+		for (const file of files) {
+			const path = join(root, project, file);
+			try {
+				const book = parseBook(path);
+				if (book && !isClosed(book) && book.entries.some((entry) => entry.stage === "link" && entry.child === id)) found.push({ book, mtime: statSync(path).mtimeMs });
+			} catch {
+				// The book vanished mid-scan.
+			}
+		}
+	}
+	return found.sort((a, b) => b.mtime - a.mtime).map((item) => item.book);
+}
+
+/** The command the session that linked child `id` holds as its anchor, when that anchor is a command; the run a child's `check` records. */
+export function parentAnchor(id: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+	for (const book of findParentBooks(id, env)) {
+		const anchor = anchorCommand(book.entries);
+		if (anchor && anchorIsCommand(book.entries)) return anchor;
+	}
+	return undefined;
+}
+
 export type ChildBook = { book: Book; tag: string };
 
 /** The books of the child `id` among all projects: its earlier closed loops (`~1`, `~2`) in order, then the current one (no tag). */
