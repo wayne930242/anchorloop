@@ -361,12 +361,15 @@ export function currentIntent(entries: Entry[]): string | undefined {
 
 const NOT_STAGES = new Set(["base", "link", "result", "watch", "observe", "close", "task", "taskrun", "verification", "skip", "back", "friction", "reflect", "goldfish"]);
 
+/** A landing that counts: git confirmed a watched branch in the ref. A declared sha no watched branch explains is recorded but is neither the act nor a point to observe from. */
+export const countsAsLanding = (entry: Entry): boolean => entry.stage === "land" && entry.verified !== false && entry.rule !== "declared";
+
 /** The stages the book shows, in order of first appearance; `edit` entries read as `act`. */
 export function stagesDone(entries: Entry[]): string[] {
 	const seen: string[] = [];
 	for (const entry of entries) {
 		if (NOT_STAGES.has(entry.stage)) continue;
-		const name = entry.stage === "edit" || entry.stage === "land" ? "act" : entry.stage;
+		const name = entry.stage === "edit" || (entry.stage === "land" && countsAsLanding(entry)) ? "act" : entry.stage;
 		if (!seen.includes(name)) seen.push(name);
 	}
 	return seen;
@@ -397,7 +400,7 @@ export function withChildActs(entries: Entry[], env: NodeJS.ProcessEnv = process
 }
 
 /** A landing changes what the coordinator holds only when it pushed or merged it itself and the ref now differs from what was checked. */
-const reopensVerify = (entry: Entry): boolean => entry.stage === "land" && entry.verified !== false && entry.self === true && entry.exact !== true;
+const reopensVerify = (entry: Entry): boolean => countsAsLanding(entry) && entry.self === true && entry.exact !== true;
 
 /** The index of the latest change entry (a production write or edit, a commit, a landing the coordinator made that no check covered), or -1. */
 export function lastActIndex(entries: Entry[]): number {

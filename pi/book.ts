@@ -19,6 +19,7 @@ import {
 	allFriction,
 	anchorCommand,
 	appendEntry,
+	countsAsLanding,
 	artifactKind,
 	bases,
 	real,
@@ -695,7 +696,7 @@ export default function (pi: ExtensionAPI) {
 				const items = unit ? unit.observe : observeItems(book.entries);
 				if (!Number.isInteger(params.checkpoint) || params.checkpoint < 1 || params.checkpoint > items.length) throw new Error(`checkpoint ${String(params.checkpoint)} is not an observation of this loop (${items.length ? `1 to ${items.length}` : "none listed: give `observe` on the kind call"})`);
 				appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, checkpoint: params.checkpoint, ...(unit ? { task: unit.id } : {}) });
-				return reply(book.entries.some((entry) => entry.stage === "land" && entry.verified !== false) ? "ok" : "ok (an observation counts once the work has landed)");
+				return reply(book.entries.some(countsAsLanding) ? "ok" : "ok (an observation counts once the work has landed)");
 			}
 			const entry = appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, ...(unit ? { task: unit.id } : {}), ...reachField(book, ctx.cwd) });
 			book.entries.push(entry);

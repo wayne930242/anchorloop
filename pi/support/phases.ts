@@ -9,6 +9,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
+	countsAsLanding,
 	type Book,
 	type Entry,
 	type Kind,
@@ -248,7 +249,7 @@ function proposedSince(ctx: Ctx): number | undefined {
 function openObservation(entries: Entry[], from: number): string | undefined {
 	const items = observeItems(entries);
 	if (items.length === 0) return undefined;
-	const landed = lastWhere(entries, 0, (entry) => entry.stage === "land" && entry.verified !== false);
+	const landed = lastWhere(entries, 0, countsAsLanding);
 	for (let i = 0; i < items.length; i++) {
 		const seen = landed < 0 ? -1 : lastWhere(entries, Math.max(from, landed + 1), (entry) => (entry.stage === "verify" || entry.stage === "check") && entry.checkpoint === i + 1);
 		if (seen < 0 || entries[seen].result === "fail") return `observe ${i + 1}/${items.length}: ${items[i]}${landed < 0 ? " (after it lands)" : ""}`;
@@ -302,7 +303,7 @@ function evaluate(name: string, ctx: Ctx): Status {
 			return index >= 0 ? done(name, String(entries[index].check ?? "")) : missing(name, "a `Reality anchor:` line, `metadata.anchor` on the first todo, or `anchor` on the kind call");
 		}
 		case "act":
-			return lastWhere(entries, from, (entry) => entry.stage === "edit" || (entry.stage === "land" && entry.verified !== false)) >= 0 ? done(name) : missing(name, "a change to the code");
+			return lastWhere(entries, from, (entry) => entry.stage === "edit" || countsAsLanding(entry)) >= 0 ? done(name) : missing(name, "a change to the code");
 		case "check":
 		case "verify": {
 			const index = lastWhere(entries, Math.max(from, ctx.lastAct + 1), isRunEntry);

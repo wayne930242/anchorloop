@@ -471,6 +471,15 @@ class TestLanding(LandingCase):
         landed = [(entry["label"], entry["ref"]) for entry in self.lands() if entry.get("verified") and "child" in entry]
         self.assertEqual(landed, [("w2", "origin/release")])
 
+    def test_a_declared_sha_in_the_ref_that_no_watched_branch_explains_is_recorded_but_is_not_the_act(self):
+        self.start(check=False)
+        before = self.phase_line()
+        self.advance_origin(1)
+        out = self.replay([stage(stage="landed", sha=self.sh("rev-parse", "origin/main"))])
+        self.assertTrue(text_of(out["results"][0]).startswith("recorded"), text_of(out["results"][0]))
+        self.assertEqual([entry["rule"] for entry in self.lands()], ["declared"])
+        self.assertEqual(self.phase_line(), before)
+
     def test_a_session_with_no_linked_worker_records_no_landing_of_its_own_commits(self):
         self.shared_repo()
         self.replay(self.open_loop(anchor="pytest -q"))
