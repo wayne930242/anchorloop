@@ -624,12 +624,25 @@ class TestUnits(CoordinatorCase):
         self.assertIn("MP-4366 reviewed \u00b7 anchor \u2713 \u2192 act (missing: a change to the code)", lines)
 
     def test_a_ticket_id_two_open_todos_hold_binds_nothing_and_the_child_counts_for_every_unit(self):
-        one = {**self.ONE, "metadata": {"anchor": "pytest -q"}}
-        two = {**self.TWO, "metadata": {"anchor": "make test"}, "subject": "MP-4366 follow-up"}
+        one = {**self.ONE, "metadata": {"anchor": "pytest -q", "kind": "inline"}}
+        two = {**self.TWO, "metadata": {"anchor": "make test", "kind": "inline"}, "subject": "MP-4366 follow-up"}
         self.start(one, two, links=(spawn("k2", "mp4366-worker"),))
         self.child_edit("k2", "mp4366-worker")
         lines = self.lines(tasks=(one, two))
-        self.assertTrue(all("act \u2713 \u2192 verify" in line for line in lines if line.startswith("MP-436")), lines)
+        unit_lines = [line for line in lines if line.startswith("MP-436") and "inline \u00b7" in line]
+        self.assertEqual(len(unit_lines), 2, lines)
+        self.assertTrue(all("act \u2713 \u2192 verify" in line for line in unit_lines), lines)
+
+    def test_two_todos_that_carry_only_an_anchor_are_not_units_and_read_as_one_loop(self):
+        a = {"subject": "fix a", "status": "in_progress", "metadata": {"anchor": "pytest a"}}
+        b = {"subject": "fix b", "status": "pending", "metadata": {"anchor": "pytest b"}}
+        self.git_repo()
+        steps = [todo_create("fix a", 1, "in_progress", anchor="pytest a"), todo_create("fix b", 2, anchor="pytest b"), tool_call("write", "app.py"), edit("app.py"), bash_result("pytest a", 0, "ok")]
+        lines = self.read_text(steps, branch=self.branch(a, b)).splitlines()
+        self.assertTrue(lines[0].startswith("inline \u00b7 phase "), lines[0])
+        self.assertFalse([line for line in lines if line.startswith(("#1 inline", "#2 inline"))], lines)
+        out = self.replay([stage(stage="close", verdict="landed")], branch=[todo_state({**a, "status": "completed"}, {**b, "status": "completed"})])
+        self.assertNotIn("#1 inline", text_of(out["results"][0]))
 
     def test_a_single_unit_loop_reads_as_before(self):
         self.git_repo()

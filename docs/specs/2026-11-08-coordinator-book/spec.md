@@ -48,7 +48,7 @@ Approved from: boss decisions 2026-11-08, 「D1 一本 book 內分單位; D2 看
 
 ### Units
 
-- A todo with `metadata.anchor`, `observe`, `kind`, `lands`, or `agents` is a unit. A link binds to a unit by `metadata.agents`, else by the ticket id in the child's name or brief when exactly one open todo holds it; a child that matches none stays loop-wide. Phases are computed per unit over its entries plus the loop-wide ones; `read`, the widget, and the Jev `tasks` field show one line per unit. Close stays loop-level. A single-ticket loop is unchanged.
+- A todo with `observe`, `kind`, `lands`, or `agents` is a unit, and so is the one open todo a child's ticket id binds; `metadata.anchor` alone is a task's own check and makes no unit, so a plain session with several anchored todos reads as before. A link binds to a unit by `metadata.agents`, else by the ticket id in the child's name or brief when exactly one open todo holds it; a child that matches none stays loop-wide. Phases are computed per unit over its entries plus the loop-wide ones; `read`, the widget, and the Jev `tasks` field show one line per unit. Close stays loop-level. A single-ticket loop is unchanged.
 
 ### Skill text
 

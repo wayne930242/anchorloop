@@ -1,6 +1,6 @@
 /**
- * Units: parallel tickets in one loop book. A todo that carries its own `anchor`, `observe`, `kind`, `lands`, or `agents` metadata is a
- * unit, and so is the one open todo a child's name or brief names by ticket id. Each unit gets the phases of its own kind over the book's
+ * Units: parallel tickets in one loop book. A todo that carries `observe`, `kind`, `lands`, or `agents` metadata is a
+ * unit (an `anchor` alone is not), and so is the one open todo a child's name or brief names by ticket id. Each unit gets the phases of its own kind over the book's
  * entries that belong to it (its children's links, landings, reviews, its task-anchor runs) plus the entries nobody owns. A loop with fewer
  * than two units is read as one loop, as before.
  */
@@ -37,7 +37,8 @@ function ofTask(task: Task): Unit {
 	};
 }
 
-const hasUnitMetadata = (unit: Unit): boolean => unit.anchor !== undefined || unit.observe.length > 0 || unit.kind !== undefined || unit.lands !== undefined || unit.agents.length > 0;
+/** A task `anchor` alone is the todo's own check (a plain session may carry several); only coordination metadata makes a unit. */
+const hasUnitMetadata = (unit: Unit): boolean => unit.observe.length > 0 || unit.kind !== undefined || unit.lands !== undefined || unit.agents.length > 0;
 
 /** The tickets a todo names: in its subject, and its `followup` when that is a ticket id. */
 function taskTickets(task: Task): string[] {

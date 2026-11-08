@@ -689,7 +689,7 @@ export default function (pi: ExtensionAPI) {
 			const todos = todosOf(ctx);
 			const found = unitsOf(book.entries, todos);
 			const unit = params.task === undefined ? undefined : unitById(found, params.task);
-			if (params.task !== undefined && !unit) throw new Error(`task ${String(params.task)} is not a unit of this loop (a todo with anchor, observe, kind, lands, or agents metadata)`);
+			if (params.task !== undefined && !unit) throw new Error(`task ${String(params.task)} is not a unit of this loop (a todo with observe, kind, lands, or agents metadata)`);
 			if (params.checkpoint !== undefined) {
 				const items = unit ? unit.observe : observeItems(book.entries);
 				if (!Number.isInteger(params.checkpoint) || params.checkpoint < 1 || params.checkpoint > items.length) throw new Error(`checkpoint ${String(params.checkpoint)} is not an observation of this loop (${items.length ? `1 to ${items.length}` : "none listed: give `observe` on the kind call"})`);
