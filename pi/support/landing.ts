@@ -16,7 +16,6 @@ import {
 	passingRunOf,
 	repoRootOf,
 	resultOf,
-	workingTree,
 } from "./book.ts";
 import type { Worktree } from "./host.ts";
 
@@ -242,7 +241,7 @@ export function checkLandings(book: Book, before: Record<string, string> = {}): 
 			if (candidate.child !== undefined) explained = true;
 			const run = candidate.child ? childPassingRun(book, candidate.child) : undefined;
 			const checked = new Set(Array.isArray(run?.run.trees) ? (run?.run.trees as unknown[]).map(String) : []);
-			const exact = candidate.child ? tipTree !== undefined && checked.has(tipTree) : tipTree !== undefined && workingTree(candidate.repo) === tipTree;
+			const exact = candidate.child ? tipTree !== undefined && checked.has(tipTree) : tipTree !== undefined && git(candidate.repo, ["rev-parse", "HEAD^{tree}"]) === tipTree;
 			const land = appendEntry(book.path, "land", {
 				...(candidate.child ? { child: candidate.child } : {}),
 				label: candidate.label,

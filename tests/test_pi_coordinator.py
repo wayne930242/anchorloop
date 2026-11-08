@@ -316,6 +316,17 @@ class TestLanding(LandingCase):
         self.replay([{"event": "session_start", "payload": {}}])
         self.assertEqual([(entry["child"], entry["rule"]) for entry in self.lands()], [("kid", "ancestor")])
 
+    def test_an_untracked_file_does_not_reopen_verify_when_the_coordinators_push_holds_the_tree_it_checked(self):
+        self.start(check=False)
+        (self.cwd / "own.py").write_text("o = 1\n")
+        self.sh("add", "own.py")
+        self.sh("commit", "-qm", "own change")
+        self.replay([edit("own.py"), bash_result(self.ANCHOR, 0, "ok")])
+        (self.cwd / "notes.txt").write_text("todo\n")
+        line = self.phase_line(*self.bash(run("git", "push", "-q", "origin", "HEAD:main")))
+        self.assertEqual(line, "inline \u00b7 phase verify \u2713 \u2192 close")
+        self.assertTrue([entry for entry in self.lands() if "child" not in entry][0]["exact"])
+
     def test_a_squash_landing_is_proven_by_the_content_of_every_path_it_touched(self):
         self.start(commits=2)
         other = self.root / "squasher"
