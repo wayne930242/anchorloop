@@ -273,7 +273,8 @@ export function checkLandings(book: Book, before: Record<string, string> = {}): 
 		const tipTree = git(watch.dir, ["rev-parse", `${tip}^{tree}`]);
 		// The coordinator's own commits count only for a push this session made, and not when a worker's landing already explains the move.
 		let explained = false;
-		const own = self ? before[watch.key] : undefined;
+		// Only a remote-tracking ref whose last move was `update by push` is proof of a push: a pull on a local branch, or a ref with no reflog, proves nothing.
+		const own = self && movedByFetch(watch.dir, watch.ref) === false ? before[watch.key] : undefined;
 		for (const candidate of candidatesOn(book.entries, watch, own)) {
 			if (done.has(`${candidate.child ?? "self"}\0${candidate.head}`)) continue;
 			if (candidate.child === undefined && explained) continue;

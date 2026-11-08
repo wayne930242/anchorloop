@@ -499,6 +499,26 @@ class TestLanding(LandingCase):
         own = [entry for entry in self.lands() if "child" not in entry]
         self.assertEqual([(entry["rule"], entry["self"]) for entry in own], [("ancestor", True)])
 
+    def test_a_pull_on_a_watched_local_branch_is_no_landing_of_the_coordinators_own_commits(self):
+        self.shared_repo()
+        self.tree = self.worktree()
+        self.base = self.sh("rev-parse", "HEAD")
+        self.commit_in(self.tree, "app.py", "print(2)\n", "change")
+        worktree = {"path": str(self.tree), "branch": "feature", "baseRef": "main", "baseSha": self.base}
+        self.replay([*self.opening(), spawn("kid", "w1", "/s/kid.jsonl", worktree=worktree)])
+        self.upstream_push("integrator8")
+        self.replay(self.bash(run("git", "pull", "-q", "--ff-only"), command="git pull"))
+        self.assertEqual(self.lands(), [])
+
+    def test_a_pull_rebase_with_no_reflog_for_the_remote_ref_is_no_landing_of_the_coordinators_own_commits(self):
+        import shutil
+        self.start()
+        self.sh("config", "core.logAllRefUpdates", "false")
+        shutil.rmtree(self.cwd / ".git" / "logs" / "refs" / "remotes", ignore_errors=True)
+        self.upstream_push("integrator6")
+        self.replay(self.bash(run("git", "pull", "-q", "--rebase"), command="git pull --rebase"))
+        self.assertEqual([entry for entry in self.lands() if "child" not in entry], [])
+
 
 class TestPlainSession(CoordinatorCase):
     """A book with no host child links is read exactly as 2.10.1 read it, with no landing work."""
