@@ -601,7 +601,7 @@ export function validFollowup(followup: unknown): boolean {
 // --- git -----------------------------------------------------------------------------------------
 
 // A git call that takes longer than this fails quietly (the book never blocks a tool); the suite raises it so a loaded machine does not.
-const GIT_TIMEOUT_MS = Number(process.env.ANCHORLOOP_GIT_TIMEOUT_MS) || 5000;
+const GIT_TIMEOUT_MS = ((n) => (Number.isInteger(n) && n >= 1000 ? n : 5000))(Number(process.env.ANCHORLOOP_GIT_TIMEOUT_MS));
 
 export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): string | undefined {
 	try {
