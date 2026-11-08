@@ -347,6 +347,41 @@ class TestLanding(LandingCase):
         self.replay([{"event": "session_start", "payload": {}}])
         self.assertEqual([(entry["child"], entry["rule"]) for entry in self.lands()], [("kid", "ancestor")])
 
+    def test_a_worker_that_switches_to_its_own_branch_and_commits_is_landed(self):
+        self.start(commits=0, check=False)
+        self.sh("switch", "-q", "-c", "mp-1-fix", where=self.tree)
+        self.commit_in(self.tree, "app.py", "print(2)\n", "fix")
+        self.child_check()
+        self.phase_line(*self.push_from_worktree())
+        self.assertEqual([(entry["child"], entry["rule"]) for entry in self.lands()], [("kid", "ancestor")])
+
+    def test_a_worker_that_commits_on_a_detached_head_is_landed(self):
+        self.start(commits=0, check=False)
+        self.sh("checkout", "-q", "--detach", where=self.tree)
+        self.commit_in(self.tree, "app.py", "print(2)\n", "fix")
+        self.child_check()
+        self.phase_line(*self.push_from_worktree())
+        self.assertEqual([(entry["child"], entry["rule"]) for entry in self.lands()], [("kid", "ancestor")])
+
+    def test_a_worker_on_a_branch_made_from_a_pushed_branch_with_commits_from_another_clone_is_landed(self):
+        self.shared_repo()
+        other = self.root / "elsewhere"
+        subprocess.run(["git", "clone", "-q", str(self.root / "remote.git"), str(other)], check=True, capture_output=True)
+        for args in (["config", "user.email", "t@example.com"], ["config", "user.name", "t"]):
+            self.sh(*args, where=other)
+        self.sh("switch", "-q", "-c", "feat-x", where=other)
+        (other / "app.py").write_text("print(2)\n")
+        self.sh("commit", "-qam", "earlier worker", where=other)
+        self.sh("push", "-q", "origin", "feat-x", where=other)
+        self.sh("fetch", "-q", "origin")
+        self.base = self.sh("rev-parse", "origin/main")
+        self.tree = self.worktree(branch="feature", start="origin/feat-x")
+        worktree = {"path": str(self.tree), "branch": "feature", "baseRef": "HEAD", "baseSha": self.base}
+        self.replay([*self.opening(), spawn("kid", "w1", "/s/kid.jsonl", worktree=worktree)])
+        self.child_check()
+        self.phase_line(*self.push_from_worktree())
+        self.assertEqual([(entry["child"], entry["rule"]) for entry in self.lands()], [("kid", "ancestor")])
+
     def test_an_untracked_file_does_not_reopen_verify_when_the_coordinators_push_holds_the_tree_it_checked(self):
         self.start(check=False)
         (self.cwd / "own.py").write_text("o = 1\n")

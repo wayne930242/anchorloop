@@ -202,13 +202,18 @@ export function watchTips(book: Book): Record<string, string> {
 const MAKES_COMMITS = /^(commit|cherry-pick|revert|am)\b|\((pick|squash|fixup|reword|edit|merge)\)|^merge .*: (?!Fast-forward)/;
 
 /**
- * Whether the branch ever held a commit made on it, read from its reflog: false for a branch that only started from a base and moved
- * forward to what a ref already held (a fetch and fast-forward), which has nothing of its own to land. Undefined when no reflog says.
+ * Whether the worker ever made a commit of its own, read from reflogs: the worktree branch's, the worktree's own `HEAD` (a branch it
+ * switched to, a detached `HEAD`), or a branch that began on commits `base` lacks (made in another clone). False for a branch that only
+ * started from a base and moved forward to what a ref already held (a fetch and fast-forward). Undefined when no reflog says.
  */
-function hasOwnCommits(repo: string, ref: string): boolean | undefined {
-	const log = git(repo, ["reflog", "show", "--format=%gs", ref]);
-	if (!log) return undefined;
-	return log.split("\n").some((subject) => MAKES_COMMITS.test(subject));
+function hasOwnCommits(repo: string, tree: string | undefined, branch: string | undefined, base: string): boolean | undefined {
+	const subjects = (dir: string, ref: string): string[] | undefined => git(dir, ["reflog", "show", "--format=%gs", ref])?.split("\n");
+	const onBranch = branch ? subjects(repo, `refs/heads/${branch}`) : undefined;
+	const onHead = tree ? subjects(tree, "HEAD") : undefined;
+	if (!onBranch && !onHead) return undefined;
+	if ([...(onBranch ?? []), ...(onHead ?? [])].some((subject) => MAKES_COMMITS.test(subject))) return true;
+	const oldest = branch ? git(repo, ["reflog", "show", "--format=%H", `refs/heads/${branch}`])?.split("\n").pop() : undefined;
+	return oldest ? Number(git(repo, ["rev-list", "--count", `${base}..${oldest}`]) ?? 0) > 0 : false;
 }
 
 /**
@@ -230,7 +235,7 @@ function candidatesOn(entries: Entry[], watch: Watch, ownBase?: string): Candida
 		const base = worktree?.baseSha ?? (typeof link.refSha === "string" ? link.refSha : undefined);
 		if (!head || !base) continue;
 		// A worker that never made a commit of its own (it only updated its branch from the ref) has nothing to land, whichever tip the ref took.
-		if (hasOwnCommits(repo, worktree?.branch ? `refs/heads/${worktree.branch}` : "HEAD") === false) continue;
+		if (hasOwnCommits(repo, tree, worktree?.branch, base) === false) continue;
 		found.push({ key: watch.key, dir: watch.dir, ref: watch.ref, label: String(link.name ?? link.child), child: String(link.child), head, base, repo });
 	}
 	if (ownBase !== undefined && existsSync(watch.dir) && ownBases(entries).some((base) => base.repo === watch.dir)) {
