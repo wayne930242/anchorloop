@@ -20,6 +20,7 @@ import {
 	validFollowup,
 	verifyAfterLastAct,
 } from "./book.ts";
+import { pendingLinks } from "./orphans.ts";
 import { computePhases } from "./phases.ts";
 
 export type Snapshot = {
@@ -62,6 +63,7 @@ export function snapshot(book: Book, ctx: { cwd: string; sessionManager: { getBr
 		`last check: ${check ? `${check.declared ? `declared ${check.result}` : `exit ${check.exit ?? "unknown"}`}${check.last ? ` — ${check.last}` : ""}` : "none after the last change"}`,
 		`reviews: ${reviewTrend(entries)}`,
 		...childLines(entries).map((line) => `child ${line}`),
+		...(pendingLinks(entries).length ? [`${pendingLinks(entries).length} ${pendingLinks(entries).length === 1 ? "child" : "children"} without a result`] : []),
 	].join("; ");
 	const items = allFriction(entries);
 	const friction = [

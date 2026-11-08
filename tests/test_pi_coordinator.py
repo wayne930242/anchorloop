@@ -2,10 +2,11 @@
 
 import json
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
-from tests.pi_harness import bash_call, bash_result, run, stage, todo_create, tool_call, tool_result
+from tests.pi_harness import SETTLE, bash_call, bash_result, run, stage, todo_create, tool_call, tool_result
 from tests.test_pi_book import BookCase, edit, text_of
 
 
@@ -500,6 +501,64 @@ class TestChildBook(CoordinatorCase):
         self.replay(self.child_edit(), env={"PI_SUBAGENT_CHILD": "1"})
         self.assertEqual(len(self.entries("edit")), 1)
         self.assertEqual(self.entries("link"), [])
+
+
+class TestOrphans(CoordinatorCase):
+    """A child whose result never arrived (its parent restarted, its watcher gone) is named, with what the host and the git state can tell."""
+
+    SESSION = "/s/kid.jsonl"
+
+    def process_record(self, pid: int | None) -> str:
+        path = self.root / "kid.jsonl"
+        if pid is not None:
+            (self.root / "kid.jsonl.process.json").write_text(json.dumps({"version": 1, "pid": pid}))
+        return str(path)
+
+    def dead_pid(self) -> int:
+        process = subprocess.Popen([sys.executable, "-c", "pass"])
+        process.wait()
+        return process.pid
+
+    def child_book(self, *steps: dict) -> None:
+        self.replay([*self.open_loop("inline", "child work", anchor="pytest -q"), edit(), bash_result("pytest -q", 0, "5 passed"), *steps],
+                    env={"PI_SUBAGENT_ID": "kid", "PI_SUBAGENT_NAME": "mp4366-worker"})
+
+    def test_session_start_and_read_name_a_child_with_no_result_its_process_its_book_and_its_worktree(self):
+        self.shared_repo()
+        tree = self.worktree(branch="feat/mp-4366")
+        base = self.sh("rev-parse", "HEAD")
+        for n in range(3):
+            self.commit_in(tree, f"f{n}.py", f"x = {n}\n", f"c{n}")
+        session = self.process_record(self.dead_pid())
+        worktree = {"path": str(tree), "branch": "feat/mp-4366", "baseRef": "HEAD", "baseSha": base}
+        self.replay([*self.open_loop(anchor="pytest -q"), spawn("kid", "mp4366-worker", session, worktree=worktree)])
+        self.child_book(stage(stage="close", verdict="landed"))
+        out = self.replay([{"event": "session_start", "payload": {}}, stage(stage="read")])
+        expected = "mp4366-worker: no result; process gone; child book closed (landed), check exit 0; worktree feat/mp-4366 ahead 3"
+        self.assertIn(expected, "\n".join(notice["message"] for notice in out["notices"]))
+        self.assertIn(expected, text_of(out["results"][-1]))
+
+    def test_a_child_with_no_process_record_is_unknown_and_one_that_returned_is_not_named(self):
+        self.replay([*self.open_loop(), spawn("kid", "w1", "/s/none.jsonl"), spawn("kid2", "w2", "/s/two.jsonl"), returned("w2", "/s/two.jsonl")])
+        text = self.read_text([])
+        self.assertIn("w1: no result; process unknown; no child book", text)
+        self.assertNotIn("w2:", text)
+
+    def test_a_live_process_is_alive(self):
+        alive = subprocess.Popen(["sleep", "30"])
+        try:
+            session = self.process_record(alive.pid)
+            self.replay([*self.open_loop(), spawn("kid", "w1", session)])
+            self.assertIn("w1: no result; process alive", self.read_text([]))
+        finally:
+            alive.kill()
+            alive.wait()
+
+    def test_the_second_thought_snapshot_carries_the_count_of_children_without_a_result(self):
+        self.replay([*self.open_loop(), spawn("kid", "w1", "/s/a.jsonl"), spawn("kid2", "w2", "/s/b.jsonl")])
+        out = self.replay([SETTLE],
+                          extensions=("book.ts", "second-thought.ts"), classify={"stopReason": "stop", "answers": {"move": {"type": "choice", "choice": "advance", "probabilities": {"advance": 0.7}}, "done": {"type": "bool", "probability": 0.9}, "review": {"type": "choice", "choice": "none", "probabilities": {"none": 0.6}}, "quality": {"type": "score", "score": 2.9}}})
+        self.assertIn("2 children without a result", out["classifyCalls"][0]["verify"])
 
 
 if __name__ == "__main__":

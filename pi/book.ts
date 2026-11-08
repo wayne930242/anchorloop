@@ -66,6 +66,7 @@ import { type Link, isChild, linkFrom, resultFrom } from "./support/host.ts";
 import { classify } from "./support/jev.ts";
 import { checkLandings, declareLanded, integrationRef, landLines, linkNotes, partialLines, refSha, watchTips } from "./support/landing.ts";
 import { linkOfResult, priorSpawns } from "./support/links.ts";
+import { orphanLines } from "./support/orphans.ts";
 import { REVIEWLESS, SEQUENCES, computePhases, describe, incompleteBefore, outsideWork, reachLine, reachOf, unansweredReach } from "./support/phases.ts";
 import { type Snapshot, snapshot } from "./support/snapshot.ts";
 
@@ -391,6 +392,7 @@ export default function (pi: ExtensionAPI) {
 			...linkNotes(book.entries),
 			...landLines(book.entries),
 			...partialLines(book.entries),
+			...orphanLines(book.entries),
 			...friction.filter((item) => item.owner !== "main").map((item) => `friction ${item.ref}: ${item.tried} → ${item.found}${item.reflected ? ` [${item.class}]` : ""}`),
 			...freshReadLine(book, phases),
 		];
@@ -711,9 +713,10 @@ export default function (pi: ExtensionAPI) {
 				...swept.deleted.map((path) => `deleted stale loop book: ${path}`),
 				...swept.open.map((path) => `open loop book: ${path}`),
 			];
-			if (lines.length > 0) ctx.ui.notify(`anchorloop books\n${lines.join("\n")}`, "info");
 			const open = openLoop(ctx);
 			if (open) checkLandings(open);
+			if (open) lines.push(...orphanLines(open.entries).map((line) => `child ${line}`));
+			if (lines.length > 0) ctx.ui.notify(`anchorloop books\n${lines.join("\n")}`, "info");
 			showStatus(ctx);
 		}),
 	);
