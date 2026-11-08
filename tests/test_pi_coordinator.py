@@ -901,10 +901,6 @@ class TestUnits(CoordinatorCase):
         self.assertIn("MP-4367 act", text)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestGitTimeout(unittest.TestCase):
     def git_head(self, value: str) -> str:
         book = (Path(__file__).resolve().parent.parent / "pi" / "support" / "book.ts").as_uri()
@@ -915,3 +911,7 @@ class TestGitTimeout(unittest.TestCase):
     def test_a_timeout_below_a_second_or_not_a_whole_number_falls_back_to_five_seconds(self):
         for value in ("1", "-5", "2500.5", "abc"):
             self.assertRegex(self.git_head(value), r"^[0-9a-f]{40}$", value)
+
+
+if __name__ == "__main__":
+    unittest.main()
