@@ -62,6 +62,7 @@ export const herdr: Host = {
 			child: id,
 			...(text(started.name) ? { name: text(started.name) } : {}),
 			...(text(started.agent) ? { agent: text(started.agent) } : {}),
+			...(text(started.task) ? { task: text(started.task) } : {}),
 			...(text(started.sessionFile) ? { sessionFile: text(started.sessionFile) } : {}),
 			...(text(record(input)?.cwd) ? { cwd: text(record(input)?.cwd) } : {}),
 			...(worktree ? { worktree } : {}),

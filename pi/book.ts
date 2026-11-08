@@ -67,8 +67,9 @@ import { classify } from "./support/jev.ts";
 import { checkLandings, declareLanded, integrationRef, landLines, linkNotes, partialLines, refSha, watchTips } from "./support/landing.ts";
 import { linkOfResult, priorSpawns } from "./support/links.ts";
 import { orphanLines } from "./support/orphans.ts";
-import { REVIEWLESS, SEQUENCES, computePhases, describe, incompleteBefore, outsideWork, reachLine, reachOf, unansweredReach } from "./support/phases.ts";
+import { REVIEWLESS, SEQUENCES, describe, incompleteBefore, outsideWork, reachLine, reachOf, unansweredReach } from "./support/phases.ts";
 import { type Snapshot, snapshot } from "./support/snapshot.ts";
+import { childrenOf, computeLoop, ticketKeys, unitById, unitLine, unitsOf } from "./support/units.ts";
 
 export const SESSION_ENTRY = "anchorloop-loop";
 const STAGES = ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "back", "landed", "close", "read"] as const;
@@ -368,7 +369,12 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function phasesOf(book: Book, ctx: ExtensionContext) {
-		return computePhases(book, { cwd: ctx.cwd, todos: todosOf(ctx) });
+		return computeLoop(book, { cwd: ctx.cwd, todos: todosOf(ctx) }).phases;
+	}
+
+	/** One line per unit when the loop has two or more; empty for a single-ticket loop. */
+	function unitLines(book: Book, ctx: ExtensionContext): string[] {
+		return computeLoop(book, { cwd: ctx.cwd, todos: todosOf(ctx) }).rows.map(unitLine);
 	}
 
 	/** The line that tells the agent Jev did not accept a returned subagent as the fresh read, while the read is still open. */
@@ -385,6 +391,7 @@ export default function (pi: ExtensionAPI) {
 		const friction = allFriction(book.entries);
 		return [
 			describe(phases),
+			...unitLines(book, ctx),
 			`intent: ${currentIntent(book.entries) ?? "not declared"}`,
 			`last ${verify?.stage ?? "verify"}: ${verify ? `${verify.declared ? `declared ${verify.result}` : `exit ${verify.exit ?? "unknown"}`}${verify.last ? ` — ${verify.last}` : ""}${verifyAfterLastAct(book.entries) ? "" : " (before the last change)"}` : "none"}`,
 			`reviews: ${reviewTrend(book.entries)}; open todos: ${open}; friction: ${friction.length} (${friction.filter((item) => !item.reflected).length} unreflected)`,
@@ -438,10 +445,15 @@ export default function (pi: ExtensionAPI) {
 	 * Records a child the loop spawned: who and where it works, the ref its work will land on with that ref's tip now, and a base for
 	 * its repo at the commit it started from, so the coordinator's diff includes the worker's change while its worktree exists.
 	 */
-	function recordLink(book: Book, link: Link, cwd: string): void {
+	function recordLink(book: Book, link: Link, ctx: ExtensionContext): void {
+		const cwd = ctx.cwd;
 		const source = resolve(cwd, link.cwd ?? ".");
+		const tickets = ticketKeys(`${link.name ?? ""} ${link.task ?? ""}`);
+		// The unit this child works for may name the ref its work lands on.
+		const found = unitsOf([...book.entries, { ts: "", stage: "link", child: link.child, name: link.name, tickets }], todosOf(ctx));
+		const unit = unitById(found, found.bound.get(link.child) ?? -1);
 		const tree = link.worktree?.path && existsSync(link.worktree.path) ? link.worktree.path : undefined;
-		const ref = integrationRef(source, link);
+		const ref = integrationRef(source, link, unit?.lands);
 		const tip = ref ? refSha(tree ?? source, ref) : undefined;
 		book.entries.push(
 			appendEntry(book.path, "link", {
@@ -449,20 +461,21 @@ export default function (pi: ExtensionAPI) {
 				name: link.name,
 				agent: link.agent,
 				...(link.sessionFile ? { sessionFile: link.sessionFile } : {}),
+				...(tickets.length ? { tickets } : {}),
 				cwd: source,
 				...(link.worktree ? { worktree: link.worktree } : {}),
 				...(ref ? { ref, ...(tip ? { refSha: tip } : {}) } : {}),
 			}),
 		);
-		const found = repoOf(join(tree ?? source, "_"));
-		if (found && !bases(book.entries).some((base) => base.repo === found.repo)) {
-			book.entries.push(appendEntry(book.path, "base", { repo: found.repo, head: tree ? link.worktree?.baseSha ?? found.head : found.head, via: "link", child: link.child, dirty: {} }));
+		const where = repoOf(join(tree ?? source, "_"));
+		if (where && !bases(book.entries).some((base) => base.repo === where.repo)) {
+			book.entries.push(appendEntry(book.path, "base", { repo: where.repo, head: tree ? link.worktree?.baseSha ?? where.head : where.head, via: "link", child: link.child, dirty: {} }));
 		}
 	}
 
 	/** Links the children spawned before this loop opened and not yet returned. */
 	function recordPriorLinks(book: Book, ctx: ExtensionContext): void {
-		for (const link of priorSpawns(ctx.sessionManager.getBranch(), SESSION_ENTRY)) recordLink(book, link, ctx.cwd);
+		for (const link of priorSpawns(ctx.sessionManager.getBranch(), SESSION_ENTRY)) recordLink(book, link, ctx);
 	}
 
 	/** True while no `kind` call has chosen the kind: the loop still holds the `inline` a todo create opened it with. */
@@ -533,8 +546,12 @@ export default function (pi: ExtensionAPI) {
 		}
 		const kept = childId() !== undefined;
 		const kind = currentKind(book.entries);
-		const phases = phasesOf(book, ctx);
-		const missing = incompleteBefore(phases, "close");
+		const looped = computeLoop(book, { cwd: ctx.cwd, todos });
+		const phases = looped.phases;
+		// A loop of several units is complete only when each is: every unit's missing phases are named with the unit.
+		const missing = looped.rows.length
+			? looped.rows.flatMap((row) => incompleteBefore(row.phases, "close").map((status) => ({ ...status, name: `${row.unit.label} ${status.name}` })))
+			: incompleteBefore(phases, "close");
 		const diff = diffAgainstBases(book.entries);
 		const friction = allFriction(book.entries);
 		const phaseList = phases.statuses.map((status) => ({ phase: status.name, state: status.state === "skipped" && status.auto ? "auto-skipped" : status.state === "missing" ? "not shown complete" : status.state, ...(status.state === "skipped" ? { note: status.note } : {}) }));
@@ -639,7 +656,10 @@ export default function (pi: ExtensionAPI) {
 		if (stage === "landed") {
 			// The ref may have moved since the last event; the state check records that landing first.
 			checkLandings(book);
-			return reply(declareLanded(book, { sha: params.sha, ref: params.ref, note: params.note, unit: params.task }).text);
+			const found = unitsOf(book.entries, todosOf(ctx));
+			const unit = params.task === undefined ? undefined : unitById(found, params.task);
+			if (params.task !== undefined && !unit) throw new Error(`task ${String(params.task)} is not a unit of this loop`);
+			return reply(declareLanded(book, { sha: params.sha, ref: params.ref, note: params.note, ...(unit ? { children: childrenOf(book.entries, found, unit) } : {}) }).text);
 		}
 		if (stage === "close") {
 			if (!params.verdict) throw new Error("close needs a verdict: landed, blocked, or abandoned");
@@ -666,13 +686,17 @@ export default function (pi: ExtensionAPI) {
 			if (!params.note) throw new Error("verify needs a `note` saying what was observed");
 			const result = params.result ?? "pass";
 			const recorded = childId() !== undefined || had === "quick" ? "check" : "verify";
+			const todos = todosOf(ctx);
+			const found = unitsOf(book.entries, todos);
+			const unit = params.task === undefined ? undefined : unitById(found, params.task);
+			if (params.task !== undefined && !unit) throw new Error(`task ${String(params.task)} is not a unit of this loop (a todo with anchor, observe, kind, lands, or agents metadata)`);
 			if (params.checkpoint !== undefined) {
-				const items = observeItems(book.entries);
+				const items = unit ? unit.observe : observeItems(book.entries);
 				if (!Number.isInteger(params.checkpoint) || params.checkpoint < 1 || params.checkpoint > items.length) throw new Error(`checkpoint ${String(params.checkpoint)} is not an observation of this loop (${items.length ? `1 to ${items.length}` : "none listed: give `observe` on the kind call"})`);
-				appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, checkpoint: params.checkpoint });
+				appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, checkpoint: params.checkpoint, ...(unit ? { task: unit.id } : {}) });
 				return reply(book.entries.some((entry) => entry.stage === "land" && entry.verified !== false) ? "ok" : "ok (an observation counts once the work has landed)");
 			}
-			const entry = appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, ...reachField(book, ctx.cwd) });
+			const entry = appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, ...(unit ? { task: unit.id } : {}), ...reachField(book, ctx.cwd) });
 			book.entries.push(entry);
 			const notice = reachNotice(book, entry);
 			return reply(notice ? `ok\n${notice}` : "ok");
@@ -780,7 +804,7 @@ export default function (pi: ExtensionAPI) {
 		const found = adoptableRun(book.entries, anchor, trees, repos, cwd);
 		if (!found) return;
 		const last = `adopted from ${found.name}${found.run.last ? `: ${String(found.run.last)}` : ""}`.slice(0, 200);
-		book.entries.push(appendEntry(book.path, "verify", { command: anchor.slice(0, 200), exit: 0, last, adopted: found.name, trees, ...reachField(book, cwd) }));
+		book.entries.push(appendEntry(book.path, "verify", { command: anchor.slice(0, 200), exit: 0, last, adopted: found.name, child: found.child, trees, ...reachField(book, cwd) }));
 	}
 
 	/**
@@ -875,7 +899,7 @@ export default function (pi: ExtensionAPI) {
 		const open = allFriction(book.entries).filter((item) => !item.reflected).length;
 		const kind = phases.kind === "undeclared" ? "no kind" : phases.kind;
 		const at = `${phases.current}${phases.current === "start" ? "" : " ✓"} → ${phases.next}`;
-		ctx.ui.setWidget(WIDGET_KEY, [`⚓ ${kind} · ${at}${open ? ` · ${open} friction` : ""}`], { placement: "belowEditor" });
+		ctx.ui.setWidget(WIDGET_KEY, [`⚓ ${kind} · ${at}${open ? ` · ${open} friction` : ""}`, ...unitLines(book, ctx)], { placement: "belowEditor" });
 	}
 
 	pi.on(
@@ -903,7 +927,7 @@ export default function (pi: ExtensionAPI) {
 			if (!book) return;
 			if (event.toolName === "subagent") {
 				const link = linkFrom(event.toolName, event.input, event.details);
-				if (link) recordLink(book, link, ctx.cwd);
+				if (link) recordLink(book, link, ctx);
 				return;
 			}
 			if (event.toolName !== "write" && event.toolName !== "edit") return;
@@ -932,7 +956,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 	);
 
-	async function recordReview(ctx: ExtensionContext, book: Book, name: string, text: string, failed: boolean): Promise<void> {
+	async function recordReview(ctx: ExtensionContext, book: Book, name: string, text: string, failed: boolean, child?: unknown): Promise<void> {
 		const counts = parseBlocking(text);
 		let blocking: boolean | null = null;
 		let source = `reviewer ${name}`;
@@ -952,7 +976,7 @@ export default function (pi: ExtensionAPI) {
 		} else {
 			blocking = counts.p0 + counts.p1 > 0;
 		}
-		const entry = appendEntry(book.path, "review", { round: reviews(book.entries).length + 1, ...(source === "failed" ? {} : (counts ?? {})), blocking, source });
+		const entry = appendEntry(book.path, "review", { round: reviews(book.entries).length + 1, ...(source === "failed" ? {} : (counts ?? {})), blocking, source, ...(typeof child === "string" ? { child } : {}) });
 		book.entries.push(entry);
 		if (reviewsStalled(book.entries)) ctx.ui.notify("anchorloop: two consecutive review rounds still raised blocking findings; stop and hand the trend to the user.", "warning");
 	}
@@ -1017,7 +1041,7 @@ function headAndTail(text: string): string {
 			});
 			checkLandings(book);
 			adoptChildRun(book, ctx.cwd);
-			if (REVIEWERS.has(result.agent)) await recordReview(ctx, book, result.name || result.agent, textOf(result.resultContent), result.failed);
+			if (REVIEWERS.has(result.agent)) await recordReview(ctx, book, result.name || result.agent, textOf(result.resultContent), result.failed, linkOfResult(book.entries, result)?.child);
 			else await detectFreshRead(ctx, book, result);
 		}),
 	);

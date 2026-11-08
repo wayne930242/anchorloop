@@ -21,7 +21,7 @@ import {
 	verifyAfterLastAct,
 } from "./book.ts";
 import { pendingLinks } from "./orphans.ts";
-import { computePhases } from "./phases.ts";
+import { computeLoop, unitLine } from "./units.ts";
 
 export type Snapshot = {
 	state: Record<string, string>;
@@ -56,7 +56,8 @@ export function snapshot(book: Book, ctx: { cwd: string; sessionManager: { getBr
 	const openTasks = todos.filter(isOpenTask);
 	const unsettled = openTasks.filter((task) => !validFollowup(task.metadata?.followup));
 	const settled = openTasks.length - unsettled.length;
-	const phases = computePhases(book, { cwd: ctx.cwd, todos });
+	const looped = computeLoop(book, { cwd: ctx.cwd, todos });
+	const phases = looped.phases;
 	const check = verifyAfterLastAct(entries);
 	const verify = [
 		`stages: ${stagesDone(entries).join(", ") || "none"}`,
@@ -79,7 +80,7 @@ export function snapshot(book: Book, ctx: { cwd: string; sessionManager: { getBr
 			phase: `current: ${phases.current}; next: ${phases.next}${phases.missing ? `; missing: ${phases.missing}` : ""}${phases.skipped.length ? `; skipped: ${phases.skipped.join(", ")}` : ""}`.slice(0, 600),
 			verify: verify.slice(0, 1200),
 			todos: `${openTasks.length} open of ${todos.length}${unsettled.length ? `: ${listTodos(unsettled, 5)}` : ""}${settled ? ` (${settled} with a followup)` : ""}`.slice(0, 700),
-			tasks: [`legend: ${TASK_LEGEND}`, ...taskLines(entries, todos, ctx.cwd)].join("\n").slice(0, 1500),
+			tasks: [`legend: ${TASK_LEGEND}`, ...taskLines(entries, todos, ctx.cwd), ...looped.rows.map(unitLine)].join("\n").slice(0, 1500),
 			friction: (friction.join("\n") || "none").slice(0, 800),
 		},
 		next: phases.next,

@@ -10,7 +10,7 @@ import { herdr } from "./hosts/herdr.ts";
 export type Worktree = { path?: string; branch?: string; baseRef?: string; baseSha?: string };
 
 /** What a spawn tells the parent about its child. */
-export type Link = { child: string; name?: string; agent?: string; sessionFile?: string; cwd?: string; worktree?: Worktree };
+export type Link = { child: string; name?: string; agent?: string; task?: string; sessionFile?: string; cwd?: string; worktree?: Worktree };
 
 /** What a child's returned result tells the parent; `handoff` is the worktree state the host recorded at the end. */
 export type Result = {

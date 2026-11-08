@@ -96,7 +96,7 @@ export function standing(repo: string, ref: string, head: string, base: string):
 type Watch = { key: string; dir: string; ref: string };
 
 /** A branch whose landing is watched: a linked worker's branch, or the coordinator's own commits. */
-type Candidate = { key: string; dir: string; ref: string; label: string; child?: string; unit?: number; head: string; base: string; repo: string };
+type Candidate = { key: string; dir: string; ref: string; label: string; child?: string; head: string; base: string; repo: string };
 
 const watchKey = (dir: string, ref: string): string => `${dir}\0${ref}`;
 
@@ -174,7 +174,7 @@ function candidatesOn(entries: Entry[], watch: Watch, ownBase?: string): Candida
 			(worktree?.branch ? refSha(repo, `refs/heads/${worktree.branch}`) : undefined);
 		const base = worktree?.baseSha ?? (typeof link.refSha === "string" ? link.refSha : undefined);
 		if (!head || !base) continue;
-		found.push({ key: watch.key, dir: watch.dir, ref: watch.ref, label: String(link.name ?? link.child), child: String(link.child), ...(typeof link.unit === "number" ? { unit: link.unit } : {}), head, base, repo });
+		found.push({ key: watch.key, dir: watch.dir, ref: watch.ref, label: String(link.name ?? link.child), child: String(link.child), head, base, repo });
 	}
 	if (ownBase !== undefined && existsSync(watch.dir) && ownBases(entries).some((base) => base.repo === watch.dir)) {
 		const head = git(watch.dir, ["rev-parse", "HEAD"]);
@@ -241,7 +241,6 @@ export function checkLandings(book: Book, before: Record<string, string> = {}): 
 			const exact = candidate.child ? tipTree !== undefined && checked.has(tipTree) : tipTree !== undefined && workingTree(candidate.repo) === tipTree;
 			const land = appendEntry(book.path, "land", {
 				...(candidate.child ? { child: candidate.child } : {}),
-				...(candidate.unit !== undefined ? { unit: candidate.unit } : {}),
 				label: candidate.label,
 				ref: candidate.ref,
 				sha: tip,
@@ -269,7 +268,7 @@ function adoptLanded(book: Book, candidate: Candidate, run: { name: string; run:
 	const linkAt = book.entries.findIndex((entry) => entry.stage === "link" && entry.child === candidate.child);
 	if (book.entries.slice(linkAt + 1).some((entry) => entry.stage === "edit")) return;
 	const last = `adopted from ${run.name}${run.run.last ? `: ${String(run.run.last)}` : ""}`.slice(0, 200);
-	book.entries.push(appendEntry(book.path, "verify", { command: String(run.run.command ?? "").slice(0, 200), exit: 0, last, adopted: run.name, landed: true }));
+	book.entries.push(appendEntry(book.path, "verify", { command: String(run.run.command ?? "").slice(0, 200), exit: 0, last, adopted: run.name, landed: true, ...(candidate.child ? { child: candidate.child } : {}) }));
 }
 
 export type Declared = { ok: boolean; text: string };
@@ -278,7 +277,7 @@ export type Declared = { ok: boolean; text: string };
  * An owner's landed notice. It counts only when git agrees: `sha`, when given, is in `ref`, and each branch not yet landed is proven
  * landed by the rules. A notice git cannot confirm is recorded `verified: false` and says to fetch the ref and declare again.
  */
-export function declareLanded(book: Book, params: { sha?: string; ref?: string; note?: string; unit?: number }): Declared {
+export function declareLanded(book: Book, params: { sha?: string; ref?: string; note?: string; children?: string[] }): Declared {
 	const watches = watched(book.entries);
 	const wanted = params.ref ? watches.filter((watch) => watch.ref === params.ref) : watches;
 	const ref = params.ref ?? wanted[0]?.ref;
@@ -298,7 +297,7 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 	for (const watch of wanted) {
 		for (const candidate of candidatesOn(book.entries, watch)) {
 			if (done.has(`${candidate.child ?? "self"}\0${candidate.head}`)) continue;
-			if (params.unit !== undefined && candidate.unit !== undefined && candidate.unit !== params.unit) continue;
+			if (params.children && candidate.child !== undefined && !params.children.includes(candidate.child)) continue;
 			const found = standing(candidate.repo, candidate.ref, candidate.head, candidate.base);
 			if (!found.rule) {
 				lines.push(`${candidate.label}: ${found.total > 0 ? `${found.upstream}/${found.total} of its commits are in ${candidate.ref}` : "nothing to land"}`);
@@ -311,8 +310,7 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 				appendEntry(book.path, "land", {
 					...base,
 					...(candidate.child ? { child: candidate.child } : {}),
-					...(candidate.unit !== undefined ? { unit: candidate.unit } : {}),
-					label: candidate.label,
+						label: candidate.label,
 					sha: tip,
 					head: candidate.head,
 					rule: found.rule,

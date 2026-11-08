@@ -656,7 +656,7 @@ export function anchorBody(command: string, roots: string[], cwd: string): strin
  * `roots` and `cwd` are the coordinator's repo roots and directory. Only a pi-herdr-agents child is linked
  * (`PI_SUBAGENT_ID`); pi itself has no subagents.
  */
-export function adoptableRun(entries: Entry[], anchor: string, trees: string[], roots: string[], cwd: string, env: NodeJS.ProcessEnv = process.env): { name: string; run: Entry } | undefined {
+export function adoptableRun(entries: Entry[], anchor: string, trees: string[], roots: string[], cwd: string, env: NodeJS.ProcessEnv = process.env): { name: string; child: string; run: Entry } | undefined {
 	const body = anchorBody(anchor, roots, cwd);
 	const held = new Set(trees);
 	for (const id of childIds(entries)) {
@@ -670,7 +670,7 @@ export function adoptableRun(entries: Entry[], anchor: string, trees: string[], 
 		const checked = new Set(Array.isArray(run?.trees) ? (run.trees as unknown[]).map(String) : []);
 		if (run && run.exit === 0 && checked.size === held.size && [...checked].every((tree) => held.has(tree))) {
 			const link = entries.find((entry) => entry.stage === "link" && entry.child === id);
-			return { name: String(link?.name ?? id), run };
+			return { name: String(link?.name ?? id), child: id, run };
 		}
 	}
 	return undefined;

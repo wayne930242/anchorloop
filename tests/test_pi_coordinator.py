@@ -6,7 +6,7 @@ import sys
 import unittest
 from pathlib import Path
 
-from tests.pi_harness import SETTLE, bash_call, bash_result, run, stage, todo_create, tool_call, tool_result
+from tests.pi_harness import SETTLE, bash_call, bash_result, run, stage, todo_create, todo_state, tool_call, tool_result
 from tests.test_pi_book import BookCase, edit, text_of
 
 
@@ -559,6 +559,99 @@ class TestOrphans(CoordinatorCase):
         out = self.replay([SETTLE],
                           extensions=("book.ts", "second-thought.ts"), classify={"stopReason": "stop", "answers": {"move": {"type": "choice", "choice": "advance", "probabilities": {"advance": 0.7}}, "done": {"type": "bool", "probability": 0.9}, "review": {"type": "choice", "choice": "none", "probabilities": {"none": 0.6}}, "quality": {"type": "score", "score": 2.9}}})
         self.assertIn("2 children without a result", out["classifyCalls"][0]["verify"])
+
+
+class TestUnits(CoordinatorCase):
+    """Parallel tickets in one book: a todo with its own anchor, observations, kind, landing ref, or agents is a unit with its own phases."""
+
+    ONE = {"subject": "MP-4366 expense export", "status": "in_progress", "metadata": {"anchor": "pytest -q", "kind": "reviewed", "lands": "origin/release", "agents": ["w1"]}}
+    TWO = {"subject": "MP-4367 hq view", "status": "in_progress", "metadata": {"anchor": "make test", "observe": ["page loads"], "agents": ["w2"]}}
+
+    def branch(self, *tasks: dict) -> list:
+        return [todo_state(*(tasks or (self.ONE, self.TWO)))]
+
+    def creates(self, *tasks: dict) -> list[dict]:
+        return [todo_create(task["subject"], i + 1, task["status"], **task["metadata"]) for i, task in enumerate(tasks or (self.ONE, self.TWO))]
+
+    def start(self, *tasks: dict, links: tuple[dict, ...] = ()) -> None:
+        self.git_repo()
+        self.replay([*self.creates(*tasks), *(links or (spawn("k1", "w1"), spawn("k2", "w2")))], branch=self.branch(*tasks))
+
+    def child_edit(self, child: str, name: str) -> None:
+        self.replay([tool_call("write", "src/app.py"), edit()], env={"PI_SUBAGENT_ID": child, "PI_SUBAGENT_NAME": name})
+
+    def lines(self, *steps: dict, tasks: tuple[dict, ...] = ()) -> list[str]:
+        return self.read_text(list(steps), branch=self.branch(*tasks)).splitlines()
+
+    def test_two_units_read_as_one_line_each_and_the_loop_line_is_the_first_unit_not_done(self):
+        self.start()
+        lines = self.lines()
+        self.assertIn("MP-4366 reviewed \u00b7 anchor \u2713 \u2192 act (missing: a change to the code)", lines)
+        self.assertIn("MP-4367 inline \u00b7 anchor \u2713 \u2192 act (missing: a change to the code)", lines)
+        self.assertTrue(lines[0].startswith("reviewed \u00b7 phase anchor \u2713 \u2192 act"), lines[0])
+
+    def test_an_agent_named_in_the_metadata_binds_the_child_and_its_acts_count_for_that_unit_only(self):
+        self.start()
+        self.child_edit("k1", "w1")
+        lines = self.lines()
+        self.assertIn("MP-4366 reviewed \u00b7 act \u2713 \u2192 verify (missing: a passing run of `pytest -q` after the last change)", lines)
+        self.assertIn("MP-4367 inline \u00b7 anchor \u2713 \u2192 act (missing: a change to the code)", lines)
+
+    def test_a_units_own_kind_and_anchor_decide_its_next_phase(self):
+        self.start()
+        self.child_edit("k1", "w1")
+        lines = self.lines(bash_result("pytest -q", 0, "ok"))
+        self.assertIn("MP-4366 reviewed \u00b7 verify \u2713 \u2192 review (missing: a review round after the last change with Blocking: P0=0 P1=0)", lines)
+        self.assertIn("MP-4367 inline \u00b7 anchor \u2713 \u2192 act (missing: a change to the code)", lines)
+
+    def test_the_ticket_id_in_a_childs_name_binds_it_to_the_one_open_todo_that_holds_it(self):
+        one = {**self.ONE, "metadata": {k: v for k, v in self.ONE["metadata"].items() if k != "agents"}}
+        two = {**self.TWO, "metadata": {k: v for k, v in self.TWO["metadata"].items() if k != "agents"}}
+        self.start(one, two, links=(spawn("k2", "mp4367-hq-worker"),))
+        self.child_edit("k2", "mp4367-hq-worker")
+        lines = self.lines(tasks=(one, two))
+        self.assertIn("MP-4367 inline \u00b7 act \u2713 \u2192 verify (missing: a passing run of `make test` after the last change)", lines)
+        self.assertIn("MP-4366 reviewed \u00b7 anchor \u2713 \u2192 act (missing: a change to the code)", lines)
+
+    def test_a_ticket_id_two_open_todos_hold_binds_nothing_and_the_child_counts_for_every_unit(self):
+        one = {**self.ONE, "metadata": {"anchor": "pytest -q"}}
+        two = {**self.TWO, "metadata": {"anchor": "make test"}, "subject": "MP-4366 follow-up"}
+        self.start(one, two, links=(spawn("k2", "mp4366-worker"),))
+        self.child_edit("k2", "mp4366-worker")
+        lines = self.lines(tasks=(one, two))
+        self.assertTrue(all("act \u2713 \u2192 verify" in line for line in lines if line.startswith("MP-436")), lines)
+
+    def test_a_single_unit_loop_reads_as_before(self):
+        self.git_repo()
+        text = self.read_text([todo_create("MP-4366 export", 1, anchor="pytest -q")], branch=self.branch({"subject": "MP-4366 export", "status": "pending", "metadata": {"anchor": "pytest -q"}}))
+        self.assertNotIn("MP-4366 inline", text)
+        self.assertTrue(text.splitlines()[0].startswith("inline \u00b7 phase anchor \u2713 \u2192 act"))
+
+    def test_a_units_observation_names_its_task_and_closes_only_that_units_checkpoint(self):
+        self.start()
+        out = self.replay([stage(stage="verify", note="loads", checkpoint=1, task=2)], branch=self.branch())
+        self.assertEqual(self.entries("verify", next(p for p in self.book_files() if "agents" not in p.parts))[-1]["task"], 2)
+        refused = self.replay([stage(stage="verify", note="loads", checkpoint=1, task=1)], branch=self.branch())
+        self.assertIn("checkpoint", refused["results"][0]["error"])
+
+    def test_a_units_landing_ref_is_the_ref_its_child_is_watched_against(self):
+        self.shared_repo()
+        self.replay([*self.creates(), spawn("k1", "w1")], branch=self.branch())
+        self.assertEqual(self.links()[0]["ref"], "origin/release")
+
+    def test_the_second_thought_state_carries_the_unit_lines_in_its_tasks_field(self):
+        self.start()
+        answers = {"stopReason": "stop", "answers": {"move": {"type": "choice", "choice": "advance", "probabilities": {"advance": 0.7}}, "done": {"type": "bool", "probability": 0.9}, "review": {"type": "choice", "choice": "none", "probabilities": {"none": 0.6}}, "quality": {"type": "score", "score": 2.9}}}
+        out = self.replay([SETTLE], branch=self.branch(), extensions=("book.ts", "second-thought.ts"), classify=answers)
+        self.assertIn("MP-4366 reviewed", out["classifyCalls"][0]["tasks"])
+        self.assertIn("MP-4367 inline", out["classifyCalls"][0]["tasks"])
+
+    def test_close_names_the_phases_every_unit_still_lacks(self):
+        self.start()
+        out = self.replay([stage(stage="close", verdict="blocked")], branch=[todo_state({**self.ONE, "status": "completed"}, {**self.TWO, "status": "completed"})])
+        text = text_of(out["results"][0])
+        self.assertIn("MP-4366 act", text)
+        self.assertIn("MP-4367 act", text)
 
 
 if __name__ == "__main__":
