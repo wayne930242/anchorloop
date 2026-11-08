@@ -677,8 +677,8 @@ export function adoptableRun(entries: Entry[], anchor: string, trees: string[], 
 }
 
 /**
- * The latest passing `check` of the linked child `id` that ran the coordinator's `anchor` (any passing check when the coordinator has no
- * anchor command), whatever tree it ran on. Used for a landing: the ref now holds the child's change, and the integrator's gates ran on it.
+ * The latest `check` of the linked child `id` that ran the coordinator's `anchor` (any check when the coordinator has no
+ * anchor command), when it passed: a later failing run withdraws an earlier pass, whatever tree it ran on. Used for a landing: the ref now holds the child's change, and the integrator's gates ran on it.
  */
 export function passingRunOf(entries: Entry[], id: string, anchor: string | undefined, roots: string[], cwd: string, env: NodeJS.ProcessEnv = process.env): { name: string; run: Entry } | undefined {
 	const body = anchor ? anchorBody(anchor, roots, cwd) : undefined;
@@ -686,10 +686,10 @@ export function passingRunOf(entries: Entry[], id: string, anchor: string | unde
 		const home = String(book.header.cwd ?? "");
 		const here = home ? repoRootOf(join(home, "_")) : undefined;
 		const childRoots = [...ownBases(book.entries).map((base) => base.repo), ...(here ? [here] : [])];
-		return book.entries.filter((entry) => entry.stage === "check" && entry.exit === 0 && (body === undefined || (typeof entry.command === "string" && anchorBody(entry.command, childRoots, home) === body)));
+		return book.entries.filter((entry) => entry.stage === "check" && (body === undefined || (typeof entry.command === "string" && anchorBody(entry.command, childRoots, home) === body)));
 	});
 	const run = runs.sort((a, b) => a.ts.localeCompare(b.ts)).at(-1);
-	if (!run) return undefined;
+	if (!run || run.exit !== 0) return undefined;
 	const link = entries.find((entry) => entry.stage === "link" && entry.child === id);
 	return { name: String(link?.name ?? id), run };
 }

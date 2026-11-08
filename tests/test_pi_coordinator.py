@@ -288,6 +288,16 @@ class TestLanding(LandingCase):
         self.assertEqual((land["rule"], land["exact"], land["self"]), ("patch-id", False, True))
         self.assertEqual(self.phase_line(bash_result("pytest -q", 0, "ok")), "inline \u00b7 phase verify \u2713 \u2192 close")
 
+    def test_a_workers_later_failing_run_of_the_anchor_keeps_its_earlier_pass_from_being_adopted(self):
+        self.start()
+        main, self.cwd = self.cwd, self.tree
+        try:
+            self.replay([bash_result(self.ANCHOR, 1, "1 failed")], env={"PI_SUBAGENT_ID": "kid", "PI_SUBAGENT_NAME": "w1"})
+        finally:
+            self.cwd = main
+        self.assertIn("\u2192 verify (missing: a passing run of `pytest -q`", self.phase_line(*self.push_from_worktree()))
+        self.assertEqual([entry for entry in self.entries("verify", self.main_book()) if entry.get("adopted")], [])
+
     def test_a_squash_landing_is_proven_by_the_content_of_every_path_it_touched(self):
         self.start(commits=2)
         other = self.root / "squasher"
