@@ -496,11 +496,14 @@ class TestChildBook(CoordinatorCase):
         self.replay([tool_call("write", "scratch/n.json"), tool_result("write", {"path": "scratch/n.json"}), bash_result("ls", 0, "x")], env=self.CHILD)
         self.assertEqual([path for path in self.book_files() if "agents" in path.parts], [])
 
-    def test_an_env_only_childs_first_edit_opens_a_book_and_links_nothing(self):
+    def test_an_env_only_child_opens_no_book_from_an_edit_or_a_commit_as_before_2_11(self):
         self.git_repo()
-        self.replay(self.child_edit(), env={"PI_SUBAGENT_CHILD": "1"})
-        self.assertEqual(len(self.entries("edit")), 1)
-        self.assertEqual(self.entries("link"), [])
+        env = {"PI_SUBAGENT_CHILD": "1"}
+        self.replay(self.child_edit(), env=env)
+        (self.cwd / "app.py").write_text("print(2)\n")
+        self.sh("commit", "-qam", "change")
+        self.replay([bash_result("git commit -qam change", 0, "")], env=env)
+        self.assertEqual(self.book_files(), [])
 
 
 class TestOrphans(CoordinatorCase):

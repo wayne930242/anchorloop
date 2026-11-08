@@ -759,7 +759,7 @@ export default function (pi: ExtensionAPI) {
 			if (typeof path !== "string") return;
 			let book = openLoop(ctx);
 			// A child's first production edit opens its book, before the file changes, so the base is the state it started from.
-			if (!book && isChild() && !artifactKind(path) && !outsideWork(path, ctx.cwd)) book = openFromEvidence(ctx);
+			if (!book && childId() !== undefined && !artifactKind(path) && !outsideWork(path, ctx.cwd)) book = openFromEvidence(ctx);
 			if (book) touchRepo(book, resolve(ctx.cwd, path));
 		}),
 	);
@@ -906,7 +906,7 @@ export default function (pi: ExtensionAPI) {
 		"tool_result",
 		guarded((event, ctx) => {
 			if (event.toolName === "bash") {
-				const book = openLoop(ctx) ?? (isChild() ? openChildFromBash(ctx, event) : undefined);
+				const book = openLoop(ctx) ?? (childId() !== undefined ? openChildFromBash(ctx, event) : undefined);
 				const notice = book ? recordBash(book, event, ctx.cwd) : undefined;
 				const before = tipsBefore.get(event.toolCallId);
 				tipsBefore.delete(event.toolCallId);
