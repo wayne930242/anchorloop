@@ -17,7 +17,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { currentKind, guarded, openLoop } from "./support/book.ts";
+import { currentKind, guarded, isOpenTask, openLoop, replayTodos, validFollowup } from "./support/book.ts";
 import { checkLandings } from "./support/landing.ts";
 import { type Answers, classify } from "./support/jev.ts";
 import { type Snapshot, listTodos, snapshot } from "./support/snapshot.ts";
@@ -153,8 +153,8 @@ export default function (pi: ExtensionAPI) {
 	if (isSubagent()) return;
 	let waiting = false;
 	let continued = false;
-	// Evidence entries each open book held when it was last judged, and the advisory it last received.
-	const judged = new Map<string, number>();
+	// What each open book held when it was last judged (evidence entries and the open todos without a followup), and the advisory it last received.
+	const judged = new Map<string, { evidence: number; open: number[] }>();
 	const told = new Map<string, string>();
 	// A close deletes its book, so what Jev needs is read when the call starts.
 	const closing = new Map<string, Snapshot>();
@@ -214,9 +214,12 @@ export default function (pi: ExtensionAPI) {
 			const id = String(book.header.id);
 			// A ref may have moved since the last tool call; record that landing before the entries are counted.
 			checkLandings(book);
+			// A book is judged again on new evidence or on an open todo that needs an answer and was not there last time; a status flip alone is neither.
 			const evidence = evidenceCount(book.entries);
-			if (evidence <= (judged.get(id) ?? 0)) return;
-			judged.set(id, evidence);
+			const open = replayTodos(ctx.sessionManager.getBranch()).filter((task) => isOpenTask(task) && !validFollowup(task.metadata?.followup)).map((task) => task.id);
+			const before = judged.get(id) ?? { evidence: 0, open: [] };
+			if (evidence <= before.evidence && open.every((todo) => before.open.includes(todo))) return;
+			judged.set(id, { evidence, open });
 			const snap = snapshot(book, ctx);
 			const judgment = await judge(ctx, snap);
 			if (!judgment) return;
