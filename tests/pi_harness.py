@@ -188,7 +188,7 @@ class ExtensionCase(unittest.TestCase):
     def env(self, extra: dict | None = None) -> dict:
         # A suite run inside a subagent must not inherit its markers.
         base = {key: value for key, value in os.environ.items() if not key.startswith("PI_SUBAGENT_")}
-        base.update({"HOME": str(self.home), "PI_CODING_AGENT_DIR": str(self.home / "agent"), "ANCHORLOOP_BOOKS_DIR": str(self.books)})
+        base.update({"HOME": str(self.home), "PI_CODING_AGENT_DIR": str(self.home / "agent"), "ANCHORLOOP_BOOKS_DIR": str(self.books), "ANCHORLOOP_GIT_TIMEOUT_MS": "120000"})
         return {**base, **(extra or {})}
 
     def command(self, steps: list[dict], branch: list | None = None, classify: object = None, extensions: tuple[str, ...] | None = None,

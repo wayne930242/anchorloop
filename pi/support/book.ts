@@ -600,9 +600,12 @@ export function validFollowup(followup: unknown): boolean {
 
 // --- git -----------------------------------------------------------------------------------------
 
+// A git call that takes longer than this fails quietly (the book never blocks a tool); the suite raises it so a loaded machine does not.
+const GIT_TIMEOUT_MS = Number(process.env.ANCHORLOOP_GIT_TIMEOUT_MS) || 5000;
+
 export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): string | undefined {
 	try {
-		return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf-8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"], env: env ?? process.env }).trim();
+		return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf-8", timeout: GIT_TIMEOUT_MS, stdio: ["ignore", "pipe", "ignore"], env: env ?? process.env }).trim();
 	} catch {
 		return undefined;
 	}
