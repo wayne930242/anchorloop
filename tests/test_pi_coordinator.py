@@ -503,7 +503,7 @@ class TestLanding(LandingCase):
     def test_a_landed_notice_for_a_commit_not_in_the_ref_here_is_unverified_and_names_the_fetch(self):
         self.start(check=False)
         out = self.replay([stage(stage="landed", sha=self.head)])
-        self.assertIn("Fetch origin/main", text_of(out["results"][0]))
+        self.assertIn("is not in origin/main here (fetch it, or give `ref`)", text_of(out["results"][0]))
         (land,) = self.lands()
         self.assertIs(land["verified"], False)
         self.assertIn("act (missing", self.phase_line())
