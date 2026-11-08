@@ -542,7 +542,7 @@ export function validFollowup(followup: unknown): boolean {
 
 // --- git -----------------------------------------------------------------------------------------
 
-function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): string | undefined {
+export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): string | undefined {
 	try {
 		return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf-8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"], env: env ?? process.env }).trim();
 	} catch {
@@ -608,7 +608,7 @@ export function adoptableRun(entries: Entry[], anchor: string, trees: string[], 
 		const runs = findChildBooks(id, env).flatMap(({ book }) => {
 			const home = String(book.header.cwd ?? "");
 			const here = home ? repoRootOf(join(home, "_")) : undefined;
-			const childRoots = [...bases(book.entries).map((base) => base.repo), ...(here ? [here] : [])];
+			const childRoots = [...ownBases(book.entries).map((base) => base.repo), ...(here ? [here] : [])];
 			return book.entries.filter((entry) => entry.stage === "check" && typeof entry.command === "string" && anchorBody(entry.command, childRoots, home) === body);
 		});
 		const run = runs.sort((a, b) => a.ts.localeCompare(b.ts)).at(-1);
@@ -641,8 +641,15 @@ export function repoRootOf(path: string): string | undefined {
 	return repo ? real(repo) : undefined;
 }
 
-export function bases(entries: Entry[]): { repo: string; head: string }[] {
-	return entries.filter((entry) => entry.stage === "base").map((entry) => ({ repo: String(entry.repo), head: String(entry.head) }));
+export type Base = { repo: string; head: string; /** The linked child whose repo this is, when a link recorded the base. */ child?: string };
+
+export function bases(entries: Entry[]): Base[] {
+	return entries.filter((entry) => entry.stage === "base").map((entry) => ({ repo: String(entry.repo), head: String(entry.head), ...(entry.via === "link" && typeof entry.child === "string" ? { child: entry.child } : {}) }));
+}
+
+/** The bases of the repos the loop itself works in; a child's repo, recorded when it was linked, is not one of them. */
+export function ownBases(entries: Entry[]): Base[] {
+	return bases(entries).filter((base) => base.child === undefined);
 }
 
 /**
@@ -671,7 +678,7 @@ function dirtyAt(repo: string, head: string): Record<string, string> {
 export function touchRepo(book: Book, path: string): boolean {
 	const found = repoOf(path);
 	if (!found) return false;
-	if (bases(book.entries).some((base) => base.repo === found.repo)) return false;
+	if (ownBases(book.entries).some((base) => base.repo === found.repo)) return false;
 	const entry = appendEntry(book.path, "base", { ...found, dirty: dirtyAt(found.repo, found.head) });
 	book.entries.push(entry);
 	return true;
@@ -683,7 +690,7 @@ export function touchRepo(book: Book, path: string): boolean {
  */
 export function touchRepoBeforeMerge(book: Book, dir: string, verb: string): boolean {
 	const found = repoOf(join(dir, "_"));
-	if (!found || bases(book.entries).some((base) => base.repo === found.repo)) return false;
+	if (!found || ownBases(book.entries).some((base) => base.repo === found.repo)) return false;
 	const reflog = git(found.repo, ["reflog", "-n", "50", "--format=%H %gs"])?.split("\n").filter(Boolean) ?? [];
 	// A conflict resolved with `--continue` logs `commit (<verb>)` instead of `<verb>`.
 	const ofVerb = (line: string) => line.slice(41).startsWith(verb) || line.slice(41).startsWith(`commit (${verb})`);
@@ -698,17 +705,32 @@ export function touchRepoBeforeMerge(book: Book, dir: string, verb: string): boo
 
 export type Diff = { summary: string; files: string[]; paths: string[] };
 
-/** The diff of each base's repo against its recorded HEAD, as one summary line per repo and the changed files. */
+/** The latest `result` entry of a linked child, or undefined before it returned. */
+export function resultOf(entries: Entry[], child: string): Entry | undefined {
+	return [...entries].reverse().find((entry) => entry.stage === "result" && entry.child === child);
+}
+
+/** The diff of each base's repo against its recorded HEAD, as one summary line per repo and the changed files. A child's repo that is gone keeps its last handoff as the line. */
 export function diffAgainstBases(entries: Entry[]): Diff {
 	const lines: string[] = [];
 	const files: string[] = [];
 	const paths: string[] = [];
-	for (const { repo, head } of bases(entries)) {
+	const own = new Set(ownBases(entries).map((base) => base.repo));
+	for (const { repo, head, child } of bases(entries)) {
+		// A repo the loop works in itself is diffed once, against its own base.
+		if (child !== undefined && own.has(repo)) continue;
 		const stat = git(repo, ["diff", "--shortstat", head]);
 		const names = git(repo, ["diff", "--name-only", head])?.split("\n").filter(Boolean) ?? [];
 		const untracked = git(repo, ["ls-files", "--others", "--exclude-standard"])?.split("\n").filter(Boolean) ?? [];
 		if (stat === undefined) {
-			lines.push(`${basename(repo)}: diff unavailable`);
+			const handoff = child === undefined ? undefined : resultOf(entries, child);
+			if (handoff && (typeof handoff.headSha === "string" || Array.isArray(handoff.changedFiles))) {
+				const ahead = typeof handoff.commitsAhead === "number" ? `${handoff.commitsAhead} commit${handoff.commitsAhead === 1 ? "" : "s"} ahead` : "handoff";
+				lines.push(`${basename(repo)}: ${ahead}${typeof handoff.headSha === "string" ? ` at ${handoff.headSha.slice(0, 9)}` : ""} (worktree gone)`);
+				files.push(...((handoff.changedFiles as unknown[]) ?? []).map((name) => `${basename(repo)}/${String(name)}`));
+			} else {
+				lines.push(`${basename(repo)}: diff unavailable`);
+			}
 			continue;
 		}
 		if (stat) lines.push(`${basename(repo)}: ${stat}`);

@@ -8,7 +8,7 @@
  * only `close` refuses, while a todo is neither done nor disposed of.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -35,6 +35,8 @@ import {
 	isOpenTask,
 	latestTasks,
 	openLoop,
+	ownBases,
+	repoOf,
 	replayTodos,
 	refsOf,
 	repoRootOf,
@@ -56,10 +58,12 @@ import {
 	workingTrees,
 	adoptableRun,
 } from "./support/book.ts";
+import { type Link, isChild, linkFrom, resultFrom } from "./support/host.ts";
 import { classify } from "./support/jev.ts";
+import { integrationRef, linkNotes, refSha } from "./support/landing.ts";
+import { linkOfResult, priorSpawns } from "./support/links.ts";
 import { REVIEWLESS, SEQUENCES, computePhases, describe, incompleteBefore, outsideWork, reachLine, reachOf, unansweredReach } from "./support/phases.ts";
 import { type Snapshot, snapshot } from "./support/snapshot.ts";
-import { isChild, linkFrom, resultFrom } from "./support/host.ts";
 
 export const SESSION_ENTRY = "anchorloop-loop";
 const STAGES = ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "back", "close", "read"] as const;
@@ -364,6 +368,7 @@ export default function (pi: ExtensionAPI) {
 			`last ${verify?.stage ?? "verify"}: ${verify ? `${verify.declared ? `declared ${verify.result}` : `exit ${verify.exit ?? "unknown"}`}${verify.last ? ` — ${verify.last}` : ""}${verifyAfterLastAct(book.entries) ? "" : " (before the last change)"}` : "none"}`,
 			`reviews: ${reviewTrend(book.entries)}; open todos: ${open}; friction: ${friction.length} (${friction.filter((item) => !item.reflected).length} unreflected)`,
 			...childLines(book.entries).map((line) => `child ${line}`),
+			...linkNotes(book.entries),
 			...friction.filter((item) => item.owner !== "main").map((item) => `friction ${item.ref}: ${item.tried} → ${item.found}${item.reflected ? ` [${item.class}]` : ""}`),
 			...freshReadLine(book, phases),
 		];
@@ -404,6 +409,37 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	/**
+	 * Records a child the loop spawned: who and where it works, the ref its work will land on with that ref's tip now, and a base for
+	 * its repo at the commit it started from, so the coordinator's diff includes the worker's change while its worktree exists.
+	 */
+	function recordLink(book: Book, link: Link, cwd: string): void {
+		const source = resolve(cwd, link.cwd ?? ".");
+		const tree = link.worktree?.path && existsSync(link.worktree.path) ? link.worktree.path : undefined;
+		const ref = integrationRef(source, link);
+		const tip = ref ? refSha(tree ?? source, ref) : undefined;
+		book.entries.push(
+			appendEntry(book.path, "link", {
+				child: link.child,
+				name: link.name,
+				agent: link.agent,
+				...(link.sessionFile ? { sessionFile: link.sessionFile } : {}),
+				cwd: source,
+				...(link.worktree ? { worktree: link.worktree } : {}),
+				...(ref ? { ref, ...(tip ? { refSha: tip } : {}) } : {}),
+			}),
+		);
+		const found = repoOf(join(tree ?? source, "_"));
+		if (found && !bases(book.entries).some((base) => base.repo === found.repo)) {
+			book.entries.push(appendEntry(book.path, "base", { repo: found.repo, head: tree ? link.worktree?.baseSha ?? found.head : found.head, via: "link", child: link.child, dirty: {} }));
+		}
+	}
+
+	/** Links the children spawned before this loop opened and not yet returned. */
+	function recordPriorLinks(book: Book, ctx: ExtensionContext): void {
+		for (const link of priorSpawns(ctx.sessionManager.getBranch(), SESSION_ENTRY)) recordLink(book, link, ctx.cwd);
+	}
+
 	/** True while no `kind` call has chosen the kind: the loop still holds the `inline` a todo create opened it with. */
 	function kindIsDefault(entries: Entry[]): boolean {
 		return !entries.some((entry) => entry.stage === "kind" && typeof entry.kind === "string" && entry.auto !== true);
@@ -416,6 +452,7 @@ export default function (pi: ExtensionAPI) {
 		const first = (taskDetails(details) ?? [])[0];
 		book.entries.push(appendEntry(book.path, "kind", { kind: "inline", auto: true, ...(first?.subject ? { intent: clip(first.subject.replace(/\s+/g, " ").trim(), 200) } : {}) }));
 		recordPriorAnchor(book, ctx);
+		recordPriorLinks(book, ctx);
 		const anchor = first?.metadata?.anchor;
 		if (typeof anchor === "string" && anchor.trim() && !anchorCommand(book.entries)) book.entries.push(appendEntry(book.path, "anchor", { check: anchor.trim() }));
 		return book;
@@ -520,6 +557,7 @@ export default function (pi: ExtensionAPI) {
 			if (!params.kind || !params.intent) throw new Error("the first kind declaration needs `kind` and a one-line `intent`");
 			book = createBook(ctx);
 			recordPriorAnchor(book, ctx);
+			recordPriorLinks(book, ctx);
 		}
 		if (!book) return reply("No loop is open, so nothing was recorded. A loop opens with the first `todo` create or `kind`.");
 		const had = currentKind(book.entries);
@@ -623,7 +661,7 @@ export default function (pi: ExtensionAPI) {
 	/** The repos the loop works in: the repos it changed and the one it runs in. */
 	function loopRepos(book: Book, cwd: string): string[] {
 		const here = repoRootOf(join(cwd, "_"));
-		return [...new Set([...bases(book.entries).map((base) => base.repo), ...(here ? [here] : [])])];
+		return [...new Set([...ownBases(book.entries).map((base) => base.repo), ...(here ? [here] : [])])];
 	}
 
 	function loopTrees(book: Book, cwd: string): string[] {
@@ -764,7 +802,7 @@ export default function (pi: ExtensionAPI) {
 			if (!book) return;
 			if (event.toolName === "subagent") {
 				const link = linkFrom(event.toolName, event.input, event.details);
-				if (link) appendEntry(book.path, "link", { child: link.child, name: link.name, agent: link.agent });
+				if (link) recordLink(book, link, ctx.cwd);
 				return;
 			}
 			if (event.toolName !== "write" && event.toolName !== "edit") return;
@@ -866,6 +904,16 @@ function headAndTail(text: string): string {
 			}
 			const result = subagent ? undefined : resultFrom(message);
 			if (!result) return;
+			const handoff = result.handoff;
+			appendEntry(book.path, "result", {
+				...(linkOfResult(book.entries, result)?.child ? { child: linkOfResult(book.entries, result)?.child } : {}),
+				name: result.name,
+				failed: result.failed,
+				...(result.sessionFile ? { sessionFile: result.sessionFile } : {}),
+				...(handoff?.headSha ? { headSha: handoff.headSha } : {}),
+				...(handoff?.commitsAhead !== undefined ? { commitsAhead: handoff.commitsAhead } : {}),
+				...(handoff?.changedFiles ? { changedFiles: handoff.changedFiles.slice(0, 50) } : {}),
+			});
 			adoptChildRun(book, ctx.cwd);
 			if (REVIEWERS.has(result.agent)) await recordReview(ctx, book, result.name || result.agent, textOf(result.resultContent), result.failed);
 			else await detectFreshRead(ctx, book, result);
