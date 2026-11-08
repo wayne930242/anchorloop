@@ -6,7 +6,7 @@ A main session that only coordinates (workers write every line, the coordinator 
 
 ## Scope
 
-In: `pi/book.ts`, `pi/second-thought.ts`, `pi/support/{book,phases,snapshot}.ts`, the new `pi/support/{host,landing}.ts` and `pi/support/hosts/`, the skill text listed in `spec.md`, the README Extensions row, tests, and the version bump to 2.11.0.
+In: `pi/book.ts`, `pi/second-thought.ts`, `pi/support/{book,phases,snapshot}.ts`, the new `pi/support/{host,landing}.ts` and `pi/support/hosts/`, the skill text listed in `spec.md`, the README Extensions row, tests, and the version bump to 2.12.0.
 
 Out: any edit to `pi-herdr-agents`, `pi-straw-boss`, or the main checkout; a push, publish, or tag; new recognition of anchor command forms (`AGENTS.md` freeze until 2026-11-18); parsing `git push` out of bash.
 
@@ -24,4 +24,4 @@ Out: any edit to `pi-herdr-agents`, `pi-straw-boss`, or the main checkout; a pus
 | Host adapter | `herdr`, `env-only`, `none`; chosen by detection, no configuration | `design.md` of the planner (seam split) | grounded |
 | Prose anchors | `run` keeps today's matching; new `observe` items are closed by `verify` with `checkpoint`; a prose `Reality anchor:` line is recorded as before | planner gap 5; `phases.ts` nudge quotes prose as a command | grounded |
 | Second thought | Re-judge only when an evidence entry arrives; the advisory key leaves out Jev's `move` concern | planner evidence: 14 advisories in 14 hours from a flapping `move` | grounded |
-| Version | 2.11.0 in `package.json`, `pyproject.toml`, `uv.lock`, shipped as one release | task brief: prefer one release | confirmed |
+| Version | 2.12.0 in `package.json`, `pyproject.toml`, `uv.lock`, shipped as one release | task brief: prefer one release | confirmed |

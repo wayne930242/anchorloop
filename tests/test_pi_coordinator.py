@@ -728,7 +728,7 @@ class TestOrphans(CoordinatorCase):
         book = self.book_files()[0]
         book.write_text(book.read_text() + json.dumps({"ts": "2026-11-01T00:00:00.000Z", "stage": "link", "child": "old", "name": "legacy", "agent": "worker"}).join(["- ", "\n"]))
         text = self.read_text([])
-        self.assertIn("legacy: result unknown (pre-2.11 link)", text)
+        self.assertIn("legacy: result unknown (link has no cwd)", text)
         self.assertNotIn("legacy: no result", text)
 
     def test_a_live_process_is_alive(self):

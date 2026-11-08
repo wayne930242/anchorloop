@@ -56,4 +56,4 @@ Approved from: boss decisions 2026-11-08, 「D1 一本 book 內分單位; D2 看
 
 ## Release
 
-2.11.0 in `package.json`, `pyproject.toml`, and `uv.lock`; the README Extensions row for `book.ts` and `second-thought.ts`. No push, tag, or publish in this change.
+2.12.0 in `package.json`, `pyproject.toml`, and `uv.lock`; the README Extensions row for `book.ts` and `second-thought.ts`. No push, tag, or publish in this change.
