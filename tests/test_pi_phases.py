@@ -65,7 +65,7 @@ class TestSequences(PhaseCase):
     def test_a_declared_verify_completes_the_phase_of_a_loop_whose_anchor_is_not_a_command(self):
         stated = {"event": "message_end", "payload": {"message": {"role": "assistant", "content": [{"type": "text", "text": "Reality anchor: the page shows the new column"}]}}}
         self.replay([*self.open_loop(), stated, edit()])
-        self.assertEqual(self.line([]), "inline · phase act ✓ → verify (missing: a passing run of `the page shows the new column` after the last change)")
+        self.assertEqual(self.line([]), "inline · phase act ✓ → verify (missing: evidence for the anchor after the last change: a run of its command, or `verify` naming what you observed)")
         self.assertEqual(self.line([stage(stage="verify", note="the column is there")]), "inline · phase verify ✓ → close")
         self.assertIn("phase act ✓ → verify", self.line([edit(), bash_result("ls", 0, "x")]))
 

@@ -15,13 +15,16 @@ import {
 	type Task,
 	allFriction,
 	anchorCommand,
+	anchorIsCommand,
 	artifactOnDisk,
 	bases,
 	contentHashes,
 	currentKind,
 	diffAgainstBases,
+	isRunEntry,
 	lastActIndex,
 	lastIndex,
+	observeItems,
 	repoRootOf,
 	specFolder,
 	withChildActs,
@@ -238,6 +241,21 @@ function proposedSince(ctx: Ctx): number | undefined {
 	return disk && (disk.status === "proposed" || disk.status === "approved") ? -1 : undefined;
 }
 
+/**
+ * The first observation the anchor lists that no passing `verify` with its checkpoint number follows the last landing, as `observe i/n: text`,
+ * or undefined when all are closed. Before any landing every observation is open: it can be seen only on what landed.
+ */
+function openObservation(entries: Entry[], from: number): string | undefined {
+	const items = observeItems(entries);
+	if (items.length === 0) return undefined;
+	const landed = lastWhere(entries, 0, (entry) => entry.stage === "land" && entry.verified !== false);
+	for (let i = 0; i < items.length; i++) {
+		const seen = landed < 0 ? -1 : lastWhere(entries, Math.max(from, landed + 1), (entry) => (entry.stage === "verify" || entry.stage === "check") && entry.checkpoint === i + 1);
+		if (seen < 0 || entries[seen].result === "fail") return `observe ${i + 1}/${items.length}: ${items[i]}${landed < 0 ? " (after it lands)" : ""}`;
+	}
+	return undefined;
+}
+
 function evaluate(name: string, ctx: Ctx): Status {
 	const { entries } = ctx;
 	const from = floor(entries, ctx.seq, name);
@@ -287,10 +305,11 @@ function evaluate(name: string, ctx: Ctx): Status {
 			return lastWhere(entries, from, (entry) => entry.stage === "edit" || (entry.stage === "land" && entry.verified !== false)) >= 0 ? done(name) : missing(name, "a change to the code");
 		case "check":
 		case "verify": {
-			const index = lastWhere(entries, Math.max(from, ctx.lastAct + 1), (entry) => entry.stage === "verify" || entry.stage === "check");
+			const index = lastWhere(entries, Math.max(from, ctx.lastAct + 1), isRunEntry);
 			if (index < 0) {
 				const command = anchorCommand(entries);
-				return missing(name, command ? `a passing run of \`${command}\` after the last change` : "a verify declaration or a run of the anchor");
+				if (!command) return missing(name, "a verify declaration or a run of the anchor");
+				return missing(name, anchorIsCommand(entries) ? `a passing run of \`${command}\` after the last change` : "evidence for the anchor after the last change: a run of its command, or `verify` naming what you observed");
 			}
 			const entry = entries[index];
 			if (entry.declared === true && entry.result === "fail") return missing(name, "the declared verify failed");
@@ -298,6 +317,8 @@ function evaluate(name: string, ctx: Ctx): Status {
 			if (ctx.seq.includes("decide") && !artifact(ctx, "verification", from)) return missing(name, `${ctx.folder ?? "docs/specs/<folder>"}/verification.md (a durable loop's verify also needs it)`);
 			const reach = entry.reach as Reach | undefined;
 			if (unansweredReach(entries, reach).length > 0) return missing(name, reachLine(reach as Reach, currentKind(entries)));
+			const open = openObservation(entries, from);
+			if (open) return missing(name, open);
 			return done(name, entry.declared === true ? "declared" : "");
 		}
 		case "review": {
@@ -334,7 +355,7 @@ export function computePhases(book: Pick<Book, "entries">, inputs: Omit<Inputs, 
 	let next = first ? first.name : "close";
 	let note = first ? first.note : "";
 	const last = ctx.lastAct;
-	const verify = entries.map((entry, index) => ({ entry, index })).filter(({ entry, index }) => index > last && (entry.stage === "verify" || entry.stage === "check")).at(-1)?.entry;
+	const verify = entries.map((entry, index) => ({ entry, index })).filter(({ entry, index }) => index > last && isRunEntry(entry)).at(-1)?.entry;
 	const review = entries.map((entry, index) => ({ entry, index })).filter(({ entry, index }) => index > last && entry.stage === "review").at(-1)?.entry;
 	if ((next === "verify" || next === "check") && last >= 0 && verify && verify.exit !== 0 && verify.declared !== true) next = "fix";
 	else if (next === "review" && last >= 0 && review?.blocking === true) next = "fix";

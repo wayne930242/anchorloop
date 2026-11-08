@@ -13,6 +13,7 @@ from tests.pi_harness import (
     stage,
     todo_create,
     todo_state,
+    todo_update,
     tool_call,
     tool_result,
     user_start,
@@ -408,6 +409,20 @@ class TestSecondThought(ExtensionCase):
         self.assertIsNotNone(self.advice(out["results"][4]))
         self.assertIsNone(self.advice(out["results"][7]))
         self.assertEqual(len(out["classifyCalls"]), 2)
+
+    def test_book_entries_that_are_not_evidence_do_not_trigger_a_new_judgment(self):
+        # Todo updates add `task` entries to the book on every status change; they say nothing new about the work.
+        out = self.replay([*self.loop(), edit_result(), SETTLE, SETTLED, todo_update(1, "write the fix", "in_progress"), SETTLE], classify=answers())
+        self.assertEqual(len(out["classifyCalls"]), 1)
+
+    def test_a_move_that_flaps_on_unchanged_evidence_sends_the_advisory_once(self):
+        # Jev's move alternates between advance and back; the next phase and the findings stay the same.
+        plan = [answers("advance", done=0.05), answers("back", done=0.05), answers("advance", done=0.05)]
+        out = self.replay([*self.loop(), edit_result(), SETTLE, SETTLED, stage(stage="friction", tried="a", found="b"), SETTLE, SETTLED, stage(stage="friction", tried="c", found="d"), SETTLE], classify=plan)
+        self.assertEqual(len(out["classifyCalls"]), 3)
+        self.assertIsNotNone(self.advice(out["results"][4]))
+        self.assertIsNone(self.advice(out["results"][7]))
+        self.assertIsNone(self.advice(out["results"][10]))
 
     def test_an_advisory_whose_gap_is_reworded_but_whose_next_phase_and_concerns_are_the_same_is_not_repeated(self):
         # The failing check's own output changes between settles, which rewords the gap only through the exit code.

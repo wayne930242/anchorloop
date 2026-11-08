@@ -3,13 +3,13 @@
  * program computes the next phase from the book's evidence; Jev sees the kind, intent, anchor, diff
  * summary, phase (current, next, missing), verify state, open todos, tasks, and friction, and judges only
  * whether the current phase's completion condition truly holds and whether to advance, go back, or ask
- * the user. It runs when a run settles and the book gained an entry since the last judgment, and at a
+ * the user. It runs when a run settles and the book gained an evidence entry (not a task, link, or watch record) since the last judgment, and at a
  * `close` declaration. The advisory is `next: <phase> (<missing>)` plus Jev's concerns, and is sent only when it
  * changes the agent's next action: Jev has a concern, todos are still open without a followup, or the run
  * continues. It continues the run once when Jev agrees to advance and the next phase is a verify, review, or
  * fix, or when todos are still open without a followup (unless Jev says to ask the user). Away from close the
  * advisory names up to three of those todos and asks the agent to continue, complete, or settle each with
- * `metadata.followup`. An advisory with the same next phase, concerns, and open todo ids is sent once. At
+ * `metadata.followup`. An advisory with the same next phase, assessment findings, and open todo ids is sent once, whatever Jev's move. At
  * close only concerns are sent. A run that arranged a wake
  * (a monitor, a loop, a subagent) is waiting, not finished, and is not judged. Outside a loop nothing
  * runs, nor in a `quick` loop, whose only prompt is the close reminder; a subagent session registers
@@ -136,16 +136,23 @@ export function message(verdict: Verdict, snap: Snapshot, found: string[], atClo
 	].join("\n");
 }
 
-/** What makes two advisories the same: the next phase, the concerns, and the open todo ids; the wording of the gap may change. */
-function adviceKey(verdict: Verdict, snap: Snapshot, found: string[]): string {
-	return JSON.stringify([snap.next, concerns(verdict, found), snap.unsettled.map((task) => task.id)]);
+/**
+ * What makes two advisories the same: the next phase, the assessment findings, and the open todo ids; the wording of the gap may change.
+ * Jev's move is left out: it alternates between advance and back on unchanged evidence, and each flip would resend the same advisory.
+ */
+function adviceKey(snap: Snapshot, found: string[]): string {
+	return JSON.stringify([snap.next, found, snap.unsettled.map((task) => task.id)]);
 }
+
+// Entries that say something new about the work. Task, link, base, watch, and result entries change with every todo or spawn.
+const EVIDENCE = new Set(["edit", "land", "verify", "check", "review", "decision", "spec", "design", "verification", "friction", "reflect", "skip", "back", "anchor", "observe", "kind", "goldfish", "taskrun"]);
+const evidenceCount = (entries: { stage: string }[]): number => entries.filter((entry) => EVIDENCE.has(entry.stage)).length;
 
 export default function (pi: ExtensionAPI) {
 	if (isSubagent()) return;
 	let waiting = false;
 	let continued = false;
-	// Entries each open book held when it was last judged, and the advisory it last received.
+	// Evidence entries each open book held when it was last judged, and the advisory it last received.
 	const judged = new Map<string, number>();
 	const told = new Map<string, string>();
 	// A close deletes its book, so what Jev needs is read when the call starts.
@@ -206,8 +213,9 @@ export default function (pi: ExtensionAPI) {
 			const id = String(book.header.id);
 			// A ref may have moved since the last tool call; record that landing before the entries are counted.
 			checkLandings(book);
-			if (book.entries.length <= (judged.get(id) ?? 0)) return;
-			judged.set(id, book.entries.length);
+			const evidence = evidenceCount(book.entries);
+			if (evidence <= (judged.get(id) ?? 0)) return;
+			judged.set(id, evidence);
 			const snap = snapshot(book, ctx);
 			const judgment = await judge(ctx, snap);
 			if (!judgment) return;
@@ -220,7 +228,7 @@ export default function (pi: ExtensionAPI) {
 			const proceed = !continued && continues(judgment.verdict, snap);
 			// Jev agrees and nothing needs the agent: the verdict is recorded and nothing is said.
 			const speaks = proceed || snap.unsettled.length > 0 || concerns(judgment.verdict, found).length > 0;
-			const key = adviceKey(judgment.verdict, snap, found);
+			const key = adviceKey(snap, found);
 			if (!speaks || told.get(id) === key) return { entries: [...earlier, verdictEntry] };
 			told.set(id, key);
 			if (proceed) continued = true;

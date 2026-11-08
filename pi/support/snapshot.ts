@@ -10,6 +10,7 @@ import {
 	diffText,
 	isOpenTask,
 	latestAnchor,
+	observeItems,
 	replayTodos,
 	reviewClearAfterLastAct,
 	reviewTrend,
@@ -71,7 +72,7 @@ export function snapshot(book: Book, ctx: { cwd: string; sessionManager: { getBr
 		state: {
 			kind: currentKind(entries) ?? "not declared",
 			intent: (currentIntent(entries) ?? "not declared").slice(0, 500),
-			anchor: (latestAnchor(entries) ?? "none").slice(0, 500),
+			anchor: `${latestAnchor(entries) ?? "none"}${observeItems(entries).length ? `; observe: ${observeItems(entries).join(" | ")}` : ""}`.slice(0, 500),
 			diff: diffText(diffAgainstBases(entries)),
 			phase: `current: ${phases.current}; next: ${phases.next}${phases.missing ? `; missing: ${phases.missing}` : ""}${phases.skipped.length ? `; skipped: ${phases.skipped.join(", ")}` : ""}`.slice(0, 600),
 			verify: verify.slice(0, 1200),

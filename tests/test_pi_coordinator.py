@@ -204,6 +204,12 @@ class LandingCase(CoordinatorCase):
     """A coordinator with one linked worker whose commit sits in a worktree, its passing check recorded in a child book."""
 
     ANCHOR = "pytest -q"
+    OBSERVE: list[str] | None = None
+
+    def opening(self) -> list[dict]:
+        """The loop's first steps: the kind call carrying the run anchor and, when a test sets them, the observe checkpoints."""
+        extra = {"observe": self.OBSERVE} if self.OBSERVE else {}
+        return [stage(stage="kind", kind="inline", intent="fix the export", anchor=self.ANCHOR, **extra), todo_create()]
 
     def start(self, commits: int = 1, check: bool = True) -> Path:
         self.shared_repo()
@@ -213,7 +219,7 @@ class LandingCase(CoordinatorCase):
         for path, text in files[:commits]:
             self.head = self.commit_in(self.tree, path, text, f"change {path}")
         worktree = {"path": str(self.tree), "branch": "feature", "baseRef": "HEAD", "baseSha": self.base}
-        self.replay([*self.open_loop(anchor=self.ANCHOR), spawn("kid", "w1", "/s/kid.jsonl", worktree=worktree)])
+        self.replay([*self.opening(), spawn("kid", "w1", "/s/kid.jsonl", worktree=worktree)])
         if check:
             self.child_check()
         return self.tree
@@ -253,7 +259,7 @@ class LandingCase(CoordinatorCase):
         self.sh("fetch", "-q", str(self.tree), "feature", where=other)
         self.sh("merge", "-q", "--ff-only", "origin/main", where=other)
         for sha in shas:
-            self.sh("cherry-pick", sha, where=other)
+            self.sh("cherry-pick", "-x", sha, where=other)
         self.sh("push", "-q", "origin", "HEAD:main", where=other)
         self.sh("fetch", "-q", "origin")
 
@@ -369,6 +375,60 @@ class TestLanding(LandingCase):
         (land,) = self.lands()
         self.assertNotIn("child", land)
         self.assertEqual((land["rule"], land["exact"], land["self"]), ("ancestor", True, True))
+
+
+class TestObserve(LandingCase):
+    """Post-land observations: each is closed by a `verify` naming its checkpoint, after the last landing."""
+
+    OBSERVE = ["health returns 200", "row counts match"]
+
+    def test_after_the_landing_the_first_open_observation_is_what_verify_lacks_until_each_is_declared(self):
+        self.start()
+        self.assertIn("phase act \u2713 \u2192 verify (missing: a passing run of `pytest -q`", self.phase_line())
+        self.assertEqual(self.phase_line(*self.push_from_worktree()), "inline \u00b7 phase act \u2713 \u2192 verify (missing: observe 1/2: health returns 200)")
+        self.assertEqual(self.phase_line(stage(stage="verify", note="GET /health 200", checkpoint=1)), "inline \u00b7 phase act \u2713 \u2192 verify (missing: observe 2/2: row counts match)")
+        self.assertEqual(self.phase_line(stage(stage="verify", note="588 rows both sides", checkpoint=2)), "inline \u00b7 phase verify \u2713 \u2192 close")
+        self.assertEqual([entry["checkpoint"] for entry in self.entries("verify", self.main_book()) if "checkpoint" in entry], [1, 2])
+
+    def test_an_observation_declared_before_the_landing_does_not_count_and_a_failed_one_stays_open(self):
+        self.start()
+        self.replay([stage(stage="verify", note="looks fine already", checkpoint=1)])
+        self.assertIn("observe 1/2", self.phase_line(*self.push_from_worktree()))
+        self.assertIn("observe 1/2", self.phase_line(stage(stage="verify", note="503", result="fail", checkpoint=1)))
+
+    def test_a_checkpoint_number_the_loop_does_not_have_is_refused(self):
+        self.start()
+        out = self.replay([stage(stage="verify", note="x", checkpoint=3)])
+        self.assertIn("checkpoint", out["results"][0]["error"])
+
+    def test_observations_are_not_a_run_of_the_anchor(self):
+        # A coordinator that never ran or adopted a run is not done because it observed.
+        self.start(check=False)
+        self.phase_line(*self.push_from_worktree())
+        line = self.phase_line(stage(stage="verify", note="200", checkpoint=1), stage(stage="verify", note="rows", checkpoint=2))
+        self.assertIn("verify (missing: a passing run of `pytest -q`", line)
+
+    def test_the_first_todos_observe_metadata_is_the_loop_observe_list(self):
+        self.replay([todo_create("ship it", anchor="pytest -q", observe=["page shows the column"])])
+        self.assertEqual(self.entries("observe")[0]["items"], ["page shows the column"])
+
+
+class TestNudge(CoordinatorCase):
+    def stated(self, text: str) -> dict:
+        return {"event": "message_end", "payload": {"message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}}
+
+    def test_a_prose_anchor_line_is_not_quoted_as_a_command_and_offers_verify(self):
+        text = self.read_text([*self.open_loop(), self.stated("Reality anchor: expense-app tests green; after cutover 588 entries"), edit()])
+        line = text.splitlines()[0]
+        self.assertEqual(line, "inline \u00b7 phase act \u2713 \u2192 verify (missing: evidence for the anchor after the last change: a run of its command, or `verify` naming what you observed)")
+        self.assertNotIn("`expense-app", line)
+
+    def test_an_anchor_line_that_was_run_as_a_command_is_quoted_again_after_the_next_change(self):
+        steps = [*self.open_loop(), self.stated("Reality anchor: pytest tests/x.py"), edit(), bash_result("pytest tests/x.py", 0, "ok"), edit()]
+        self.assertIn("a passing run of `pytest tests/x.py` after the last change", self.read_text(steps))
+
+    def test_an_anchor_on_the_kind_call_is_a_structured_run_and_stays_quoted(self):
+        self.assertIn("a passing run of `make test` after the last change", self.read_text([*self.open_loop(anchor="make test"), edit()]))
 
 
 if __name__ == "__main__":

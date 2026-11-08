@@ -325,7 +325,7 @@ export function currentIntent(entries: Entry[]): string | undefined {
 	return found?.intent as string | undefined;
 }
 
-const NOT_STAGES = new Set(["base", "link", "result", "watch", "close", "task", "taskrun", "verification", "skip", "back", "friction", "reflect", "goldfish"]);
+const NOT_STAGES = new Set(["base", "link", "result", "watch", "observe", "close", "task", "taskrun", "verification", "skip", "back", "friction", "reflect", "goldfish"]);
 
 /** The stages the book shows, in order of first appearance; `edit` entries read as `act`. */
 export function stagesDone(entries: Entry[]): string[] {
@@ -409,6 +409,22 @@ export function latestAnchor(entries: Entry[]): string | undefined {
 	return found?.check as string | undefined;
 }
 
+/** The post-land observations the loop's anchor lists, from the latest `observe` entry. */
+export function observeItems(entries: Entry[]): string[] {
+	const found = [...entries].reverse().find((entry) => entry.stage === "observe" && Array.isArray(entry.items));
+	return found ? (found.items as unknown[]).map(String) : [];
+}
+
+/** A run of the anchor, or a declared verify of the run checkpoint: a verify or check entry that is not one of the observations. */
+export const isRunEntry = (entry: Entry): boolean => (entry.stage === "verify" || entry.stage === "check") && entry.checkpoint === undefined;
+
+/** True when the anchor was stated as a command (a `kind` or todo anchor), or a stated line was later run as one; prose is never quoted back as a command. */
+export function anchorIsCommand(entries: Entry[]): boolean {
+	const found = [...entries].reverse().find((entry) => entry.stage === "anchor" && typeof entry.check === "string");
+	if (!found) return false;
+	return found.line !== true || entries.some((entry) => (entry.stage === "verify" || entry.stage === "check") && entry.command === found.check);
+}
+
 function evidenceLine(entry: Entry): string {
 	return `${entry.stage} ${entry.declared ? `declared: ${entry.note ?? entry.result}` : `exit ${entry.exit ?? "unknown"}${entry.last ? `: ${entry.last}` : ""}`}`;
 }
@@ -416,7 +432,8 @@ function evidenceLine(entry: Entry): string {
 /** The latest check or verify entry after the last change, or undefined when none follows it. */
 export function verifyAfterLastAct(raw: Entry[]): Entry | undefined {
 	const entries = withChildActs(raw);
-	const index = lastIndex(entries, "check", "verify");
+	let index = -1;
+	for (let i = entries.length - 1; i >= 0 && index < 0; i--) if (isRunEntry(entries[i])) index = i;
 	return index >= 0 && index > lastActIndex(entries) ? entries[index] : undefined;
 }
 

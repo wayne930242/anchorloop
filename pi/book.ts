@@ -34,6 +34,7 @@ import {
 	guarded,
 	isOpenTask,
 	latestTasks,
+	observeItems,
 	openLoop,
 	ownBases,
 	repoOf,
@@ -91,6 +92,8 @@ type Params = {
 	sha?: string;
 	ref?: string;
 	task?: number;
+	observe?: string[];
+	checkpoint?: number;
 };
 
 type Block = { type?: string; text?: string };
@@ -387,13 +390,14 @@ export default function (pi: ExtensionAPI) {
 		const touched = input.action === "create" ? tasks.filter((task) => !known.has(task.id)) : tasks.filter((task) => task.id === Number(input.id));
 		for (const task of touched) {
 			const refs = refsOf(task.metadata).map((ref) => ({ ref, range: resolveRef(ref, cwd, book.entries) }));
-			const { anchor, followup } = task.metadata ?? {};
+			const { anchor, followup, observe } = task.metadata ?? {};
 			book.entries.push(
 				appendEntry(book.path, "task", {
 					id: task.id,
 					subject: task.subject,
 					status: task.status,
 					...(typeof anchor === "string" ? { anchor } : {}),
+					...(Array.isArray(observe) ? { observe: observe.map(String) } : {}),
 					...(refs.length ? { refs } : {}),
 					...(followup !== undefined ? { followup } : {}),
 				}),
@@ -462,6 +466,8 @@ export default function (pi: ExtensionAPI) {
 		recordPriorLinks(book, ctx);
 		const anchor = first?.metadata?.anchor;
 		if (typeof anchor === "string" && anchor.trim() && !anchorCommand(book.entries)) book.entries.push(appendEntry(book.path, "anchor", { check: anchor.trim() }));
+		const observe = first?.metadata?.observe;
+		if (Array.isArray(observe) && observe.length > 0) book.entries.push(appendEntry(book.path, "observe", { items: observe.map((item) => clip(String(item), 200)).slice(0, 10) }));
 		return book;
 	}
 
@@ -521,7 +527,7 @@ export default function (pi: ExtensionAPI) {
 		name: "anchorloop_stage",
 		label: "Loop stage",
 		description:
-			"Loop book; the first `todo` create opens a loop as inline. stage: kind (kind, intent, anchor; reason to change the kind or answer a reach notice), verify (note; only for a check not run in bash), fresh-read, friction (tried, found, led_by), reflect (friction ids, class, action), skip/back (phase, reason), landed (sha, ref, task: an owner's landed notice, checked against git), close (verdict; refuses while an open todo lacks metadata.followup), read. Edits, anchor runs, reviews, and specs are read from evidence.",
+			"Loop book; the first `todo` create opens an inline loop. stage: kind (kind, intent, anchor, observe: checks after landing; reason to change the kind or answer a reach notice), verify (note; checkpoint: an observe item; else a check not run in bash), fresh-read, friction (tried, found, led_by), reflect (friction ids, class, action), skip/back (phase, reason), landed (sha, ref, task: an owner's notice, checked against git), close (verdict; refuses while an open todo lacks metadata.followup), read. Edits, anchor runs, reviews, specs are read from evidence.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -544,6 +550,8 @@ export default function (pi: ExtensionAPI) {
 				sha: { type: "string" },
 				ref: { type: "string" },
 				task: { type: "number" },
+				observe: { type: "array", items: { type: "string" } },
+				checkpoint: { type: "number" },
 			},
 			required: ["stage"],
 			additionalProperties: false,
@@ -588,7 +596,7 @@ export default function (pi: ExtensionAPI) {
 			return { content: [{ type: "text" as const, text: closed.text }], details: closed.snapshot ? { snapshot: closed.snapshot } : undefined };
 		}
 		if (stage === "kind") {
-			if (!params.kind && !params.intent && !params.anchor && !params.reason) throw new Error("kind needs `kind`, `intent`, `anchor`, or `reason`");
+			if (!params.kind && !params.intent && !params.anchor && !params.reason && !params.observe?.length) throw new Error("kind needs `kind`, `intent`, `anchor`, `observe`, or `reason`");
 			if (!had && (!params.kind || !params.intent)) throw new Error("the first kind declaration needs `kind` and a one-line `intent`");
 			// The kind a todo create defaulted to is not a choice yet, so choosing another needs no reason.
 			const changed = had !== undefined && params.kind !== undefined && had !== params.kind;
@@ -600,12 +608,19 @@ export default function (pi: ExtensionAPI) {
 				appendEntry(book.path, "kind", { kind: params.kind ?? had, ...(params.intent ? { intent: params.intent } : {}), ...answer });
 			}
 			if (params.anchor) appendEntry(book.path, "anchor", { check: params.anchor });
+			if (params.observe?.length) appendEntry(book.path, "observe", { items: params.observe.map((item) => clip(String(item), 200)).slice(0, 10) });
 			return reply("ok");
 		}
 		if (stage === "verify") {
 			if (!params.note) throw new Error("verify needs a `note` saying what was observed");
 			const result = params.result ?? "pass";
 			const recorded = childId() !== undefined || had === "quick" ? "check" : "verify";
+			if (params.checkpoint !== undefined) {
+				const items = observeItems(book.entries);
+				if (!Number.isInteger(params.checkpoint) || params.checkpoint < 1 || params.checkpoint > items.length) throw new Error(`checkpoint ${String(params.checkpoint)} is not an observation of this loop (${items.length ? `1 to ${items.length}` : "none listed: give `observe` on the kind call"})`);
+				appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, checkpoint: params.checkpoint });
+				return reply(book.entries.some((entry) => entry.stage === "land" && entry.verified !== false) ? "ok" : "ok (an observation counts once the work has landed)");
+			}
 			const entry = appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, ...reachField(book, ctx.cwd) });
 			book.entries.push(entry);
 			const notice = reachNotice(book, entry);
