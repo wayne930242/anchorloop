@@ -365,17 +365,24 @@ class TestLanding(LandingCase):
         self.assertTrue(text_of(out["results"][0]).startswith("recorded") or text_of(out["results"][0]).startswith("already recorded"), text_of(out["results"][0]))
         self.assertEqual([entry["verified"] for entry in self.lands()], [True])
 
-    def test_a_session_with_no_workers_lands_its_own_commits_by_push_and_is_told_apart_from_a_fetch(self):
+    def test_a_session_with_no_linked_worker_records_no_landing_of_its_own_commits(self):
         self.shared_repo()
         self.replay(self.open_loop(anchor="pytest -q"))
         (self.cwd / "app.py").write_text("print(3)\n")
         self.sh("commit", "-qam", "own change")
-        push = self.bash(run("git", "push", "-q", "origin", "HEAD:main"))
-        steps = [edit("app.py"), bash_result("pytest -q", 0, "ok"), *push]
+        steps = [edit("app.py"), bash_result("pytest -q", 0, "ok"), *self.bash(run("git", "push", "-q", "origin", "HEAD:main"))]
         self.assertEqual(self.phase_line(*steps), "inline \u00b7 phase verify \u2713 \u2192 close")
-        (land,) = self.lands()
-        self.assertNotIn("child", land)
-        self.assertEqual((land["rule"], land["exact"], land["self"]), ("ancestor", True, True))
+        self.assertEqual(self.lands(), [])
+
+    def test_the_coordinators_own_commits_land_by_push_once_a_worker_is_linked(self):
+        self.start(check=False)
+        (self.cwd / "own.py").write_text("o = 1\n")
+        self.sh("add", "own.py")
+        self.sh("commit", "-qm", "own change")
+        self.replay([edit("own.py")])
+        self.replay(self.bash(run("git", "push", "-q", "origin", "HEAD:main")))
+        own = [entry for entry in self.lands() if "child" not in entry]
+        self.assertEqual([(entry["rule"], entry["self"]) for entry in own], [("ancestor", True)])
 
 
 class TestObserve(LandingCase):

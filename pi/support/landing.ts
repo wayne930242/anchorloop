@@ -121,8 +121,10 @@ function ownRefs(entries: Entry[]): Watch[] {
 	return found;
 }
 
-/** Every ref the book watches: the integration ref of each linked worker that has not landed, and of each own repo. */
+/** Every ref the book watches: the integration ref of each linked worker that has not landed, and of each own repo; none without a linked worker. */
 function watched(entries: Entry[]): Watch[] {
+	// A session that spawned no linked child has nothing to land: it is read as before 2.11, with no git calls for landings.
+	if (linkEntries(entries).length === 0) return [];
 	const landedChildren = new Set(entries.filter((entry) => entry.stage === "land" && entry.verified !== false && typeof entry.child === "string").map((entry) => String(entry.child)));
 	const found = new Map<string, Watch>();
 	for (const link of linkEntries(entries)) {
