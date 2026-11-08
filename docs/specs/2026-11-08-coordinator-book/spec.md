@@ -24,7 +24,8 @@ Approved from: boss decisions 2026-11-08, 「D1 一本 book 內分單位; D2 看
 - On every bash `tool_call` the watched refs' SHAs are stored; on `tool_result`, `subagent_result`, `session_start`, and before a second-thought snapshot they are compared. When a ref moved, each unlanded link is tested by git's own equivalence in order: `merge-base --is-ancestor head ref` (rule `ancestor`); `git cherry ref head base` with every line `-` (rule `patch-id`); every path changed in `base..head` has the same blob at `ref` as at `head` (rule `content`).
 - A land is recorded as `land {child, unit, ref, sha, rule, exact, self}`. `self` is true when the ref moved inside this session's own bash call (known from the SHA pair, not from parsing). `exact` is true when the ref tip's tree equals the tree of the child's latest passing check. A partial result records nothing and shows `partial k/n` in `read`.
 - `land` counts as `act`. The `mergeRun` path stays for local merges. An exact land adopts the child's passing run as the coordinator's verify; a land that is not exact and `self` needs the coordinator's own run; a land by another owner (`self: false`) keeps the child's run (D3).
-- `anchorloop_stage landed {sha?, ref?, task?, note?}` records an owner's landed notice and checks it with the same rules; one git cannot confirm is recorded `verified: false`, does not count, and the reply says to fetch `<ref>` first.
+- A worker counts as a landing candidate only with a commit of its own (RR-F001), read from reflogs: its branch's, its worktree's own `HEAD` (a branch it switched to, a detached `HEAD`), or a branch whose oldest reflog entry is a commit `base` lacks (made in another clone). A fetch plus fast-forward or a pull `--no-ff` is not one; with `core.logAllRefUpdates=false` or no reflog, nothing says, and the candidate stays as before. The coordinator's own commits count only when the watched ref is remote-tracking and its last move was `update by push` (RR-F002).
+- `anchorloop_stage landed {sha?, ref?, task?, note?}` records an owner's landed notice and checks it with the same rules; one git cannot confirm is recorded `verified: false`, does not count, and the reply names the failing ref and says to fetch it or give `ref`.
 - No bash command text is parsed for pushes, and `anchorRun`, `anchorExit`, `locate`, `beforeRun`, `COMMAND_POSITION` and their tests are unchanged.
 
 ### Checkpoints
@@ -36,7 +37,8 @@ Approved from: boss decisions 2026-11-08, 「D1 一本 book 內分單位; D2 看
 ### Second thought
 
 - The re-judge gate counts evidence entries only (`edit`, `land`, `verify`, `check`, `review`, artifacts, `friction`, `reflect`, `skip`, `back`, `anchor`, `kind`); `task`, `link`, `base`, `result` entries do not trigger it.
-- The advisory key is `next`, the assessment findings, and the unsettled ids; Jev's `move` concern is left out.
+- A new open todo without a followup also triggers a judgment.
+- The advisory key is Jev's `move`, `next`, the assessment findings, and the unsettled ids, so a turn to `back` or `ask-user` on new evidence is advised again.
 
 ### Child books from evidence
 

@@ -9,7 +9,7 @@
  * continues. It continues the run once when Jev agrees to advance and the next phase is a verify, review, or
  * fix, or when todos are still open without a followup (unless Jev says to ask the user). Away from close the
  * advisory names up to three of those todos and asks the agent to continue, complete, or settle each with
- * `metadata.followup`. An advisory with the same next phase, assessment findings, and open todo ids is sent once, whatever Jev's move. At
+ * `metadata.followup`. An advisory with the same next phase, assessment findings, and open todo ids, and Jev's move is sent once. At
  * close only concerns are sent. A run that arranged a wake
  * (a monitor, a loop, a subagent) is waiting, not finished, and is not judged. Outside a loop nothing
  * runs, nor in a `quick` loop, whose only prompt is the close reminder; a subagent session registers

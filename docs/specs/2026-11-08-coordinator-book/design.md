@@ -8,7 +8,7 @@ The full analysis (evidence, root causes, rejected options) is the planner's des
 - **Landing** (`pi/support/landing.ts`): pure git helpers over `execFileSync`: `watchedRef(link)`, `refSha`, `landed(repo, ref, head, base)` returning `{rule}` or partial counts, `exactTree`. `book.ts` keeps one per-session map `callId -> {ref: sha}` filled at bash `tool_call` and compared at `tool_result`.
 - **Book schema** (additive, readers ignore unknown fields): `link` gains `sessionFile, cwd, worktree, ref, refSha, unit`; new entries `result`, `land`, `landed` (declaration), `observe` checkpoints on `kind`/`task`; `verify`/`check` entries gain `checkpoint`.
 - **Phases** (`pi/support/phases.ts`): `act` accepts `land`; `verify` computes the run checkpoint, then the observe checkpoints; units are evaluated by filtering entries by `unit` plus the loop-wide ones and calling the same `evaluate`.
-- **Second thought**: `judged` counts evidence entries; `adviceKey` drops the `move` concern.
+- **Second thought**: `judged` counts evidence entries; a new open todo without a followup also re-judges; `adviceKey` keeps Jev's `move` beside the next phase, findings, and unsettled ids.
 - **Order**: seam (WU2), links (WU3), landing (WU4), checkpoints and second thought (WU5), child books (WU6), orphans (WU7), units (WU8), skill text and release (WU9). Each unit is one commit; every new test is run red on 2.10.1 behavior before its code.
 
 ## Compatibility

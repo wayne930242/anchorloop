@@ -23,5 +23,5 @@ Out: any edit to `pi-herdr-agents`, `pi-straw-boss`, or the main checkout; a pus
 | D7 Timing | Proceed now: nothing here changes how anchor commands are recognized | boss 2026-11-08 「D4–D7 全部照建議，現在做」 | confirmed |
 | Host adapter | `herdr`, `env-only`, `none`; chosen by detection, no configuration | `design.md` of the planner (seam split) | grounded |
 | Prose anchors | `run` keeps today's matching; new `observe` items are closed by `verify` with `checkpoint`; a prose `Reality anchor:` line is recorded as before | planner gap 5; `phases.ts` nudge quotes prose as a command | grounded |
-| Second thought | Re-judge only when an evidence entry arrives; the advisory key leaves out Jev's `move` concern | planner evidence: 14 advisories in 14 hours from a flapping `move` | grounded |
+| Second thought | Re-judge only when an evidence entry arrives; a new open todo without a followup also re-judges; the advisory key keeps Jev's `move` | planner evidence: 14 advisories in 14 hours from re-judging on non-evidence entries | grounded |
 | Version | 2.12.0 in `package.json`, `pyproject.toml`, `uv.lock`, shipped as one release | task brief: prefer one release | confirmed |
