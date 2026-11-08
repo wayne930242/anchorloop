@@ -353,17 +353,17 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 	const ref = params.ref ?? wanted[0]?.ref;
 	const dir = wanted[0]?.dir;
 	const base = { ...(params.sha ? { declaredSha: params.sha } : {}), ...(params.note ? { note: params.note } : {}), declared: true, ...(ref ? { ref } : {}) };
-	const unconfirmed = (why: string): Declared => {
+	const unconfirmed = (why: string, hinted = false): Declared => {
 		book.entries.push(appendEntry(book.path, "land", { ...base, self: false, exact: false, verified: false }));
-		return { ok: false, text: `not confirmed: ${why}; it does not count as a landing. Fetch ${ref ?? "the integration ref"} (git fetch), then declare it again.` };
+		return { ok: false, text: `not confirmed: ${why}; it does not count as a landing. ${hinted ? "Then" : `Fetch ${ref ?? "the integration ref"} (git fetch), then`} declare it again.` };
 	};
 	if (!ref || !dir) return unconfirmed("no integration ref is watched for this loop (give `ref`)");
 	const tip = refSha(dir, ref);
-	if (!tip) return unconfirmed(`${ref} does not resolve here (fetch it, or give \`ref\`)`);
+	if (!tip) return unconfirmed(`${ref} does not resolve here (fetch it, or give \`ref\`)`, true);
 	// With no `ref` given, the sha must be in every watched ref, since it is not said which one it landed in.
 	for (const watch of params.sha ? (params.ref ? [{ dir, ref }] : wanted) : []) {
 		const at = refSha(watch.dir, watch.ref);
-		if (!at || refSha(watch.dir, params.sha as string) === undefined || git(watch.dir, ["merge-base", "--is-ancestor", params.sha as string, at]) === undefined) return unconfirmed(`${(params.sha as string).slice(0, 12)} is not in ${watch.ref} here (fetch it, or give \`ref\`)`);
+		if (!at || refSha(watch.dir, params.sha as string) === undefined || git(watch.dir, ["merge-base", "--is-ancestor", params.sha as string, at]) === undefined) return unconfirmed(`${(params.sha as string).slice(0, 12)} is not in ${watch.ref} here (fetch it, or give \`ref\`)`, true);
 	}
 	const done = landedKeys(book.entries);
 	const lines: string[] = [];

@@ -544,6 +544,7 @@ class TestLanding(LandingCase):
         self.assertTrue(text_of(out["results"][0]).startswith("not confirmed"), text_of(out["results"][0]))
         self.assertIn("origin/release", text_of(out["results"][0]))
         self.assertIn("or give `ref`", text_of(out["results"][0]))
+        self.assertNotIn("origin/main", text_of(out["results"][0]))
         self.assertEqual([entry for entry in self.lands() if entry.get("verified")], [])
 
     def test_a_declared_sha_in_the_ref_that_no_watched_branch_explains_is_recorded_but_is_not_the_act(self):
