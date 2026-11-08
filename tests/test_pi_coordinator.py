@@ -472,6 +472,15 @@ class TestLanding(LandingCase):
         landed = [(entry["label"], entry["ref"]) for entry in self.lands() if entry.get("verified") and "child" in entry]
         self.assertEqual(landed, [("w2", "origin/release")])
 
+    def test_a_declared_sha_with_no_ref_must_be_in_every_watched_ref(self):
+        self.start(check=False)
+        self.sh("update-ref", "refs/remotes/origin/release", self.base)
+        self.replay([spawn("kid2", "w2", worktree={"path": str(self.tree), "branch": "feature", "baseRef": "origin/release", "baseSha": self.base})])
+        self.advance_origin(1)
+        out = self.replay([stage(stage="landed", sha=self.sh("rev-parse", "origin/main"))])
+        self.assertTrue(text_of(out["results"][0]).startswith("not confirmed"), text_of(out["results"][0]))
+        self.assertEqual([entry for entry in self.lands() if entry.get("verified")], [])
+
     def test_a_declared_sha_in_the_ref_that_no_watched_branch_explains_is_recorded_but_is_not_the_act(self):
         self.start(check=False)
         before = self.phase_line()

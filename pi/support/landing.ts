@@ -337,7 +337,11 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 	if (!ref || !dir) return unconfirmed("no integration ref is watched for this loop (give `ref`)");
 	const tip = refSha(dir, ref);
 	if (!tip) return unconfirmed(`${ref} does not resolve here`);
-	if (params.sha && (refSha(dir, params.sha) === undefined || git(dir, ["merge-base", "--is-ancestor", params.sha, tip]) === undefined)) return unconfirmed(`${params.sha.slice(0, 12)} is not in ${ref} here`);
+	// With no `ref` given, the sha must be in every watched ref, since it is not said which one it landed in.
+	for (const watch of params.sha ? (params.ref ? [{ dir, ref }] : wanted) : []) {
+		const at = refSha(watch.dir, watch.ref);
+		if (!at || refSha(watch.dir, params.sha as string) === undefined || git(watch.dir, ["merge-base", "--is-ancestor", params.sha as string, at]) === undefined) return unconfirmed(`${(params.sha as string).slice(0, 12)} is not in ${watch.ref} here`);
+	}
 	const done = landedKeys(book.entries);
 	const lines: string[] = [];
 	for (const watch of wanted) {
