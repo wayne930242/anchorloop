@@ -287,6 +287,17 @@ class TestLanding(LandingCase):
         self.assertEqual((land["child"], land["rule"], land["exact"], land["self"], land["ref"]), ("kid", "ancestor", True, True, "origin/main"))
         self.assertEqual(self.entries("verify", self.main_book())[-1]["adopted"], "w1")
 
+    def test_a_worker_landing_with_core_logallrefupdates_off_still_lands(self):
+        self.shared_repo()
+        self.sh("config", "core.logAllRefUpdates", "false")
+        self.tree = self.worktree()
+        self.base = self.sh("rev-parse", "HEAD")
+        self.head = self.commit_in(self.tree, "app.py", "print(2)\n", "change app.py")
+        worktree = {"path": str(self.tree), "branch": "feature", "baseRef": "HEAD", "baseSha": self.base}
+        self.replay([*self.opening(), spawn("kid", "w1", "/s/kid.jsonl", worktree=worktree)])
+        self.phase_line(*self.push_from_worktree())
+        self.assertEqual([entry["child"] for entry in self.lands()], ["kid"])
+
     def test_a_landing_is_the_act_of_a_coordinator_whose_worker_opened_no_book(self):
         self.start(check=False)
         self.assertIn("phase act \u2713 \u2192 verify (missing: a passing run of `pytest -q`", self.phase_line(*self.push_from_worktree()))

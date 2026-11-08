@@ -207,7 +207,10 @@ const MAKES_COMMITS = /^(commit|cherry-pick|revert|am)\b|\((pick|squash|fixup|re
  * started from a base and moved forward to what a ref already held (a fetch and fast-forward). Undefined when no reflog says.
  */
 function hasOwnCommits(repo: string, tree: string | undefined, branch: string | undefined, base: string): boolean | undefined {
-	const subjects = (dir: string, ref: string): string[] | undefined => git(dir, ["reflog", "show", "--format=%gs", ref])?.split("\n");
+	const subjects = (dir: string, ref: string): string[] | undefined => {
+		const lines = git(dir, ["reflog", "show", "--format=%gs", ref])?.split("\n").filter(Boolean);
+		return lines?.length ? lines : undefined;
+	};
 	const onBranch = branch ? subjects(repo, `refs/heads/${branch}`) : undefined;
 	const onHead = tree ? subjects(tree, "HEAD") : undefined;
 	if (!onBranch && !onHead) return undefined;
