@@ -1,6 +1,6 @@
 [project]
 name = "anchorloop"
-version = "2.12.0"
+version = "2.12.1"
 description = "Validators and tests for the Anchorloop pi package"
 readme = "README.md"
 requires-python = ">=3.11"

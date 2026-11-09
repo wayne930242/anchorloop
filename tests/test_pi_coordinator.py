@@ -880,6 +880,15 @@ class TestUnits(CoordinatorCase):
         self.assertIn("MP-4366 reviewed \u00b7 act \u2713 \u2192 verify (missing: a passing run of `pytest -q` after the last change)", lines)
         self.assertIn("MP-4367 inline \u00b7 anchor \u2713 \u2192 act (missing: a change to the code)", lines)
 
+    def test_the_widget_names_each_units_missing_step_briefly_and_read_keeps_the_full_note(self):
+        self.start()
+        self.child_edit("k1", "w1")
+        out = self.replay([{"event": "session_start", "payload": {}}], branch=self.branch())
+        lines = [widget for widget in out["widgets"] if widget["key"] == "anchorloop"][-1]["lines"]
+        self.assertIn("MP-4366 reviewed \u00b7 act \u2713 \u2192 verify (missing: anchor run)", lines)
+        self.assertIn("MP-4367 inline \u00b7 anchor \u2713 \u2192 act (missing: a change to the code)", lines)
+        self.assertIn("MP-4366 reviewed \u00b7 act \u2713 \u2192 verify (missing: a passing run of `pytest -q` after the last change)", self.lines())
+
     def test_a_units_own_kind_and_anchor_decide_its_next_phase(self):
         self.start()
         self.child_edit("k1", "w1")

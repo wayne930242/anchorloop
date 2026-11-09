@@ -137,3 +137,18 @@ export function unitLine(row: UnitRow): string {
 	const { phases } = row;
 	return `${row.unit.label} ${phases.kind} · ${phases.current}${phases.current === "start" ? "" : " ✓"} → ${phases.next}${phases.missing ? ` (missing: ${phases.missing})` : ""}`;
 }
+
+const BRIEF_LIMIT = 40;
+
+/** What a widget line names as missing: `anchor run` for a pending anchor run, else the note cut to one short phrase. */
+export function briefMissing(missing: string): string {
+	if (/^a passing run of `/.test(missing)) return "anchor run";
+	const flat = missing.replace(/\s+/g, " ").trim();
+	return flat.length > BRIEF_LIMIT ? `${flat.slice(0, BRIEF_LIMIT - 1).trimEnd()}…` : flat;
+}
+
+/** The unit's line in the widget below the editor: `unitLine` with the missing note cut short; `read` keeps the full note. */
+export function unitWidgetLine(row: UnitRow): string {
+	const { phases } = row;
+	return `${row.unit.label} ${phases.kind} · ${phases.current}${phases.current === "start" ? "" : " ✓"} → ${phases.next}${phases.missing ? ` (missing: ${briefMissing(phases.missing)})` : ""}`;
+}

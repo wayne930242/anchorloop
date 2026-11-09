@@ -70,7 +70,7 @@ import { linkOfResult, priorSpawns } from "./support/links.ts";
 import { orphanLines } from "./support/orphans.ts";
 import { REVIEWLESS, SEQUENCES, describe, incompleteBefore, outsideWork, reachLine, reachOf, unansweredReach } from "./support/phases.ts";
 import { type Snapshot, snapshot } from "./support/snapshot.ts";
-import { childrenOf, computeLoop, ticketKeys, unitById, unitLine, unitsOf } from "./support/units.ts";
+import { childrenOf, computeLoop, ticketKeys, unitById, unitLine, unitsOf, unitWidgetLine } from "./support/units.ts";
 
 export const SESSION_ENTRY = "anchorloop-loop";
 const STAGES = ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "back", "landed", "close", "read"] as const;
@@ -901,7 +901,8 @@ export default function (pi: ExtensionAPI) {
 		const open = allFriction(book.entries).filter((item) => !item.reflected).length;
 		const kind = phases.kind === "undeclared" ? "no kind" : phases.kind;
 		const at = `${phases.current}${phases.current === "start" ? "" : " ✓"} → ${phases.next}`;
-		ctx.ui.setWidget(WIDGET_KEY, [`⚓ ${kind} · ${at}${open ? ` · ${open} friction` : ""}`, ...unitLines(book, ctx)], { placement: "belowEditor" });
+		const units = computeLoop(book, { cwd: ctx.cwd, todos: todosOf(ctx) }).rows.map(unitWidgetLine);
+		ctx.ui.setWidget(WIDGET_KEY, [`⚓ ${kind} · ${at}${open ? ` · ${open} friction` : ""}`, ...units], { placement: "belowEditor" });
 	}
 
 	pi.on(
