@@ -8,20 +8,22 @@ Agent workflow skills and loop extensions for [pi](https://github.com/earendil-w
 
 ```text
 anchorloop            core loop · principles · playbooks: autonomous-run, pause, pickup
-├─ answering     explain · compare
-├─ investigating research · diagnose
-├─ inspecting    diff-review · qa-release
-├─ coding        bug-fix · feature · refactoring · perf · prototype  (+ Mini SDD)
-├─ integrating   receive-car · train · urgent-car  (+ seams)
-├─ deploying     deploy · rollback
-├─ writing       draft · tighten · comments · pr-description
-└─ solid-loop    apply-friction · author-skill · bootstrap
-shared           grilling · domain-modeling · human-feedback (uat) · agent-terse
+├─ answering        explain · compare
+├─ investigating    research · diagnose
+├─ inspecting       diff-review · qa-release
+├─ coding           bug-fix · feature · refactoring · perf · prototype  (+ Mini SDD)
+├─ integrating      receive-car · train · urgent-car  (+ seams)
+├─ deploying        deploy · rollback
+├─ writing          draft · tighten · comments · pr-description
+├─ visual-designing compare · refine · motion  (+ canvases)
+└─ solid-loop       apply-friction · author-skill · bootstrap
+shared              grilling · domain-modeling · human-feedback (uat) · agent-terse
 ```
 
 - **`anchorloop`** holds what is true for every task type: restate the task, pick the entry's playbook, keep real work items in `todo` (its first create opens a loop), declare the loop with `anchorloop_stage` (kind, intent, anchor command) before the first change, work in small increments deleting before adding, verify against the anchor, and record friction in the loop book. The Reflexive pass hands reflected friction to `solid-loop`. `PRINCIPLES.md` names the principles playbooks cite and the user can steer with. The lifecycle playbooks cover unattended runs, clean pauses, and picking up a prior run.
 - **Entry skills** each name the anchor for their task type and index their playbooks. A playbook has an ownership line, numbered steps, and a `Reply:` line that sets what the final report contains.
 - **`integrating` and `deploying`** carry the generic merge-train and deploy procedure: batching reviewed branches into one train, assembly, one review and one run of the full gates per train, per-target approval, version verification, and rollback. Seven seams (handoff route, batch owner, approval, record, escalation route, settings, step runner) have defaults: the session is its own owner and record keeper and asks the user before any merge to a shared branch or any deploy to a target not marked `auto`. A host binds them with a `Seam bindings` block in its session instructions. The project's own skill supplies the concrete checks under fixed headings (`Light checks`, `Train assembly`, `Full gates`, `Merge`, `Post-merge`, `Deploy`, `Deploy verify`, `Acceptance`, `Urgent lane`, `Load`).
+- **`visual-designing`** has agents draw UI comps, native app or web screens, and purely visual pieces as hand-written SVG frames, render them to PNG to check them, and hand them to a person on a `show_doc` review page to choose a direction or accept each frame. A flow is a sequence of frames, and a transition or loading state is a looping animated SVG.
 - **Shared skills** are called by entries: `grilling` for user-owned decisions, `domain-modeling` for terms and ADRs, `human-feedback` for reactions to working output and UAT (a person checks the screenshots of an e2e flow), `agent-terse` for text only agents read: briefs, reports, and agent messages.
 
 ## Extensions
@@ -43,10 +45,10 @@ Install the npm package `pi-anchorloop`; it is the recommended way to use anchor
 pi install npm:pi-anchorloop
 ```
 
-The `human-feedback` UAT playbook opens its screenshot review page with the `show_doc` tool of [pi-herdr-doc-review](https://github.com/wayne930242/pi-herdr-doc-review), so install it beside anchorloop. Without it the playbook lists the screenshot paths in the reply instead.
+The `human-feedback` UAT playbook and `visual-designing` open their review pages with the `show_doc` tool of [pi-better-show](https://github.com/wayne930242/pi-better-show), so install it beside anchorloop. Without it they list the screenshot or frame paths in the reply instead.
 
 ```bash
-pi install npm:pi-herdr-doc-review
+pi install npm:pi-better-show
 ```
 
 A local checkout loads in place, so edits take effect on `/reload`:

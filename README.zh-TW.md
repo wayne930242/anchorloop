@@ -8,20 +8,22 @@
 
 ```text
 anchorloop            核心循環 · 原則 · playbook：autonomous-run、pause、pickup
-├─ answering     explain · compare
-├─ investigating research · diagnose
-├─ inspecting    diff-review · qa-release
-├─ coding        bug-fix · feature · refactoring · perf · prototype（+ Mini SDD）
-├─ integrating   receive-car · train · urgent-car（+ seams）
-├─ deploying     deploy · rollback
-├─ writing       draft · tighten · comments · pr-description
-└─ solid-loop    apply-friction · author-skill · bootstrap
-共用             grilling · domain-modeling · human-feedback (uat) · agent-terse
+├─ answering        explain · compare
+├─ investigating    research · diagnose
+├─ inspecting       diff-review · qa-release
+├─ coding           bug-fix · feature · refactoring · perf · prototype（+ Mini SDD）
+├─ integrating      receive-car · train · urgent-car（+ seams）
+├─ deploying        deploy · rollback
+├─ writing          draft · tighten · comments · pr-description
+├─ visual-designing compare · refine · motion（+ canvases）
+└─ solid-loop       apply-friction · author-skill · bootstrap
+共用                grilling · domain-modeling · human-feedback (uat) · agent-terse
 ```
 
 - **`anchorloop`** 放每一種任務都成立的做法：重述任務、選入口的 playbook、只把真正的工作項目放進 `todo`（第一次 create 會開啟一個 loop）、第一筆修改前用 `anchorloop_stage` 宣告 loop（種類、intent、anchor 指令）、以小步前進且先刪後加、依 anchor 驗證，並把 friction 記在 loop book。Reflexive pass 會把已 reflect 的 friction 交給 `solid-loop`。`PRINCIPLES.md` 列出 playbook 引用的原則，使用者也可以用這些名稱中途修正方向。三本生命週期 playbook 處理無人看管的執行、乾淨的暫停，以及接手前一輪的工作。
 - **入口 skill** 各自寫出這類任務的 anchor，並列出自己的 playbook。每本 playbook 先用一句話說明它負責什麼，接著是編號步驟，最後一行 `Reply:` 規定回報要包含什麼。
 - **`integrating` 與 `deploying`** 放通用的合併列車與部署流程：把審過的 branch 併成一班列車、組裝、每班只做一次 review 和一次完整 gate、逐目標核准、驗證版本與 rollback。七個 seam（handoff route、batch owner、approval、record、escalation route、settings、step runner）各有預設：session 自己當 owner 與記錄者，合併到共用 branch 或部署到未標 `auto` 的目標前先問使用者。host 在 session 指令裡用一段 `Seam bindings` 綁定它們。具體檢查由專案自己的 skill 用固定標題提供（`Light checks`、`Train assembly`、`Full gates`、`Merge`、`Post-merge`、`Deploy`、`Deploy verify`、`Acceptance`、`Urgent lane`、`Load`）。
+- **`visual-designing`** 讓 agent 用手寫 SVG 畫 UI 比稿、原生 app 或網頁畫面，以及純視覺作品；先轉成 PNG 自己檢查，再用 `show_doc` 的複查頁交給人挑方向或逐張確認。流程拆成多張畫面，轉場和載入狀態畫成循環播放的動畫 SVG。
 - **共用 skill** 由入口呼叫：`grilling` 處理使用者要做的決定，`domain-modeling` 處理術語和 ADR，`human-feedback` 處理對成品的反應與 UAT（由人複查 e2e 流程的擷圖），`agent-terse` 處理只給 agent 讀的文字：任務 brief、回報、agent 之間的訊息。
 
 ## Extension
@@ -43,10 +45,10 @@ anchorloop            核心循環 · 原則 · playbook：autonomous-run、paus
 pi install npm:pi-anchorloop
 ```
 
-`human-feedback` 的 UAT playbook 用 [pi-herdr-doc-review](https://github.com/wayne930242/pi-herdr-doc-review) 的 `show_doc` 工具開擷圖複查頁，請一併安裝；沒裝時 playbook 改在回覆裡列出擷圖路徑。
+`human-feedback` 的 UAT playbook 和 `visual-designing` 用 [pi-better-show](https://github.com/wayne930242/pi-better-show) 的 `show_doc` 工具開複查頁，請一併安裝；沒裝時改在回覆裡列出擷圖或畫面的路徑。
 
 ```bash
-pi install npm:pi-herdr-doc-review
+pi install npm:pi-better-show
 ```
 
 本機 checkout 會直接載入，改完 `/reload` 就生效：
