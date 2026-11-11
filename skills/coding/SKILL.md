@@ -19,7 +19,7 @@ Re-classify when the reach changes: the user adds scope, an anchor run reports t
 
 ## Anchor
 
-Point the anchor at what the change touches: a one-line edit anchors on the tests that assert that file; a shared code path anchors on its callers' tests and the repository's tree-wide checks, such as lint, config sweeps, ratchets, and changelog checks. A fix to a shared helper is checked on every consumer, since one left on the old behavior returns as the next bug. Gate changes follow the anchorloop Anchor rule.
+Point the anchor at what the change touches: a one-line edit anchors on the tests that assert that file; a shared code path anchors on its callers' tests and the repository's tree-wide checks, such as lint, config sweeps, ratchets, and changelog checks. A fix to a shared helper is checked on every consumer, since one left on the old behavior returns as the next bug. Gate changes follow the anchorloop Anchor rule. After a green run, later rounds run only what covers the diff since it ([minimize tests](../anchorloop/principles/minimize-tests.md)).
 
 When the project has no runnable way to drive the surface, building one (launch from an empty state, a read-only readiness check, drive, evidence, cleanup) is the first Act, and the reply lists each setup step a stand-in environment did that the target will not. When one change carries several fixes, give each fix a test case that only it turns green, and check that reverting that fix alone turns the case red: a case two fixes both satisfy stays green when either is reverted. For Inline work, a green anchor plus a read of your own diff completes Verify; report the contract with its observed output in one line.
 

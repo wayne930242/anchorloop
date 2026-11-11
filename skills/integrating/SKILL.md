@@ -15,7 +15,7 @@ Read [seams](references/seams.md) first. It names the seven seams a host binds (
 
 ## Principle
 
-A car's anchor before handoff is its review (P0 and P1 clear), behaviour tests aimed at its own change, and the project skill's `Light checks`. Format, lint, build, full type-check, full suites, publish, and similar gates run once, by the owner, on the assembled head. The project skill may name exceptions. A car's acceptance (`accept` in Settings, such as e2e or UAT) runs before handoff, by its author on its own branch with the approver's nod, and the slip carries the evidence; the train accepts nothing and never waits on a person. The train replaces the author's merge-time checkpoint, not its fresh-context review.
+A car's anchor before handoff is its review (P0 and P1 clear), behaviour tests aimed at its own change, and the project skill's `Light checks`. Format, lint, build, full type-check, full suites, publish, and similar gates run once, by the owner, on the assembled head. Cars' recorded green runs (command with filter, SHA, result) are context: the owner runs only what covers the diff since them, and a gate already green on the same tree is not rerun ([minimize tests](../anchorloop/principles/minimize-tests.md)). The project skill may name exceptions. A car's acceptance (`accept` in Settings, such as e2e or UAT) runs before handoff, by its author on its own branch with the approver's nod, and the slip carries the evidence; the train accepts nothing and never waits on a person. The train replaces the author's merge-time checkpoint, not its fresh-context review.
 
 ## Project skill contract
 

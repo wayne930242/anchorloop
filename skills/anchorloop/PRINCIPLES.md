@@ -24,6 +24,7 @@ Read this index at Align, and open an entry whenever its trigger fires, at Align
 - [**Prove it works**](principles/prove-it-works.md): before declaring done.
 - [**Fix root causes**](principles/fix-root-causes.md): debugging.
 - [**Sequence verifiable units**](principles/sequence-verifiable-units.md): multi-step work and commit order.
+- [**Minimize tests**](principles/minimize-tests.md): before any verify or gate run, and after a fix or merge on a tree with a green run.
 - [**Test behavior, not implementation**](principles/test-behavior-not-implementation.md): writing or keeping a test.
 - [**Observe, don't ask**](principles/observe-dont-ask.md): a question a check or prototype could answer (behavior, timing, layout, output, performance).
 - [**Explain the number**](principles/explain-the-number.md): before measuring and before trusting a number.
