@@ -10,7 +10,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	type Book,
@@ -55,6 +55,7 @@ import {
 	summarizeArtifact,
 	taskLines,
 	taskDetails,
+	type Sweep,
 	sweep,
 	touchRepo,
 	touchRepoBeforeMerge,
@@ -120,6 +121,28 @@ function textOf(content: unknown): string {
 /** `text` cut to `limit` characters, the cut marked. */
 function clip(text: string, limit = 120): string {
 	return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
+}
+
+const SHOWN_BOOKS = 3;
+
+/** The session_start summary: counts on one line, then the newest open books of this project and where the rest are. */
+function sweepLines(swept: Sweep): string[] {
+	const counts = [
+		...(swept.open.length ? [`${swept.open.length} open loop book${swept.open.length === 1 ? "" : "s"} in this project`] : []),
+		...(swept.deleted.length ? [`${swept.deleted.length} stale deleted`] : []),
+	];
+	if (counts.length === 0) return [];
+	const newest = [...swept.open].sort((a, b) => b.mtimeMs - a.mtimeMs);
+	const day = (ms: number) => {
+		const date = new Date(ms);
+		return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+	};
+	const rest = newest.length - SHOWN_BOOKS;
+	return [
+		counts.join(", "),
+		...newest.slice(0, SHOWN_BOOKS).map((book) => `  ${day(book.mtimeMs)} ${book.kind}: ${clip(book.intent, 80)}`),
+		...(rest > 0 ? [`  … ${rest} more in ${dirname(newest[0].path)}`] : []),
+	];
 }
 
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
@@ -734,15 +757,11 @@ export default function (pi: ExtensionAPI) {
 	pi.on(
 		"session_start",
 		guarded((_event, ctx) => {
-			const swept = sweep(process.env, ctx.cwd);
-			const lines = [
-				...swept.deleted.map((path) => `deleted stale loop book: ${path}`),
-				...swept.open.map((path) => `open loop book: ${path}`),
-			];
+			const [summary, ...lines] = sweepLines(sweep(process.env, ctx.cwd));
 			const open = openLoop(ctx);
 			if (open) checkLandings(open);
 			if (open) lines.push(...orphanLines(open.entries).map((line) => `child ${line}`));
-			if (lines.length > 0) ctx.ui.notify(`anchorloop books\n${lines.join("\n")}`, "info");
+			if (summary !== undefined || lines.length > 0) ctx.ui.notify([`anchorloop${summary ? `: ${summary}` : ""}`, ...lines].join("\n"), "info");
 			showStatus(ctx);
 		}),
 	);

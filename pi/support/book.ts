@@ -277,7 +277,8 @@ export function deleteBook(path: string): void {
 	tidy(dirname(path));
 }
 
-export type Sweep = { deleted: string[]; open: string[] };
+export type OpenBook = { path: string; kind: string; intent: string; mtimeMs: number };
+export type Sweep = { deleted: string[]; open: OpenBook[] };
 
 function sessionGone(book: Book): boolean {
 	if (Date.now() - statSync(book.path).mtimeMs > STALE_BOOK_MS) return true;
@@ -312,7 +313,7 @@ export function sweep(env: NodeJS.ProcessEnv = process.env, cwd?: string): Sweep
 						result.deleted.push(book.path);
 						continue;
 					}
-					if (!slug || project === slug) result.open.push(`${book.path} (${currentKind(book.entries) ?? "no kind"}: ${currentIntent(book.entries) ?? "no intent"})`);
+					if (!slug || project === slug) result.open.push({ path: book.path, kind: currentKind(book.entries) ?? "no kind", intent: currentIntent(book.entries) ?? "no intent", mtimeMs: statSync(book.path).mtimeMs });
 					for (const entry of book.entries) if (entry.stage === "link" && typeof entry.child === "string") linked.add(safe(entry.child));
 				} catch {
 					// This book vanished; the rest of the project still counts.

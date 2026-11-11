@@ -618,10 +618,21 @@ class TestSweep(BookCase):
         out = self.start()
         self.assertEqual(sorted(p.name for p in self.books.rglob("*.yml")), sorted([live.name, "linked.yml"]))
         (notice,) = out["notices"]
-        self.assertIn("deleted stale loop book", notice["message"])
-        self.assertIn("dead.yml", notice["message"])
-        self.assertIn("orphan.yml", notice["message"])
-        self.assertIn(f"open loop book: {live}", notice["message"])
+        self.assertIn("1 open loop book in this project, 3 stale deleted", notice["message"])
+        self.assertNotIn("dead.yml", notice["message"])
+
+    def test_session_start_lists_only_the_newest_open_books_and_counts_the_rest(self):
+        self.replay([todo_create()])
+        mine = self.book_files()[0].parent
+        for n in range(5):
+            self.write_book(mine / f"b{n}.yml", str(self.session_file), {"stage": "kind", "kind": "inline", "intent": f"intent {n}"})
+            os.utime(mine / f"b{n}.yml", (2_000_000_000 + n, 2_000_000_000 + n))
+        message = self.start()["notices"][0]["message"]
+        lines = message.splitlines()
+        self.assertEqual(lines[0], "anchorloop: 6 open loop books in this project")
+        self.assertEqual([line.split(": ", 1)[1] for line in lines[1:4]], ["intent 4", "intent 3", "intent 2"])
+        self.assertEqual(lines[4], f"  … 3 more in {mine}")
+        self.assertEqual(len(lines), 5)
 
     def test_a_running_child_the_parent_has_not_linked_yet_survives_another_session_start(self):
         # RV-F003: its own session file exists, so it is not stale.
@@ -653,12 +664,11 @@ class TestSweep(BookCase):
     def test_only_the_open_books_of_this_project_are_listed(self):
         # RV-F010: a book of another project is neither deleted nor listed.
         self.replay([todo_create()])
-        mine = self.book_files()[0].name
         other = self.books / "other-project" / "live.yml"
         self.write_book(other, str(self.session_file), {"stage": "kind", "kind": "reviewed", "intent": "theirs"})
         out = self.start()
         (notice,) = out["notices"]
-        self.assertIn(mine, notice["message"])
+        self.assertIn("1 open loop book in this project", notice["message"])
         self.assertNotIn("theirs", notice["message"])
         self.assertTrue(other.exists())
 
