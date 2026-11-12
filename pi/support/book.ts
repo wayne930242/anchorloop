@@ -170,45 +170,94 @@ export function createBook(who: Who, env: NodeJS.ProcessEnv = process.env): Book
 	return { path, header, entries: [] };
 }
 
-/**
- * Adopts the open book another main session of this project left behind, as a handoff to a new session does: the one open main book,
- * not this session's, that `matches` (the caller tests the todos it recorded against the todos this session recreates). The book moves to
- * this session's path with this session's file in its header, so what its units proved and what the notice asked carry over. Undefined
- * in a child, when this session already has a book, or when no book or more than one matches.
- */
-export function adoptBook(who: Who, matches: (entries: Entry[]) => boolean, env: NodeJS.ProcessEnv = process.env): Book | undefined {
-	if (childId(env) !== undefined) return undefined;
-	const path = bookPath(who, env);
-	if (existsSync(path)) return undefined;
-	let files: string[];
+/** What `adoptBook` answers: the adopted book, or why the id was refused. */
+export type Adopted = { book: Book; refused?: undefined } | { book?: undefined; refused: string };
+
+/** The book whose header id is `id`, wherever it lives under the books root, with whether it is a subagent's. */
+function findBookById(id: string, root: string): { book: Book; project: string; child: boolean } | undefined {
+	let projects: string[];
 	try {
-		files = readdirSync(dirname(path)).filter((file) => file.endsWith(".yml"));
+		projects = readdirSync(root);
 	} catch {
 		return undefined;
 	}
-	const found = files
-		.map((file) => parseBook(join(dirname(path), file)))
-		.filter((book): book is Book => book !== undefined && book.path !== path && !isClosed(book) && book.header.owner === "main" && matches(book.entries));
-	if (found.length !== 1) return undefined;
-	const [old] = found;
+	for (const project of projects) {
+		for (const [dir, child] of [[join(root, project), false], [join(root, project, "agents"), true]] as const) {
+			let files: string[];
+			try {
+				files = readdirSync(dir).filter((file) => file.endsWith(".yml"));
+			} catch {
+				continue;
+			}
+			for (const file of files) {
+				const book = parseBook(join(dir, file));
+				if (book?.header.id === id) return { book, project, child };
+			}
+		}
+	}
+	return undefined;
+}
+
+/** Where a moved book went, when the book at its old path is the closed marker `adoptBook` leaves there. */
+export function movedTo(book: Book): { session: string; id: string; ts: string } | undefined {
+	const last = book.entries.at(-1);
+	if (last?.stage !== "close" || last.verdict !== "moved") return undefined;
+	return { session: String(last.to ?? "another session"), id: String(book.header.id ?? basename(book.path, ".yml")), ts: last.ts };
+}
+
+/** The entries a loop records as it opens, before any evidence: a session whose loop holds only these may still resume another book. */
+const OPENING_STAGES: ReadonlySet<string> = new Set(["kind", "anchor", "observe", "base", "task"]);
+
+/**
+ * Adopts the open book another main session of this project handed off, by the id its handoff names (`read` shows it): the book
+ * moves to this session's path with this session's file in its header, so what its units proved and what the notice asked carry
+ * over, and an `adopt` entry names where it came from. The old path keeps a closed marker naming this session, so the session that
+ * left the book is told on its next call instead of losing it silently. An id that is unknown, closed, a subagent's, another
+ * project's, or asked for while this session's own loop already holds evidence is refused with the reason.
+ */
+export function adoptBook(who: Who, id: string, env: NodeJS.ProcessEnv = process.env): Adopted {
+	if (childId(env) !== undefined) return { refused: "a subagent session cannot resume a book; only a main session resumes a handed-off book" };
+	const path = bookPath(who, env);
+	const own = parseBook(path);
+	if (own && !isClosed(own)) {
+		if (own.header.id === id) return { book: own };
+		if (own.entries.some((entry) => !OPENING_STAGES.has(entry.stage))) {
+			return { refused: `this session's own loop ${String(own.header.id)} already holds evidence; \`resume\` goes on the first \`kind\` or todo, before the loop records anything` };
+		}
+	}
+	const found = findBookById(id, booksRoot(env));
+	if (!found) return { refused: `no book has the id \`${id}\`; copy the id from the \`book:\` line of the old session's \`anchorloop_stage read\`` };
+	const old = found.book;
+	if (found.project !== projectSlug(who.cwd)) return { refused: `book ${id} belongs to another project (${String(old.header.cwd ?? found.project)}); resume it from that directory` };
+	if (found.child || old.header.owner !== "main") return { refused: `book ${id} is a subagent's book (${String(old.header.owner)}); only a main session's book can be resumed` };
+	const moved = movedTo(old);
+	if (moved) return { refused: `book ${id} was already resumed by ${moved.session}` };
+	if (isClosed(old)) return { refused: `book ${id} is closed (${String(old.entries.at(-1)?.verdict ?? "no verdict")}); open a new loop instead` };
+	if (old.path === path) return { refused: `book ${id} is this session's own book` };
 	const session = who.sessionManager.getSessionFile?.() || null;
 	let text: string;
 	try {
 		text = readFileSync(old.path, "utf-8");
 	} catch {
-		return undefined;
+		return { refused: `book ${id} vanished while it was being resumed` };
 	}
 	// The header names the session that owns the book, which the sweep checks; entries are copied as they are.
-	const moved = text.split("\n").map((line) => (line.startsWith("session: ") ? `session: ${JSON.stringify(session)}` : line)).join("\n");
-	const temp = `${path}.adopt-${process.pid}`;
+	const lines = text.split("\n");
+	const body = lines.map((line) => (line.startsWith("session: ") ? `session: ${JSON.stringify(session)}` : line)).join("\n");
 	mkdirSync(dirname(path), { recursive: true });
-	appendBytes(temp, moved, true);
+	const temp = `${path}.adopt-${process.pid}`;
+	appendBytes(temp, body, true);
 	renameSync(temp, path);
-	deleteBook(old.path);
+	// The old path becomes a closed marker under the old header: its session reads where the book went and records nothing more in it.
+	const header = lines.slice(0, Math.max(0, lines.indexOf("entries:")));
+	const marker = `${old.path}.moved-${process.pid}`;
+	const close = { ts: new Date().toISOString(), stage: "close", verdict: "moved", to: session, book: basename(path, ".yml") };
+	appendBytes(marker, [...header, "entries:", `- ${JSON.stringify(close)}`, ""].join("\n"), true);
+	renameSync(marker, old.path);
 	const book = parseBook(path);
-	if (!book) return undefined;
-	book.entries.push(appendEntry(path, "adopt", { from: basename(old.path, ".yml"), id: old.header.id ?? null }));
-	return book;
+	if (!book) return { refused: `book ${id} vanished while it was being resumed` };
+	book.entries.push(appendEntry(path, "adopt", { from: basename(old.path, ".yml"), id, session: old.header.session ?? null }));
+	return { book };
 }
 
 export function appendEntry(path: string, stage: string, fields: Record<string, unknown> = {}): Entry {
@@ -356,7 +405,7 @@ export function sweep(env: NodeJS.ProcessEnv = process.env, cwd?: string): Sweep
 						result.deleted.push(book.path);
 						continue;
 					}
-					if (!slug || project === slug) result.open.push({ path: book.path, kind: currentKind(book.entries) ?? "no kind", intent: currentIntent(book.entries) ?? "no intent", mtimeMs: statSync(book.path).mtimeMs });
+					if ((!slug || project === slug) && !movedTo(book)) result.open.push({ path: book.path, kind: currentKind(book.entries) ?? "no kind", intent: currentIntent(book.entries) ?? "no intent", mtimeMs: statSync(book.path).mtimeMs });
 					for (const entry of book.entries) if (entry.stage === "link" && typeof entry.child === "string") linked.add(safe(entry.child));
 				} catch {
 					// This book vanished; the rest of the project still counts.
@@ -732,11 +781,39 @@ export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): strin
 	}
 }
 
+// The working trees of the event `withTrees` runs: each repo's tree is built once however many readings ask for it.
+let eventTrees: { cache: TreeCache; build: boolean } | undefined;
+
+/**
+ * Runs `fn` as one event's reading of the working state: every `workingTree` call in it shares one tree per repo, built at most
+ * once. With `build: false` (the footer) nothing more is built: a tree this event has not read is unknown, which a recorded tree
+ * counts as unchanged. A nested call joins the outer event's trees. `fn` must not await.
+ */
+export function withTrees<T>(fn: () => T, options: { build?: boolean } = {}): T {
+	const outer = eventTrees;
+	eventTrees = { cache: outer?.cache ?? new Map(), build: (outer?.build ?? true) && (options.build ?? true) };
+	try {
+		return fn();
+	} finally {
+		eventTrees = outer;
+	}
+}
+
 /**
  * The tree a commit of everything in `repo`'s working state would have (tracked and untracked, ignored files and `scratch/`
  * left out), built in a copy of the index so the repo's own index is untouched; undefined when git cannot build it.
+ * Inside `withTrees` the event's tree of `repo` is shared.
  */
 export function workingTree(repo: string): string | undefined {
+	if (!eventTrees) return buildTree(repo);
+	const { cache, build } = eventTrees;
+	if (cache.has(repo) || !build) return cache.get(repo);
+	const tree = buildTree(repo);
+	cache.set(repo, tree);
+	return tree;
+}
+
+function buildTree(repo: string): string | undefined {
 	const index = git(repo, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
 	if (!index) return undefined;
 	const dir = mkdtempSync(join(tmpdir(), "anchorloop-tree-"));

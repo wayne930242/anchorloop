@@ -67,8 +67,12 @@ import {
 	ignoredByGit,
 	passingRunOf,
 	adoptBook,
+	movedTo,
+	parseBook,
+	bookPath,
 	resultOf,
 	type TreeCache,
+	withTrees,
 } from "./support/book.ts";
 import { type Link, dispatchFrom, isChild, linkFrom, resultFrom } from "./support/host.ts";
 import { classify } from "./support/jev.ts";
@@ -106,7 +110,11 @@ type Params = {
 	task?: number;
 	observe?: string[];
 	checkpoint?: number;
+	resume?: string;
 };
+
+/** The fields of a `tool_result` event the book reads. */
+type ToolResultEvent = { toolName: string; toolCallId: string; input: unknown; content?: unknown; details?: unknown; isError?: boolean; structuredContent?: unknown };
 
 type Block = { type?: string; text?: string };
 type BranchEntry = { type?: string; message?: { role?: string; content?: unknown } };
@@ -395,8 +403,9 @@ function statedAnchor(message: { role?: string; content?: unknown } | undefined)
 }
 
 const WIDGET_KEY = "anchorloop";
-// A bash call that may push: only then are the remote-tracking refs listed around it, and git decides what it pushed.
-const PUSH = /\bgit\b[^|;&\n]*\bpush\b/;
+// A bash call that may push: only then are the remote-tracking refs listed around it, and git decides what it pushed. Only global
+// options stand between `git` and `push` (a stash push is none), and a `--dry-run` or `-n` push moves no ref.
+const PUSH = /(?<![\w./-])git(?:\s+(?:-[Cc]\s+\S+|--?[A-Za-z][\w-]*(?:=\S*)?))*\s+push\b(?![^|;&\n]*\s(?:--dry-run|-n)(?![\w-]))/;
 
 const reply = (text: string) => ({ content: [{ type: "text" as const, text }], details: undefined });
 
@@ -616,16 +625,24 @@ export default function (pi: ExtensionAPI) {
 		return book;
 	}
 
+	/** Adopts the book a handoff names by its id (`resume` on the first `kind`, or the first todo's `metadata.resume`); see `adoptBook`. */
+	function resumeBook(ctx: ExtensionContext, id: string): ReturnType<typeof adoptBook> {
+		const adopted = adoptBook(ctx, id.trim());
+		if (adopted.book) touchRepo(adopted.book, join(ctx.cwd, "_"));
+		return adopted;
+	}
+
 	/**
-	 * The open book a previous session of this project handed off, adopted when the todos this session creates (or the intent it declares)
-	 * name a ticket an open todo of that book names: the handoff carries the open todos, and recreating them names the book.
+	 * The answer for a session whose book another session resumed: the marker at its path names that session. Read once, then removed,
+	 * so the next call opens a loop of its own; undefined when this session's book was not moved.
 	 */
-	function adoptHandedOff(ctx: ExtensionContext, texts: string[]): Book | undefined {
-		const tickets = ticketKeys(texts.join(" "));
-		if (tickets.length === 0) return undefined;
-		const book = adoptBook(ctx, (entries) => latestTasks(entries).some((task) => (task.status === "pending" || task.status === "in_progress") && ticketKeys(String(task.subject ?? "")).some((key) => tickets.includes(key))));
-		if (book) touchRepo(book, join(ctx.cwd, "_"));
-		return book;
+	function movedNotice(ctx: ExtensionContext): string | undefined {
+		const path = bookPath(ctx);
+		const marker = parseBook(path);
+		const moved = marker ? movedTo(marker) : undefined;
+		if (!moved) return undefined;
+		deleteBook(path);
+		return `anchorloop: this session's loop book ${moved.id} was resumed by session ${moved.session} at ${moved.ts}, so nothing more is recorded here; continue the work in that session, or declare \`kind\` to open a new loop in this one.`;
 	}
 
 	function close(book: Book, ctx: ExtensionContext, verdict: string): { text: string; snapshot?: Snapshot } {
@@ -688,7 +705,7 @@ export default function (pi: ExtensionAPI) {
 		name: "anchorloop_stage",
 		label: "Loop stage",
 		description:
-			"Loop book; the first `todo` create opens an inline loop. stage: kind (kind, intent, anchor, observe: checks after landing; reason to change the kind or answer a reach notice), verify (note; checkpoint: an observe item; else a check not run in bash), fresh-read, friction (tried, found, led_by), reflect (friction ids, class, action), skip/back (phase, reason), landed (sha, ref, task: an owner's notice, checked against git), close (verdict; refuses while an open todo lacks metadata.followup), read. Edits, anchor runs, reviews, specs are read from evidence.",
+			"Loop book; the first `todo` create opens an inline loop. stage: kind (kind, intent, anchor, observe: checks after landing; reason to change the kind or answer a reach notice; resume: a handoff's book id), verify (note; checkpoint: an observe item; else a check not run in bash), fresh-read, friction (tried, found, led_by), reflect (friction ids like `worker#2`, class, action), skip/back (phase, reason), landed (sha, ref, task: an owner's notice; checked in git), close (verdict; refuses while an open todo lacks metadata.followup), read. Edits, anchor runs, reviews, specs are read from evidence.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -700,8 +717,8 @@ export default function (pi: ExtensionAPI) {
 				result: { type: "string", enum: ["pass", "fail"] },
 				tried: { type: "string" },
 				found: { type: "string" },
-				led_by: { type: "string", description: "the instruction that misled the attempt, or `none`" },
-				friction: { type: "array", items: { type: ["string", "number"] }, description: "ids: `3`, `worker#2`" },
+				led_by: { type: "string", description: "the misleading instruction, or `none`" },
+				friction: { type: "array", items: { type: ["string", "number"] } },
 				class: { type: "string", enum: ["misdirection", "gap", "resolved"] },
 				action: { type: "string" },
 				phase: { type: "string" },
@@ -713,39 +730,52 @@ export default function (pi: ExtensionAPI) {
 				task: { type: "number" },
 				observe: { type: "array", items: { type: "string" } },
 				checkpoint: { type: "number" },
+				resume: { type: "string" },
 			},
 			required: ["stage"],
 			additionalProperties: false,
 		},
 		async execute(toolCallId: string, raw: unknown, signal: unknown, onUpdate: unknown, ctx: ExtensionContext) {
 			try {
-				return await stageTool(toolCallId, raw, signal, onUpdate, ctx);
+				return withTrees(() => stageTool(toolCallId, raw, signal, onUpdate, ctx));
 			} finally {
 				guarded(showStatus)(ctx);
 			}
 		},
 	});
 
-	async function stageTool(_toolCallId: string, raw: unknown, _signal: unknown, _onUpdate: unknown, ctx: ExtensionContext) {
+	function stageTool(_toolCallId: string, raw: unknown, _signal: unknown, _onUpdate: unknown, ctx: ExtensionContext) {
 		const params = raw as Params;
 		const { stage } = params;
 		if (!(STAGES as readonly string[]).includes(stage)) throw new Error(`unknown stage \`${String(stage)}\`; declare one of ${STAGES.join(", ")}`);
 		let book = openLoop(ctx);
+		if (!book) {
+			const moved = movedNotice(ctx);
+			if (moved) return reply(moved);
+		}
+		let resumed: string | undefined;
+		if (stage === "kind" && params.resume !== undefined) {
+			// Only the book a handoff names is adopted, and only before this session's own loop holds evidence.
+			if (book?.header.id !== params.resume) {
+				const adopted = resumeBook(ctx, params.resume);
+				if (!adopted.book) throw new Error(`resume refused: ${adopted.refused}`);
+				book = adopted.book;
+			}
+			resumed = `resumed book ${params.resume}`;
+		}
 		if (!book && stage === "kind") {
 			// A todo create in the same batch may not have landed yet; whichever comes first opens the loop.
 			if (!params.kind || !params.intent) throw new Error("the first kind declaration needs `kind` and a one-line `intent`");
-			book = adoptHandedOff(ctx, [params.intent]);
-			if (!book) {
-				book = createBook(ctx);
-				recordPriorAnchor(book, ctx);
-				recordPriorLinks(book, ctx);
-			}
+			book = createBook(ctx);
+			recordPriorAnchor(book, ctx);
+			recordPriorLinks(book, ctx);
 		}
 		if (!book) return reply("No loop is open, so nothing was recorded. A loop opens with the first `todo` create or `kind`.");
 		const had = currentKind(book.entries);
 		const sequence = SEQUENCES[had ?? "inline"];
 		if (stage === "read") {
-			const lines = [...summaryLines(book, ctx), ...taskLines(book.entries, todosOf(ctx), ctx.cwd)];
+			// The id a handoff names, so the session that takes over can pass it as `resume`.
+			const lines = [...summaryLines(book, ctx), ...taskLines(book.entries, todosOf(ctx), ctx.cwd), `book: ${String(book.header.id ?? "no id")}`];
 			if (params.view === "all") lines.push("entries:", ...book.entries.map((entry) => JSON.stringify(entry).slice(0, 300)));
 			return reply(lines.join("\n"));
 		}
@@ -763,7 +793,7 @@ export default function (pi: ExtensionAPI) {
 			return { content: [{ type: "text" as const, text: closed.text }], details: closed.snapshot ? { snapshot: closed.snapshot } : undefined };
 		}
 		if (stage === "kind") {
-			if (!params.kind && !params.intent && !params.anchor && !params.reason && !params.observe?.length) throw new Error("kind needs `kind`, `intent`, `anchor`, `observe`, or `reason`");
+			if (!params.kind && !params.intent && !params.anchor && !params.reason && !params.observe?.length && !resumed) throw new Error("kind needs `kind`, `intent`, `anchor`, `observe`, or `reason`");
 			if (!had && (!params.kind || !params.intent)) throw new Error("the first kind declaration needs `kind` and a one-line `intent`");
 			// The kind a todo create defaulted to is not a choice yet, so choosing another needs no reason.
 			const changed = had !== undefined && params.kind !== undefined && had !== params.kind;
@@ -776,7 +806,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (params.anchor) appendEntry(book.path, "anchor", { check: params.anchor });
 			if (params.observe?.length) appendEntry(book.path, "observe", { items: params.observe.map((item) => clip(String(item), 200)).slice(0, 10) });
-			return reply("ok");
+			return reply(resumed ?? "ok");
 		}
 		if (stage === "verify") {
 			if (!params.note) throw new Error("verify needs a `note` saying what was observed");
@@ -946,14 +976,14 @@ export default function (pi: ExtensionAPI) {
 			if (!unit.anchor) continue;
 			for (const [child, id] of found.bound) {
 				if (id !== unit.id || !resultOf(book.entries, child)) continue;
-				const found = passingRunOf(book.entries, child, unit.anchor, repos, ctx.cwd);
-				if (!found) continue;
-				const ran = found.run.ts;
+				const run = passingRunOf(book.entries, child, unit.anchor, repos, ctx.cwd);
+				if (!run) continue;
+				const ran = run.run.ts;
 				const stale = findChildBooks(child).some(({ book: own }) => own.entries.some((entry) => entry.stage === "edit" && entry.ts > ran));
 				if (stale || book.entries.some((entry) => entry.stage === "verify" && entry.child === child && entry.task === unit.id && entry.ran === ran)) continue;
-				const last = `adopted from ${found.name}${found.run.last ? `: ${String(found.run.last)}` : ""}`.slice(0, 200);
-				const at = found.run.treeAt && typeof found.run.treeAt === "object" ? { treeAt: found.run.treeAt } : {};
-				book.entries.push(appendEntry(book.path, "verify", { command: unit.anchor.slice(0, 200), exit: 0, last, adopted: found.name, child, task: unit.id, ran, ...at }));
+				const last = `adopted from ${run.name}${run.run.last ? `: ${String(run.run.last)}` : ""}`.slice(0, 200);
+				const at = run.run.treeAt && typeof run.run.treeAt === "object" ? { treeAt: run.run.treeAt } : {};
+				book.entries.push(appendEntry(book.path, "verify", { command: unit.anchor.slice(0, 200), exit: 0, last, adopted: run.name, child, task: unit.id, ran, ...at }));
 			}
 		}
 	}
@@ -1055,8 +1085,16 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	/** The line below the editor: the loop's kind, its last complete phase, the next one, and the friction still to reflect; cleared when no loop is open. */
+	/**
+	 * The line below the editor: the loop's kind, its last complete phase, the next one, and the friction still to reflect; cleared when
+	 * no loop is open. It builds no working tree (a tree costs a second or more on a large repo): it reads the trees its event already
+	 * read, and counts a run as standing where none was read, until `read` or the turn's end compares them.
+	 */
 	function showStatus(ctx: ExtensionContext): void {
+		withTrees(() => statusLine(ctx), { build: false });
+	}
+
+	function statusLine(ctx: ExtensionContext): void {
 		if (typeof ctx.ui?.setWidget !== "function") return;
 		const book = openLoop(ctx);
 		if (!book) {
@@ -1072,69 +1110,77 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.setWidget(WIDGET_KEY, [`⚓ ${kind} · ${at}${open ? ` · ${open} friction` : ""}`, ...units], { placement: "belowEditor" });
 	}
 
-	pi.on(
-		"tool_result",
-		guarded((event, ctx) => {
-			if (event.toolName === "bash") {
-				const book = openLoop(ctx) ?? (childId() !== undefined ? openChildFromBash(ctx, event) : undefined);
-				const notice = book ? recordBash(book, event, ctx.cwd) : undefined;
-				const before = tipsBefore.get(event.toolCallId);
-				tipsBefore.delete(event.toolCallId);
-				const remotes = remotesBefore.get(event.toolCallId);
-				remotesBefore.delete(event.toolCallId);
-				if (book && remotes) recordPushes(book, remotes, ctx);
-				if (book) checkLandings(book, before);
-				// The line only appends text, so the bash call's structured output passes on unchanged.
-				return notice ? { content: [...((event.content as unknown[]) ?? []), { type: "text", text: notice }], structuredContent: event.structuredContent } : undefined;
+	/** Records what a finished tool call shows; returns the tool result with any line the loop adds. */
+	function recordResult(event: ToolResultEvent, ctx: ExtensionContext) {
+		if (event.toolName === "bash") {
+			const book = openLoop(ctx) ?? (childId() !== undefined ? openChildFromBash(ctx, event) : undefined);
+			const notice = book ? recordBash(book, event, ctx.cwd) : undefined;
+			const before = tipsBefore.get(event.toolCallId);
+			tipsBefore.delete(event.toolCallId);
+			const remotes = remotesBefore.get(event.toolCallId);
+			remotesBefore.delete(event.toolCallId);
+			if (book && remotes) recordPushes(book, remotes, ctx);
+			if (book) checkLandings(book, before);
+			// The line only appends text, so the bash call's structured output passes on unchanged.
+			return notice ? { content: [...((event.content as unknown[]) ?? []), { type: "text", text: notice }], structuredContent: event.structuredContent } : undefined;
+		}
+		if (event.isError) return;
+		if (event.toolName === "todo") {
+			const input = event.input as { action?: unknown; id?: unknown };
+			let open = openLoop(ctx);
+			let said: string | undefined;
+			if (!open && input.action === "create") {
+				// A session whose book another session resumed is told so, and opens nothing in its place this time.
+				const moved = movedNotice(ctx);
+				if (moved) return { content: [...((event.content as unknown[]) ?? []), { type: "text", text: moved }] };
+				const resume = (taskDetails(event.details) ?? []).map((task) => task.metadata?.resume).find((id): id is string => typeof id === "string" && id.trim() !== "");
+				const adopted = resume === undefined ? undefined : resumeBook(ctx, resume);
+				if (adopted?.refused) said = `anchorloop: resume refused: ${adopted.refused}; a new loop was opened instead, and \`kind\` with \`resume\` can still adopt the book while it holds no evidence.`;
+				open = adopted?.book ?? openFromTodo(ctx, event.details);
 			}
-			if (event.isError) return;
-			if (event.toolName === "todo") {
-				const input = event.input as { action?: unknown; id?: unknown };
-				let open = openLoop(ctx);
-				if (!open && input.action === "create") open = adoptHandedOff(ctx, (taskDetails(event.details) ?? []).map((task) => task.subject)) ?? openFromTodo(ctx, event.details);
-				if (!open) return;
-				recordTasks(open, event.details, input, ctx.cwd);
-				return;
-			}
-			const book = openLoop(ctx);
-			if (!book) return;
-			if (event.toolName === "subagent") {
-				const link = linkFrom(event.toolName, event.input, event.details);
-				if (link) recordLink(book, link, ctx);
-				return;
-			}
-			if (event.toolName === "subagent_send" || event.toolName === "subagent_resume") {
-				recordSend(book, event.toolName, event.input, event.details, ctx);
-				return;
-			}
-			if (event.toolName !== "write" && event.toolName !== "edit") return;
-			const path = (event.input as { path?: unknown }).path;
-			if (typeof path !== "string") return;
-			if (!artifactKind(path)) {
-				const target = resolve(ctx.cwd, path);
-				// A file git ignores (a handoff note, a plan) is in no diff, so it is no change to the code.
-				if (outsideWork(path, ctx.cwd) || ignoredByGit(target)) return;
-				const repo = repoRootOf(target);
-				const last = book.entries.at(-1);
-				if (last?.stage !== "edit" || last.repo !== repo) appendEntry(book.path, "edit", { path, ...(repo ? { repo } : {}) });
-				return;
-			}
-			let text: string;
-			try {
-				text = readFileSync(resolve(ctx.cwd, path), "utf-8");
-			} catch {
-				return;
-			}
-			const summary = summarizeArtifact(book.entries, path, text);
-			if (summary) appendEntry(book.path, summary.stage, summary.fields);
-		}),
-	);
+			if (!open) return;
+			recordTasks(open, event.details, input, ctx.cwd);
+			return said ? { content: [...((event.content as unknown[]) ?? []), { type: "text", text: said }] } : undefined;
+		}
+		const book = openLoop(ctx);
+		if (!book) return;
+		if (event.toolName === "subagent") {
+			const link = linkFrom(event.toolName, event.input, event.details);
+			if (link) recordLink(book, link, ctx);
+			return;
+		}
+		if (event.toolName === "subagent_send" || event.toolName === "subagent_resume") {
+			recordSend(book, event.toolName, event.input, event.details, ctx);
+			return;
+		}
+		if (event.toolName !== "write" && event.toolName !== "edit") return;
+		const path = (event.input as { path?: unknown }).path;
+		if (typeof path !== "string") return;
+		if (!artifactKind(path)) {
+			const target = resolve(ctx.cwd, path);
+			// A file git ignores (a handoff note, a plan) is in no diff, so it is no change to the code.
+			if (outsideWork(path, ctx.cwd) || ignoredByGit(target)) return;
+			const repo = repoRootOf(target);
+			const last = book.entries.at(-1);
+			if (last?.stage !== "edit" || last.repo !== repo) appendEntry(book.path, "edit", { path, ...(repo ? { repo } : {}) });
+			return;
+		}
+		let text: string;
+		try {
+			text = readFileSync(resolve(ctx.cwd, path), "utf-8");
+		} catch {
+			return;
+		}
+		const summary = summarizeArtifact(book.entries, path, text);
+		if (summary) appendEntry(book.path, summary.stage, summary.fields);
+	}
 
-	// Registered after the recording handler, so the footer reads what that tool call just recorded.
-	pi.on(
-		"tool_result",
-		guarded((_event, ctx) => {
-			showStatus(ctx);
+	// One reading of the working state per tool result: the footer after the recording reads the trees the recording built.
+	pi.on("tool_result", (event, ctx) =>
+		withTrees(() => {
+			const out = guarded(recordResult)(event, ctx);
+			guarded(showStatus)(ctx);
+			return out;
 		}),
 	);
 

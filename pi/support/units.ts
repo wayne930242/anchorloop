@@ -26,6 +26,7 @@ import {
 	real,
 	validFollowup,
 } from "./book.ts";
+import { type Link, liveness } from "./host.ts";
 import { type Inputs, type Phases, computePhases } from "./phases.ts";
 
 export type Unit = { id: number; subject: string; label: string; open: boolean; anchor?: string; observe: string[]; kind?: Kind; lands?: string; agents: string[] };
@@ -168,8 +169,9 @@ export function unitOfDispatch(found: Units, todos: Task[], child: string | unde
 export type Dispatch = { child: string; index: number; /** The unit the dispatch works for; absent for the whole loop. */ task?: number };
 
 /**
- * The dispatches still out: for each child, its latest `link` or `send` when no `result` of that child follows it. A link recorded
- * before links carried `cwd` comes from a book that kept no results, so it is not counted as out.
+ * The dispatches still out: for each child, its latest `link` or `send` when no `result` of that child follows it, while its host does
+ * not say the child is gone (a killed pane or a rebooted box never sends a result). A link recorded before links carried `cwd` comes
+ * from a book that kept no results, so it is not counted as out.
  */
 export function outDispatches(entries: Entry[], found?: Units): Dispatch[] {
 	const latest = new Map<string, number>();
@@ -181,6 +183,9 @@ export function outDispatches(entries: Entry[], found?: Units): Dispatch[] {
 		const dispatch = entries[index];
 		if (dispatch.stage === "link" && typeof dispatch.cwd !== "string") continue;
 		if (entries.slice(index + 1).some((entry) => entry.stage === "result" && entry.child === child)) continue;
+		const link = entries.find((entry) => entry.stage === "link" && entry.child === child);
+		const sessionFile = typeof dispatch.sessionFile === "string" ? dispatch.sessionFile : link?.sessionFile;
+		if (liveness({ ...(link ?? {}), child, ...(typeof sessionFile === "string" ? { sessionFile } : {}) } as Link) === "gone") continue;
 		const task = typeof dispatch.task === "number" ? dispatch.task : found?.bound.get(child);
 		out.push({ child, index, ...(task !== undefined ? { task } : {}) });
 	}

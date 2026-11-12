@@ -163,12 +163,15 @@ class TestM8TheCoordinatorCanReachClose(MultitaskCase):
 
     def test_a_handoff_to_a_new_session_keeps_what_the_units_proved(self):
         # check/ends-today/report.md, CanClose and AcceptedCounts: MP-1002's check passed; you hand off to a new session,
-        # recreate the todos from the handoff, and declare MP-1002's verify with its task.
+        # recreate the todos from the handoff, and declare MP-1002's verify with its task. The handoff names the open book, and the
+        # new session's first `kind` passes it as `resume` (P7 as issue #15 proposes it).
         self.start()
         self.worker_edits(W2)
         self.assertIn("verify ✓", self.unit("MP-1002", bash_result(B_ANCHOR, 0, "5 passed")))
-        out = self.replay([*self.creates(), stage(stage="verify", note=f"carried over from the handoff: `{B_ANCHOR}` passed", task=2), stage(stage="read")],
-                          branch=self.branch(), session="sess-2")
+        read = text_of(self.replay([stage(stage="read")], branch=self.branch())["results"][-1])
+        book = next(line for line in read.splitlines() if line.startswith("book: "))[len("book: "):]
+        out = self.replay([stage(stage="kind", resume=book), *self.creates(), stage(stage="verify", note=f"carried over from the handoff: `{B_ANCHOR}` passed", task=2),
+                           stage(stage="read")], branch=self.branch(), session="sess-2")
         answer = out["results"][-2]
         after = next(line for line in text_of(out["results"][-1]).splitlines() if line.startswith("MP-1002"))
         if "error" in answer:

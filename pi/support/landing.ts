@@ -290,12 +290,18 @@ export function remoteTips(repo: string): Record<string, string> {
 /**
  * The remote-tracking refs a bash call pushed: refs of `repo` whose tip differs from `before` and whose last reflog move is this
  * checkout's own `update by push`, each with the commit it shares with the repo's integration ref (the base of the car it sends).
+ * Worktrees of one repo share their remote-tracking refs, so only a ref of this checkout's branch counts: its upstream, the same
+ * branch name on a remote, or a ref now at this checkout's HEAD; another worktree's push in the same moment is not this session's car.
  */
 export function pushedSince(repo: string, before: Record<string, string>): { ref: string; head: string; base: string }[] {
 	const into = ownRef(repo);
+	const branch = git(repo, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+	const upstream = branch ? git(repo, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]) : undefined;
+	const at = git(repo, ["rev-parse", "HEAD"]);
+	const ours = (ref: string, head: string) => head === at || ref === upstream || (branch !== undefined && ref.slice(ref.indexOf("/") + 1) === branch);
 	const found: { ref: string; head: string; base: string }[] = [];
 	for (const [ref, head] of Object.entries(remoteTips(repo))) {
-		if (before[ref] === head || ref === into) continue;
+		if (before[ref] === head || ref === into || !ours(ref, head)) continue;
 		if (movedByFetch(repo, ref) !== false) continue;
 		const base = (into ? git(repo, ["merge-base", head, into]) : undefined) || before[ref];
 		if (base) found.push({ ref, head, base });

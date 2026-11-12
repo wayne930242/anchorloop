@@ -194,7 +194,9 @@ class TestLifecycle(BookCase):
     def test_read_summarizes_the_phase_line_intent_check_reviews_and_friction(self):
         text = self.read_text([*self.open_loop(anchor="pytest -q")])
         lines = text.splitlines()
-        self.assertEqual(len(lines), 4)
+        # The last line is the book id a handoff names, so the session that takes over can pass it as `resume` (issue #15).
+        self.assertEqual(len(lines), 5)
+        self.assertEqual(lines[4], f"book: {self.book()[0]['id']}")
         self.assertEqual(lines[0], "inline · phase anchor ✓ → act (missing: a change to the code)")
         self.assertEqual(lines[1], "intent: fix the export")
         self.assertEqual(lines[2], "last verify: none")
@@ -675,6 +677,61 @@ class TestSweep(BookCase):
 
     def test_a_quiet_start_with_no_books_says_nothing(self):
         self.assertEqual(self.start()["notices"], [])
+
+
+class TestHandoff(BookCase):
+    """A new session adopts a handed-off book only by the id the handoff names (issue #15); a live session on the same ticket keeps its own."""
+
+    TODO = todo_create("MP-1001 export", 2, "in_progress")
+
+    def as_session(self, name: str) -> None:
+        """Later replays run as the session `name`, with its own session file."""
+        self.session_file = self.session_file.parent / f"{name}.jsonl"
+        self.session_file.write_text("{}\n")
+
+    def book_id(self, session: str = "sess-1") -> str:
+        (path,) = [p for p in self.book_files() if p.stem == session]
+        return self.book(path)[0]["id"]
+
+    def test_a_live_session_on_the_same_ticket_keeps_its_book(self):
+        # R-F001: a coordinator and a train on one ticket run at once; the second session's todo names the ticket and passes no id.
+        self.replay([*self.open_loop(), self.TODO, stage(stage="friction", tried="a", found="b")])
+        first = self.book_id()
+        self.as_session("sess-2")
+        self.replay([self.TODO, stage(stage="read")], session="sess-2")
+        self.assertEqual(sorted(p.stem for p in self.book_files()), ["sess-1", "sess-2"], "the second session took the first session's book by its ticket")
+        self.assertEqual(self.book_id(), first)
+        self.assertNotIn("adopt", [entry["stage"] for entry in self.book(self.books.rglob("sess-2.yml").__next__())[1]])
+        self.assertIn("friction", [entry["stage"] for entry in self.book(self.books.rglob("sess-1.yml").__next__())[1]])
+
+    def test_a_resume_with_an_id_no_book_has_or_a_subagents_id_is_refused_with_the_reason(self):
+        self.replay(self.open_loop())
+        self.replay([stage(stage="kind", kind="inline", intent="child", anchor="pytest")], env={"PI_SUBAGENT_ID": "kid", "PI_SUBAGENT_NAME": "w1"})
+        (child,) = [p for p in self.book_files() if p.parent.name == "agents"]
+        self.as_session("sess-2")
+        out = self.replay([stage(stage="kind", kind="inline", intent="take over", resume="sess-1-nope"), stage(stage="kind", kind="inline", intent="take over", resume=self.book(child)[0]["id"])],
+                          session="sess-2")
+        unknown, subagent = out["results"]
+        self.assertIn("resume refused: no book has the id `sess-1-nope`", unknown.get("error", ""), f"an unknown id was answered {unknown}")
+        self.assertIn("is a subagent's book", subagent.get("error", ""), f"a subagent's id was answered {subagent}")
+        self.assertNotIn("sess-2", [p.stem for p in self.book_files()])
+
+    def test_the_session_whose_book_was_resumed_is_told_by_whom_on_its_next_call(self):
+        self.replay([*self.open_loop(), stage(stage="friction", tried="a", found="b")])
+        first, own = self.book_id(), self.session_file
+        self.as_session("sess-2")
+        out = self.replay([stage(stage="kind", resume=first), stage(stage="read")], session="sess-2")
+        self.assertEqual(text_of(out["results"][0]), f"resumed book {first}")
+        self.assertIn(f"book: {first}", text_of(out["results"][1]))
+        stages = [entry["stage"] for entry in self.book(next(self.books.rglob("sess-2.yml")))[1]]
+        self.assertEqual((stages.count("friction"), stages[-1]), (1, "adopt"))
+        new = self.session_file
+        self.session_file = own
+        told = self.replay([stage(stage="friction", tried="c", found="d"), stage(stage="kind", kind="inline", intent="new work")])
+        self.assertIn(f"was resumed by session {new}", text_of(told["results"][0]), "the old session lost its loop without a word")
+        self.assertEqual(text_of(told["results"][1]), "ok")
+        stages = [entry["stage"] for entry in self.book(next(self.books.rglob("sess-2.yml")))[1]]
+        self.assertEqual(stages.count("friction"), 1, "the old session's call was recorded in the moved book")
 
 
 class TestParallelAppends(BookCase):

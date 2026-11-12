@@ -20,7 +20,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type Book, type Entry, appendEntry, currentKind, guarded, isOpenTask, openLoop, replayTodos, validFollowup, withChildActs } from "./support/book.ts";
+import { type Book, type Entry, appendEntry, currentKind, guarded, isOpenTask, openLoop, replayTodos, validFollowup, withChildActs, withTrees } from "./support/book.ts";
 import { checkLandings } from "./support/landing.ts";
 import { type UnitRow, type Units, computeLoop, outDispatches, unitEntries } from "./support/units.ts";
 import { type Answers, classify } from "./support/jev.ts";
@@ -209,7 +209,7 @@ export default function (pi: ExtensionAPI) {
 			if (SUBAGENT_TOOLS.has(event.toolName)) unlinked.add(event.toolCallId);
 			if (event.toolName !== "anchorloop_stage" || (event.input as { stage?: unknown }).stage !== "close") return;
 			const book = openLoop(ctx);
-			if (book && currentKind(book.entries) !== "quick") closing.set(event.toolCallId, snapshot(book, ctx));
+			if (book && currentKind(book.entries) !== "quick") closing.set(event.toolCallId, withTrees(() => snapshot(book, ctx)));
 		}),
 	);
 
@@ -259,55 +259,65 @@ export default function (pi: ExtensionAPI) {
 		};
 	}
 
+	type Settle = { snap: Snapshot; finish: (judgment: Judgment) => ReturnType<typeof settleWith> };
+
+	/**
+	 * What a settle judges, read in one pass over the working state (each repo's tree built once), or undefined when the turn is quiet:
+	 * the snapshot Jev reads and how its judgment becomes the settle result.
+	 */
+	function prepareSettle(event: { entries?: unknown[] }, ctx: Parameters<typeof snapshot>[1] & Parameters<typeof openLoop>[0]): Settle | undefined {
+		const book = openLoop(ctx);
+		// A quick loop has no prompts but the close reminder.
+		if (!book || currentKind(book.entries) === "quick") return;
+		// A ref may have moved since the last tool call; record that landing before the entries are counted.
+		checkLandings(book);
+		// A later handler's boundary result replaces the entries an earlier one returned, so carry them along.
+		const earlier = event.entries ?? [];
+		const todos = replayTodos(ctx.sessionManager.getBranch());
+		const looped = computeLoop(book, { cwd: ctx.cwd, todos });
+		const out = outDispatches(book.entries, looped.found);
+		// A child out for the whole loop (bound to no unit) keeps every unit quiet; one out for a unit keeps only that unit quiet.
+		if (out.some((dispatch) => dispatch.task === undefined)) return;
+		if (looped.rows.length > 0) {
+			const busy = new Set(out.map((dispatch) => dispatch.task));
+			const owed = looped.rows.filter((row) => row.unit.open && row.phases.next !== "close" && !busy.has(row.unit.id) && started(book, row, looped.found));
+			const fresh = owed
+				.map((row) => ({ row, step: row.phases.next, evidence: unitEvidence(book, row, looped.found) }))
+				.filter(({ row, step, evidence }) => {
+					const last = memory(book, row.unit.id).judged;
+					return last === undefined || last.step !== step || last.evidence !== evidence;
+				});
+			if (fresh.length > 0) {
+				const [first, ...rest] = fresh;
+				remember(book, { unit: first.row.unit.id, step: first.step, evidence: first.evidence });
+				const snap = snapshot(book, ctx, first.row.unit.id);
+				const others = rest.map(({ row }) => `${row.unit.label} ${row.phases.next}${row.phases.missing ? ` (${row.phases.missing})` : ""}`);
+				// The other units the advisory names on their own lines are asked too.
+				return { snap, finish: (judgment) => settleWith(earlier, judgment, snap, { others, onSpeak: () => rest.forEach(({ row, step, evidence }) => remember(book, { unit: row.unit.id, step, evidence })) }) };
+			}
+			// Nothing waits on the coordinator: the units wait on their children or were not started. Once every unit is done, the loop is judged whole.
+			if (looped.rows.some((row) => row.unit.open && row.phases.next !== "close")) return;
+		}
+		// A book is judged again on new evidence or on an open todo that needs an answer and was not there last time; a status flip alone is neither.
+		const evidence = evidenceCount(book.entries);
+		const open = todos.filter((task) => isOpenTask(task) && !validFollowup(task.metadata?.followup)).map((task) => task.id);
+		const { judged, told } = memory(book, LOOP);
+		const before = { evidence: Number(judged?.evidence ?? 0), open: Array.isArray(judged?.open) ? (judged.open as number[]) : [] };
+		if (evidence <= before.evidence && open.every((todo) => before.open.includes(todo))) return;
+		remember(book, { unit: LOOP, evidence, open });
+		const snap = snapshot(book, ctx);
+		return { snap, finish: (judgment) => settleWith(earlier, judgment, snap, { told, onSpeak: (key) => remember(book, { unit: LOOP, evidence, open, told: key }) }) };
+	}
+
 	pi.on(
 		"agent_before_settle",
 		guarded(async (event, ctx) => {
 			if (waiting || unlinked.size > 0 || event.outcome !== "completed") return;
-			const book = openLoop(ctx);
-			// A quick loop has no prompts but the close reminder.
-			if (!book || currentKind(book.entries) === "quick") return;
-			// A ref may have moved since the last tool call; record that landing before the entries are counted.
-			checkLandings(book);
-			// A later handler's boundary result replaces the entries an earlier one returned, so carry them along.
-			const earlier = event.entries ?? [];
-			const todos = replayTodos(ctx.sessionManager.getBranch());
-			const looped = computeLoop(book, { cwd: ctx.cwd, todos });
-			const out = outDispatches(book.entries, looped.found);
-			// A child out for the whole loop (bound to no unit) keeps every unit quiet; one out for a unit keeps only that unit quiet.
-			if (out.some((dispatch) => dispatch.task === undefined)) return;
-			if (looped.rows.length > 0) {
-				const busy = new Set(out.map((dispatch) => dispatch.task));
-				const owed = looped.rows.filter((row) => row.unit.open && row.phases.next !== "close" && !busy.has(row.unit.id) && started(book, row, looped.found));
-				const fresh = owed
-					.map((row) => ({ row, step: row.phases.next, evidence: unitEvidence(book, row, looped.found) }))
-					.filter(({ row, step, evidence }) => {
-						const last = memory(book, row.unit.id).judged;
-						return last === undefined || last.step !== step || last.evidence !== evidence;
-					});
-				if (fresh.length > 0) {
-					const [first, ...rest] = fresh;
-					remember(book, { unit: first.row.unit.id, step: first.step, evidence: first.evidence });
-					const snap = snapshot(book, ctx, first.row.unit.id);
-					const judgment = await judge(ctx, snap);
-					if (!judgment) return;
-					const others = rest.map(({ row }) => `${row.unit.label} ${row.phases.next}${row.phases.missing ? ` (${row.phases.missing})` : ""}`);
-					// The other units the advisory names on their own lines are asked too.
-					return settleWith(earlier, judgment, snap, { others, onSpeak: () => rest.forEach(({ row, step, evidence }) => remember(book, { unit: row.unit.id, step, evidence })) });
-				}
-				// Nothing waits on the coordinator: the units wait on their children or were not started. Once every unit is done, the loop is judged whole.
-				if (looped.rows.some((row) => row.unit.open && row.phases.next !== "close")) return;
-			}
-			// A book is judged again on new evidence or on an open todo that needs an answer and was not there last time; a status flip alone is neither.
-			const evidence = evidenceCount(book.entries);
-			const open = todos.filter((task) => isOpenTask(task) && !validFollowup(task.metadata?.followup)).map((task) => task.id);
-			const { judged, told } = memory(book, LOOP);
-			const before = { evidence: Number(judged?.evidence ?? 0), open: Array.isArray(judged?.open) ? (judged.open as number[]) : [] };
-			if (evidence <= before.evidence && open.every((todo) => before.open.includes(todo))) return;
-			remember(book, { unit: LOOP, evidence, open });
-			const snap = snapshot(book, ctx);
-			const judgment = await judge(ctx, snap);
+			const settle = withTrees(() => prepareSettle(event, ctx));
+			if (!settle) return;
+			const judgment = await judge(ctx, settle.snap);
 			if (!judgment) return;
-			return settleWith(earlier, judgment, snap, { told, onSpeak: (key) => remember(book, { unit: LOOP, evidence, open, told: key }) });
+			return settle.finish(judgment);
 		}),
 	);
 }

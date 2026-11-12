@@ -966,6 +966,56 @@ class TestUnits(CoordinatorCase):
         self.assertIn("MP-4367 act", text)
 
 
+class TestTreeReads(CoordinatorCase):
+    """R-F002: building a working tree costs a `git add -A` and a `write-tree` (0.3 to 0.7 s on a repo of 12k files), so an event builds each repo's tree once."""
+
+    extensions = ("book.ts", "second-thought.ts")
+    JEV = {"stopReason": "stop", "answers": {"move": {"type": "choice", "choice": "advance", "probabilities": {"advance": 0.7}}, "done": {"type": "bool", "probability": 0.9},
+                                             "review": {"type": "choice", "choice": "none", "probabilities": {"none": 0.6}}, "quality": {"type": "score", "score": 2.9}}}
+
+    def builds(self, steps: list[dict], **kwargs) -> int:
+        """The working trees `steps` built: one `write-tree` each."""
+        env = self.wrapper()
+        self.replay(steps, env=env, **kwargs)
+        return sum(1 for line in self.gitlog.read_text().splitlines() if line.split(" ")[-1] == "write-tree") if self.gitlog.exists() else 0
+
+    def test_a_tool_result_and_a_settle_each_build_the_repos_tree_once(self):
+        self.shared_repo()
+        (self.cwd / "app.py").write_text("print(2)\n")
+        self.replay([*done_loop(self), edit("app.py"), bash_result("pytest -q", 0, "1 passed")])
+        self.assertEqual(self.builds([bash_result("ls", 0, "app.py")]), 0, "the footer after a tool result that ran no anchor")
+        self.assertEqual(self.builds([bash_result("pytest -q", 0, "1 passed")]), 1, "one anchor run's tool result (the run's tree, then the footer)")
+        self.assertEqual(self.builds([SETTLE], classify=self.JEV), 1, "one settle (the quiet check, the units, then Jev's snapshot)")
+
+
+class TestGoneChild(CoordinatorCase):
+    process_record = TestOrphans.process_record
+    dead_pid = TestOrphans.dead_pid
+    SESSION = TestOrphans.SESSION
+
+    def test_a_child_whose_process_is_gone_does_not_keep_the_turn_end_quiet(self):
+        # R-F003: a killed pane or a rebooted box never sends a result, so its link is no longer out.
+        self.shared_repo()
+        session = self.process_record(self.dead_pid())
+        (self.cwd / "app.py").write_text("print(2)\n")
+        out = self.replay([*done_loop(self), spawn("kid", "w1", session, cwd=str(self.cwd)), edit("app.py"), bash_result("pytest -q", 0, "1 passed"), SETTLE],
+                          extensions=("book.ts", "second-thought.ts"), classify=TestTreeReads.JEV)
+        self.assertEqual(len(out["classifyCalls"]), 1, "the turn end stayed quiet for a child whose process is gone")
+
+
+class TestPushes(CoordinatorCase):
+    def test_another_worktrees_push_in_the_same_call_is_not_this_sessions_car(self):
+        # R-F004: worktrees of one repo share their remote-tracking refs, so only a ref of this checkout's branch is its car.
+        self.shared_repo()
+        other = self.worktree("wt2", "agent/mp-1002")
+        self.commit_in(other)
+        one = {"subject": "MP-1001 export", "status": "in_progress", "metadata": {"anchor": "pytest -q", "observe": ["export page loads"]}}
+        self.replay([todo_create(one["subject"], 1, one["status"], **one["metadata"])], branch=[todo_state(one)])
+        push = "git push -q origin main"
+        self.replay([bash_call(push), run("git", "push", "-q", "origin", "agent/mp-1002", where=str(other)), bash_result(push, 0, "")], branch=[todo_state(one)])
+        self.assertEqual([entry["ref"] for entry in self.entries("push")], [], "the other worktree's branch was recorded as this session's car")
+
+
 class TestGitTimeout(unittest.TestCase):
     def git_head(self, value: str) -> str:
         book = (Path(__file__).resolve().parent.parent / "pi" / "support" / "book.ts").as_uri()
