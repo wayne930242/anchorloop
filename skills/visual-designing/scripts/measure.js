@@ -8,24 +8,31 @@
   const NOT_DRAWN = "defs, symbol, clipPath, mask, pattern, marker";
   const r1 = (n) => Math.round(n * 10) / 10;
 
-  // Place each <use> as a <g> holding a clone of its target, so every instance is measured.
+  // Clones keep their ids (so #id CSS still matches) and also carry data-oid; lookups by id
+  // skip placed copies so an id names the original, or the placed instance through resolve().
+  const byId = (id) => [...svg.querySelectorAll("[id]")].find((e) => e.id === id && !(e.parentElement && e.parentElement.closest("[data-use]")));
+
+  // Place each <use> as a <g> holding a clone of its target (a symbol's children), so every instance is measured.
   for (let round = 0; round < 20; round++) {
     const uses = [...svg.querySelectorAll("use")].filter((u) => !u.closest(NOT_DRAWN));
     if (!uses.length) break;
     for (const u of uses) {
       const id = (u.getAttribute("href") || u.getAttribute("xlink:href") || "").replace(/^#/, "");
-      const src = id && svg.querySelector(`[id="${id}"]`);
+      const src = id && byId(id);
       const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
       if (src) {
         const clone = src.cloneNode(true);
         for (const el of [clone, ...clone.querySelectorAll("[id]")]) {
-          el.setAttribute("data-oid", el.getAttribute("id"));
-          el.removeAttribute("id");
+          if (el.hasAttribute("id")) el.setAttribute("data-oid", el.getAttribute("id"));
         }
-        g.append(clone);
+        if (src.localName === "symbol") g.append(...clone.childNodes);
+        else g.append(clone);
       }
       const x = u.getAttribute("x") || 0, y = u.getAttribute("y") || 0;
       g.setAttribute("transform", `${u.getAttribute("transform") || ""} translate(${x} ${y})`);
+      for (const a of u.getAttributeNames()) {
+        if (a === "id" || a.startsWith("data-")) g.setAttribute(a, u.getAttribute(a));
+      }
       g.setAttribute("data-use", id);
       for (const a of ["class", "style", "fill", "stroke", "visibility", "opacity"]) {
         if (u.hasAttribute(a)) g.setAttribute(a, u.getAttribute(a));
@@ -56,9 +63,15 @@
     const t = el.textContent.replace(/\s+/g, " ").trim();
     return `"${t.length > 28 ? t.slice(0, 27) + "…" : t}"`;
   };
+  // data-in="id": the nearest placed instance that holds the id (walking out through nested <use> wrappers),
+  // else the original element.
   const resolve = (el, id) => {
-    const wrap = el.closest("[data-use]");
-    return (wrap && wrap.querySelector(`[data-oid="${id}"]`)) || svg.querySelector(`[id="${id}"]`);
+    for (let w = el.closest("[data-use]"); w; w = w.parentElement && w.parentElement.closest("[data-use]")) {
+      if (w.getAttribute("data-oid") === id || w.id === id) return w;
+      const hit = [...w.querySelectorAll("[data-oid]")].find((e) => e.getAttribute("data-oid") === id && (e.parentElement && e.parentElement.closest("[data-use]")) === w);
+      if (hit) return hit;
+    }
+    return byId(id);
   };
 
   const findings = [];

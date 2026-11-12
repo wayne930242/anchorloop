@@ -24,7 +24,7 @@ Measure each frame, then look at it. `node <skill dir>/scripts/measure.mjs 01-ho
 
 The frame marks what the measurement needs, as attributes with values (the SVG is XML):
 
-- `data-in="<id>"` on a `<text>`: the id of the shape that holds it. The text box must stay inside that shape; a text without it is checked only against the canvas and against other texts. An id inside a `<defs>` part resolves within each `<use>` instance.
+- `data-in="<id>"` on a `<text>`: the id of the shape that holds it. The text box must stay inside that shape; a text without it is checked only against the canvas and against other texts. An id inside a `<defs>` part resolves within each `<use>` instance, through nested `<use>` parts. A `<use>` passes its `id` and `data-*` marks to its placed instance, and a `<use>` of a `<symbol>` measures the symbol's children.
 - `data-target="44"` on each tappable shape or group: the minimum side in viewBox units (44 for touch on iOS, 48 on Android, 24 on desktop web); the box must be at least that on both sides.
 - `data-states` and `data-state` mark an element state sheet ([refine](playbooks/refine.md)); `data-overlay=""` marks a part drawn outside the layout box, such as a focus ring.
 
