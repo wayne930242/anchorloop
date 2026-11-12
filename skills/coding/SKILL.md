@@ -32,6 +32,7 @@ Reviewed work adds the independent review [reviewed](references/reviewed.md) des
 - [refactoring](playbooks/refactoring.md): structure changes, behavior does not.
 - [perf](playbooks/perf.md): a measured slowness to improve against a baseline.
 - [prototype](playbooks/prototype.md): disposable code that settles a design or behavior question.
+- [state-model](playbooks/state-model.md): a flow with several actors, retries, restarts, or timeouts, checked as a TLA+ model whose bug paths become red tests.
 
 ## References
 

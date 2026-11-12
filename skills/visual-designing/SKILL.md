@@ -15,12 +15,20 @@ Draw every frame as a hand-written SVG file. SVG is text: a frame costs a few ki
 - Size the `viewBox` to the real canvas, from [canvases](references/canvases.md), and draw at that scale, so a frame reads true on a phone as well as a desktop.
 - Self-contained: no `<script>`, external `href`, web fonts, or `<foreignObject>`, which break silently in the review sandbox; CSS and SMIL animation play.
 - Text uses a system font stack that covers the content's script, such as `-apple-system, "PingFang TC", "Noto Sans TC", "Segoe UI", sans-serif`. SVG does not wrap text: break lines yourself with `<tspan x dy>`, and size every box for its longest real string.
-- Use real content (names, numbers, dates, the product's language), because placeholder text hides the line breaks and widths that decide the layout.
+- Use real content (names, numbers, dates, the product's language), because placeholder text hides the line breaks and widths that decide the layout. Content a frame generates (sample data, jitter) comes from a fixed seed, so a revision diff shows only the intended change.
 - Define each repeated part once in `<defs>` and place it with `<use>`; set colors and type sizes as a few CSS classes in one `<style>` block, so a direction change is a few edits.
 
 ## Self-check
 
-Render each frame to PNG at the review width, for example `rsvg-convert -w 780 01-home.svg -o 01-home.png` (or `resvg`, or a headless browser), and look at every PNG before anyone else does. Fix clipped or overflowing text, overlaps, misalignment against the grid, touch targets under the platform minimum, and contrast under 4.5:1 for body text, then render again. The person's time goes to judgment, not to defects you could see.
+Measure each frame, then look at it. `node <skill dir>/scripts/measure.mjs 01-home.svg 02-detail.svg` loads each frame in a headless browser through `agent-browser` and prints, per frame, the defects as numbers; it exits 1 when it finds any. Fix every defect and measure again until it prints `defects 0`.
+
+The frame marks what the measurement needs, as attributes with values (the SVG is XML):
+
+- `data-in="<id>"` on a `<text>`: the id of the shape that holds it. The text box must stay inside that shape; a text without it is checked only against the canvas and against other texts. An id inside a `<defs>` part resolves within each `<use>` instance.
+- `data-target="44"` on each tappable shape or group: the minimum side in viewBox units (44 for touch on iOS, 48 on Android, 24 on desktop web); the box must be at least that on both sides.
+- `data-states` and `data-state` mark an element state sheet ([refine](playbooks/refine.md)); `data-overlay=""` marks a part drawn outside the layout box, such as a focus ring.
+
+The measurement covers text that exceeds its container or the canvas, text boxes that overlap, targets under the minimum, and state boxes that differ. Then render each frame to PNG at the review width, for example `rsvg-convert -w 780 01-home.svg -o 01-home.png` (or `resvg`, or a headless browser), and look at every PNG for what numbers do not show: misalignment against the grid, balance, and contrast under 4.5:1 for body text. The person's time goes to judgment, not to defects you could measure.
 
 ## Hand over
 

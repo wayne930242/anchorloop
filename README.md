@@ -11,11 +11,11 @@ anchorloop            core loop · principles · playbooks: autonomous-run, paus
 ├─ answering        explain · compare
 ├─ investigating    research · diagnose
 ├─ inspecting       diff-review · qa-release
-├─ coding           bug-fix · feature · refactoring · perf · prototype  (+ Mini SDD)
+├─ coding           bug-fix · feature · refactoring · perf · prototype · state-model  (+ Mini SDD)
 ├─ integrating      receive-car · train · urgent-car  (+ seams)
 ├─ deploying        deploy · rollback
 ├─ writing          draft · tighten · comments · pr-description
-├─ visual-designing compare · refine · motion  (+ canvases)
+├─ visual-designing compare · refine · motion  (+ canvases, measure script)
 └─ solid-loop       apply-friction · author-skill · bootstrap
 shared              grilling · domain-modeling · human-feedback (uat) · agent-terse
 ```
@@ -23,7 +23,7 @@ shared              grilling · domain-modeling · human-feedback (uat) · agent
 - **`anchorloop`** holds what is true for every task type: restate the task, pick the entry's playbook, keep real work items in `todo` (its first create opens a loop), declare the loop with `anchorloop_stage` (kind, intent, anchor command) before the first change, work in small increments deleting before adding, verify against the anchor, and record friction in the loop book. The Reflexive pass hands reflected friction to `solid-loop`. `PRINCIPLES.md` names the principles playbooks cite and the user can steer with. The lifecycle playbooks cover unattended runs, clean pauses, and picking up a prior run.
 - **Entry skills** each name the anchor for their task type and index their playbooks. A playbook has an ownership line, numbered steps, and a `Reply:` line that sets what the final report contains.
 - **`integrating` and `deploying`** carry the generic merge-train and deploy procedure: batching reviewed branches into one train, assembly, one review and one run of the full gates per train, per-target approval, version verification, and rollback. Seven seams (handoff route, batch owner, approval, record, escalation route, settings, step runner) have defaults: the session is its own owner and record keeper and asks the user before any merge to a shared branch or any deploy to a target not marked `auto`. A host binds them with a `Seam bindings` block in its session instructions. The project's own skill supplies the concrete checks under fixed headings (`Light checks`, `Train assembly`, `Full gates`, `Merge`, `Post-merge`, `Deploy`, `Deploy verify`, `Acceptance`, `Urgent lane`, `Load`).
-- **`visual-designing`** has agents draw UI comps, native app or web screens, and purely visual pieces as hand-written SVG frames, render them to PNG to check them, and hand them to a person on a `show_doc` review page to choose a direction or accept each frame. A flow is a sequence of frames, and a transition or loading state is a looping animated SVG.
+- **`visual-designing`** has agents draw UI comps, native app or web screens, and purely visual pieces as hand-written SVG frames, measure them for overflowing text, overlaps, small tap targets, and state-layer shifts with a script that drives `agent-browser` (Node), render them to PNG to check them, and hand them to a person on a `show_doc` review page to choose a direction or accept each frame. A flow is a sequence of frames, and a transition or loading state is a looping animated SVG.
 - **Shared skills** are called by entries: `grilling` for user-owned decisions, `domain-modeling` for terms and ADRs, `human-feedback` for reactions to working output and UAT (a person checks the screenshots of an e2e flow), `agent-terse` for text only agents read: briefs, reports, and agent messages.
 
 ## Extensions
@@ -66,7 +66,7 @@ uv run --with pytest pytest -q          # validators and the pi extensions (need
 
 ## Acknowledgments
 
-- [pstack](https://github.com/backnotprop/pstack) by Lauren Tan (MIT), mirror revision `e44668c` of [cursor/plugins](https://github.com/cursor/plugins/tree/main/pstack) (the 2.8.0 engineering-standard additions from cursor/plugins `c742dd6`), and its port [pstack-claude](https://github.com/michael-denyer/pstack-claude) by Michael Denyer (MIT): task-type playbooks, named principles, the lifecycle playbooks, the decision trail, the closed review gate, fresh-subagent hand-off, and evidence grades.
+- [pstack](https://github.com/backnotprop/pstack) by Lauren Tan (MIT), mirror revision `e44668c` of [cursor/plugins](https://github.com/cursor/plugins/tree/main/pstack) (the 2.8.0 engineering-standard additions from cursor/plugins `c742dd6`), and its port [pstack-claude](https://github.com/michael-denyer/pstack-claude) by Michael Denyer (MIT): task-type playbooks, named principles, the lifecycle playbooks, the decision trail, the closed review gate, fresh-subagent hand-off, and evidence grades; the `state-model` playbook adapts the `statechart` skill (cursor/plugins `a5539b15`).
 - [google-research/harness2](https://github.com/google-research/harness2) (Apache-2.0), revision `1cfe254`: solid-loop's placement test, cheapest-mechanism order, and declining a lesson without a before/after contrast.
 - [mattpocock/skills](https://github.com/mattpocock/skills) (MIT): grilling, domain-modeling, the diff review, the prototype playbook, and the feature playbook's interface checks.
 - [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) (Apache-2.0), revision `bad48a0`: the terse voice in `agent-terse`.
