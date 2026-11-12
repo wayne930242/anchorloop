@@ -173,7 +173,10 @@ export function createBook(who: Who, env: NodeJS.ProcessEnv = process.env): Book
 /** What `adoptBook` answers: the adopted book, or why the id was refused. */
 export type Adopted = { book: Book; refused?: undefined } | { book?: undefined; refused: string };
 
-/** The book whose header id is `id`, wherever it lives under the books root, with whether it is a subagent's. */
+/**
+ * The book whose header id is `id`, wherever it lives under the books root, with whether it is a subagent's. Every move leaves a
+ * marker that keeps the id, so a book handed off again is found past its markers; a marker answers only when no book holds the id.
+ */
 function findBookById(id: string, root: string): { book: Book; project: string; child: boolean } | undefined {
 	let projects: string[];
 	try {
@@ -181,6 +184,7 @@ function findBookById(id: string, root: string): { book: Book; project: string; 
 	} catch {
 		return undefined;
 	}
+	let marker: { book: Book; project: string; child: boolean } | undefined;
 	for (const project of projects) {
 		for (const [dir, child] of [[join(root, project), false], [join(root, project, "agents"), true]] as const) {
 			let files: string[];
@@ -191,11 +195,13 @@ function findBookById(id: string, root: string): { book: Book; project: string; 
 			}
 			for (const file of files) {
 				const book = parseBook(join(dir, file));
-				if (book?.header.id === id) return { book, project, child };
+				if (book?.header.id !== id) continue;
+				if (!movedTo(book)) return { book, project, child };
+				marker ??= { book, project, child };
 			}
 		}
 	}
-	return undefined;
+	return marker;
 }
 
 /** Where a moved book went, when the book at its old path is the closed marker `adoptBook` leaves there. */

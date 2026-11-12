@@ -733,6 +733,29 @@ class TestHandoff(BookCase):
         stages = [entry["stage"] for entry in self.book(next(self.books.rglob("sess-2.yml")))[1]]
         self.assertEqual(stages.count("friction"), 1, "the old session's call was recorded in the moved book")
 
+    def test_a_book_handed_off_twice_reaches_the_third_session(self):
+        # A long-lived main rotates at every milestone: the marker the first move leaves keeps the id and must not hide the book.
+        self.replay([*self.open_loop(), stage(stage="friction", tried="a", found="b")])
+        first = self.book_id()
+        self.as_session("sess-2")
+        self.replay([stage(stage="kind", resume=first)], session="sess-2")
+        self.as_session("sess-3")
+        out = self.replay([stage(stage="kind", resume=first), stage(stage="read")], session="sess-3")
+        self.assertEqual(text_of(out["results"][0]), f"resumed book {first}", f"the second handoff was answered {out['results'][0]}")
+        stages = [entry["stage"] for entry in self.book(next(self.books.rglob("sess-3.yml")))[1]]
+        self.assertEqual((stages.count("friction"), stages.count("adopt")), (1, 2))
+
+    def test_a_todo_resume_after_an_opening_kind_adopts_the_book(self):
+        # The README offers `resume` on the first todo too; a session that declared `kind` first must not drop it without a word.
+        self.replay([*self.open_loop(), stage(stage="friction", tried="a", found="b")])
+        first = self.book_id()
+        self.as_session("sess-2")
+        out = self.replay([stage(stage="kind", kind="inline", intent="take over"), todo_create("MP-1001 export", 1, "in_progress", resume=first), stage(stage="read")],
+                          session="sess-2")
+        self.assertIn(f"book: {first}", text_of(out["results"][2]), "the todo's resume was dropped")
+        stages = [entry["stage"] for entry in self.book(next(self.books.rglob("sess-2.yml")))[1]]
+        self.assertEqual(stages.count("friction"), 1)
+
 
 class TestParallelAppends(BookCase):
     def test_parallel_writers_keep_the_book_valid_yaml_with_every_entry(self):

@@ -1133,11 +1133,15 @@ export default function (pi: ExtensionAPI) {
 				// A session whose book another session resumed is told so, and opens nothing in its place this time.
 				const moved = movedNotice(ctx);
 				if (moved) return { content: [...((event.content as unknown[]) ?? []), { type: "text", text: moved }] };
-				const resume = (taskDetails(event.details) ?? []).map((task) => task.metadata?.resume).find((id): id is string => typeof id === "string" && id.trim() !== "");
-				const adopted = resume === undefined ? undefined : resumeBook(ctx, resume);
-				if (adopted?.refused) said = `anchorloop: resume refused: ${adopted.refused}; a new loop was opened instead, and \`kind\` with \`resume\` can still adopt the book while it holds no evidence.`;
-				open = adopted?.book ?? openFromTodo(ctx, event.details);
 			}
+			const resume = input.action === "create" ? (taskDetails(event.details) ?? []).map((task) => task.metadata?.resume).find((id): id is string => typeof id === "string" && id.trim() !== "") : undefined;
+			// A todo's `resume` adopts the book whether or not an opening `kind` came first; a refusal is said, never dropped.
+			if (resume !== undefined && open?.header.id !== resume) {
+				const adopted = resumeBook(ctx, resume);
+				if (adopted.refused) said = `anchorloop: resume refused: ${adopted.refused}${open ? "" : "; a new loop was opened instead, and `kind` with `resume` can still adopt the book while it holds no evidence"}.`;
+				open = adopted.book ?? open;
+			}
+			if (!open && input.action === "create") open = openFromTodo(ctx, event.details);
 			if (!open) return;
 			recordTasks(open, event.details, input, ctx.cwd);
 			return said ? { content: [...((event.content as unknown[]) ?? []), { type: "text", text: said }] } : undefined;
