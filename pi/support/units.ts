@@ -172,7 +172,8 @@ export type Dispatch = { child: string; index: number; /** The unit the dispatch
 /**
  * How long after its last write to its session a gone child still counts as out: 1 s poll + 0.5 s sidecar wait + 15 s handoff
  * git (pi-herdr-agents maestro/adapters/pi/pi-harness-adapter.ts:584, completion.ts:129-136, maestro/runtime/worktree-operations.ts:46),
- * rounded up. A child killed in the middle of work counts for the same time, then stops.
+ * rounded up. A child killed in the middle of work counts for the same time, then stops. Not covered: a dispatch with `accept`,
+ * whose result waits for the parent's re-run of the check (up to its timeout, maestro/runtime/pi-run-session.ts:746); issue #17.
  */
 export const DELIVERY_GRACE_MS = 30_000;
 

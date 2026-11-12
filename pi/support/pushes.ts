@@ -9,7 +9,8 @@ const VALUE = String.raw`(?:'[^']*'|"[^"]*"|\S+)`;
 // each carry one value, the rest are flags or `--name=value`.
 const GLOBALS = String.raw`(?:\s+(?:-[Cc]\s+${VALUE}|--(?:git-dir|work-tree|namespace|super-prefix|exec-path|config-env)\s+${VALUE}|--?[A-Za-z][\w-]*(?:=\S*)?))*`;
 // A bash call that may push: `git`, or a path ending in `/git`, then the global options, then `push`; a `--dry-run` or `-n` push moves no ref.
-const HEAD = String.raw`(?<![\w./-])(?:\S*/)?git${GLOBALS}\s+push\b`;
+// The lookbehind lets `/` precede `git` instead of matching the path: a `\S*/` prefix backtracks quadratically on a long run without whitespace.
+const HEAD = String.raw`(?<![\w.-])git${GLOBALS}\s+push\b`;
 const DRY = String.raw`(?![^|;&\n]*\s(?:--dry-run|-n)(?![\w-]))`;
 
 export const PUSH = new RegExp(HEAD + DRY);

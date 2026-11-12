@@ -2,6 +2,7 @@
 the forms of `git push` a car is read from, and a finished child whose result is still on its way."""
 
 import os
+import subprocess
 import time
 import unittest
 from pathlib import Path
@@ -192,3 +193,19 @@ class TestDeliveryGap(CoordinatorCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPushScanCost(unittest.TestCase):
+    """R3-F001: reading a bash command for a push stays linear; a long run without whitespace (a minified JSON body) froze pi for seconds."""
+
+    def test_a_long_command_without_whitespace_is_read_in_well_under_a_second(self):
+        script = (
+            "import { PUSH, pushRefspecs } from './pi/support/pushes.ts';"
+            "const body = '{' + Array.from({ length: 6000 }, (_, i) => `\"k${i}\":\"v${i}\"`).join(',') + '}';"
+            "const command = `curl -s -d '${body}' https://example.invalid`;"
+            "const began = performance.now(); PUSH.test(command); pushRefspecs(command);"
+            "console.log(Math.round(performance.now() - began));"
+        )
+        out = subprocess.run(["node", "--experimental-strip-types", "--no-warnings", "--input-type=module", "-e", script],
+                             cwd=Path(__file__).resolve().parent.parent, capture_output=True, text=True, check=True, timeout=120)
+        self.assertLess(int(out.stdout.strip()), 500, f"a {6000 * 12 // 1000} KB command took {out.stdout.strip()} ms to read for a push")
