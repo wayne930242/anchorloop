@@ -1,0 +1,25 @@
+---
+title: "one loop book: what it asks for, and what really happened"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks ReviewReadTheChange
+    lg1: Path to the ReviewReadTheChange bug
+  }
+  class lg0 breaks
+  class lg1 bugPath
+  s0: No change yet
+  s1: Changed, check missing
+  s2: Changed, check missing#59; reviewer reading
+  s3: Changed, check missing#59; the code changed while the reviewer read
+  [*] --> s0
+  s0 --> s1: you change the code
+  s1 --> s2: you start a reviewer and wait
+  s2 --> s2: you change the code
+  s2 --> s3: the review comes back: Blocking P0=0 P1=0
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  class s0 bugPath
+  class s1 bugPath
+  class s2 bugPath
+  class s3 breaks
+  class s3 bugPath

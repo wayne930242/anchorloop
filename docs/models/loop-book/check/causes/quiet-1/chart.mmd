@@ -1,0 +1,33 @@
+---
+title: "one loop book: what it asks for, and what really happened"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks QuietWhileWaiting
+    lg1: Path to the QuietWhileWaiting bug
+  }
+  class lg0 breaks
+  class lg1 bugPath
+  s0: No change yet
+  s1: Changed, check missing
+  s2: Changed, check missing#59; worker out
+  s3: Changed, check missing#59; worker out#59; reviewer reading
+  s4: Changed, check missing#59; worker out#59; reviewer reading#59; turn over
+  s5: Changed, check missing#59; reviewer reading
+  s6: Changed, check missing#59; reviewer reading#59; judged while waiting#59; turn over
+  [*] --> s0
+  s0 --> s1: you change the code
+  s1 --> s2: you start a worker and wait
+  s2 --> s3: you start a reviewer and wait
+  s3 --> s4: your turn ends: no notice
+  s4 --> s5: the worker returns
+  s5 --> s6: your turn ends: the notice judges the loop
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  class s0 bugPath
+  class s1 bugPath
+  class s2 bugPath
+  class s3 bugPath
+  class s4 bugPath
+  class s5 bugPath
+  class s6 breaks
+  class s6 bugPath

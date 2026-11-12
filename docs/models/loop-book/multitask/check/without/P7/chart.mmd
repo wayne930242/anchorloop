@@ -1,0 +1,26 @@
+---
+title: "a coordinator with two units (proposed without P7)"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks AcceptedCounts or CanClose or Counted in some cases
+    lg1: Path to the AcceptedCounts or CanClose or Counted bug
+  }
+  class lg0 mayBreak
+  class lg1 bugPath
+  s0: MP-1001: not started | MP-1002: not started
+  s1: MP-1001: changed, check missing | MP-1002: not started
+  s2: MP-1001: checked, car not landed | MP-1002: not started
+  s3: MP-1001: work done, book shows no change | MP-1002: not started#59; new session
+  [*] --> s0
+  s0 --> s1: MP-1001: you change its code yourself
+  s1 --> s2: MP-1001: you run its anchor: it passes
+  s1 --> s3: MP-1001: you hand off to a new session
+  s2 --> s3: MP-1001: you hand off to a new session
+  s3 --> s3: MP-1001: you declare its verify with its task
+  classDef mayBreak fill:#fff3e6,stroke:#e8730c,stroke-width:2.5px,color:#b85a06
+  class s0 bugPath
+  class s1 bugPath
+  class s2 bugPath
+  class s3 mayBreak
+  class s3 bugPath

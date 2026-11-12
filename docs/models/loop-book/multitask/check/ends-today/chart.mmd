@@ -1,0 +1,43 @@
+---
+title: "a coordinator with two units (today)"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks Counted or Isolation
+    lg1: Breaks AcceptedCounts or CanClose in some cases
+    lg2: Path to the AcceptedCounts or CanClose or Counted or Isolation bug
+  }
+  class lg0 breaks
+  class lg1 mayBreak
+  class lg2 bugPath
+  s0: MP-1001: not started | MP-1002: not started
+  s1: MP-1001: not started | MP-1002: worker started
+  s2: MP-1001: changed, check missing | MP-1002: not started
+  s3: MP-1001: not started | MP-1002: worker editing
+  s4: MP-1001: checked, car not landed | MP-1002: not started
+  s5: MP-1001: work done, book shows no change | MP-1002: not started#59; new session
+  s6: MP-1001: not started | MP-1002: checked, book asks for the check
+  s7: MP-1001: checked, book asks for the check | MP-1002: changed, check missing
+  [*] --> s0
+  s0 --> s1: MP-1002: you start its worker
+  s0 --> s2: MP-1001: you change its code yourself
+  s1 --> s3: MP-1002: its worker edits in its worktree
+  s2 --> s4: MP-1001: you run its anchor: it passes
+  s2 --> s5: MP-1001: you hand off to a new session
+  s3 --> s6: MP-1002's worker returns, its check passed: the book does not count it
+  s4 --> s5: MP-1001: you hand off to a new session
+  s4 --> s7: MP-1002: you change its code yourself
+  s5 --> s5: MP-1001: you declare its verify with its task
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  classDef mayBreak fill:#fff3e6,stroke:#e8730c,stroke-width:2.5px,color:#b85a06
+  class s0 bugPath
+  class s1 bugPath
+  class s2 bugPath
+  class s3 bugPath
+  class s4 bugPath
+  class s5 mayBreak
+  class s5 bugPath
+  class s6 breaks
+  class s6 bugPath
+  class s7 breaks
+  class s7 bugPath

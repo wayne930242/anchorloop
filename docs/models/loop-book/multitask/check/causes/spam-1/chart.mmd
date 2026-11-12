@@ -1,0 +1,53 @@
+---
+title: "a coordinator with two units (cause spam-1)"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks OnePerChange or OwedIsNamed
+    lg1: Breaks Counted in some cases
+    lg2: Path to the Counted or OnePerChange or OwedIsNamed bug
+  }
+  class lg0 breaks
+  class lg1 mayBreak
+  class lg2 bugPath
+  s0: MP-1001: not started | MP-1002: not started
+  s1: MP-1001: not started | MP-1002: worker started
+  s2: MP-1001: worker started | MP-1002: not started
+  s3: MP-1001: not started | MP-1002: worker editing
+  s4: MP-1001: worker died | MP-1002: not started
+  s5: MP-1001: not started | MP-1002: worker editing#59; turn over
+  s6: MP-1001: worker died | MP-1002: not started#59; turn over
+  s7: MP-1001: not started | MP-1002: checked, book asks for the check
+  s8: MP-1001: not started | MP-1002: checked, book asks for the check#59; turn over
+  s9: MP-1001: not started | MP-1002: checked, review missing
+  s10: MP-1001: not started | MP-1002: checked, review missing#59; turn over
+  [*] --> s0
+  s0 --> s1: MP-1002: you start its worker
+  s0 --> s2: MP-1001: you start its worker
+  s1 --> s3: MP-1002: its worker edits in its worktree
+  s2 --> s4: MP-1001: its worker dies (model quota)
+  s3 --> s5: your turn ends: no notice
+  s3 --> s7: MP-1002's worker returns, its check passed: the book does not count it
+  s4 --> s6: your turn ends: no notice
+  s5 --> s7: MP-1002's worker returns, its check passed: the book does not count it
+  s7 --> s8: your turn ends: the notice asks MP-1001 for act
+  s8 --> s8: a todo is added or completed
+  s8 --> s7: someone else starts your turn
+  s7 --> s9: MP-1002: you run its anchor: it passes
+  s9 --> s10: your turn ends: the notice asks MP-1001 for act
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  classDef mayBreak fill:#fff3e6,stroke:#e8730c,stroke-width:2.5px,color:#b85a06
+  class s0 bugPath
+  class s1 bugPath
+  class s2 bugPath
+  class s3 bugPath
+  class s4 bugPath
+  class s5 bugPath
+  class s6 breaks
+  class s6 bugPath
+  class s7 mayBreak
+  class s7 bugPath
+  class s8 bugPath
+  class s9 bugPath
+  class s10 breaks
+  class s10 bugPath

@@ -1,0 +1,72 @@
+---
+title: "one loop book: what it asks for, and what really happened"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks CanFinish
+    lg1: Path to the CanFinish bug
+  }
+  class lg0 breaks
+  class lg1 bugPath
+  s0: No change yet
+  s1: No change yet#59; no ref watched
+  s2: Changed, check missing
+  s3: Closed
+  s4: Check failed: fix
+  s5: Changed, check missing#59; no ref watched
+  s6: Complete: close
+  s7: Check failed: fix#59; no ref watched
+  s8: Changed, check missing#59; pushed#59; no ref watched
+  s9: Check passed, observation waits for a landing#59; no ref watched
+  s10: Check failed: fix#59; pushed#59; no ref watched
+  s11: Check passed, observation waits for a landing#59; pushed#59; no ref watched
+  [*] --> s0
+  s0 --> s1: you list an observation to make after landing
+  s0 --> s2: you change the code
+  s0 --> s3: you close the loop
+  s1 --> s5: you change the code
+  s2 --> s4: you run the anchor: it fails
+  s2 --> s5: you list an observation to make after landing
+  s2 --> s6: you run the anchor: it passes or you declare a passing verify
+  s1 --> s3: you close the loop
+  s4 --> s2: you change the code
+  s4 --> s6: you run the anchor: it passes or you declare a passing verify
+  s4 --> s7: you list an observation to make after landing
+  s2 --> s3: you close the loop
+  s5 --> s7: you run the anchor: it fails
+  s5 --> s8: you push: the book records no landing
+  s5 --> s9: you run the anchor: it passes or you declare a passing verify
+  s2 --> s8: you list an observation to make after landing
+  s6 --> s2: you change the code
+  s6 --> s4: you run the anchor: it fails
+  s6 --> s9: you list an observation to make after landing
+  s4 --> s3: you close the loop
+  s7 --> s5: you change the code
+  s7 --> s9: you run the anchor: it passes or you declare a passing verify
+  s7 --> s10: you push: the book records no landing
+  s5 --> s3: you close the loop
+  s4 --> s10: you list an observation to make after landing
+  s8 --> s5: you change the code
+  s8 --> s10: you run the anchor: it fails
+  s8 --> s11: you run the anchor: it passes or you declare a passing verify
+  s6 --> s3: you close the loop
+  s9 --> s5: you change the code
+  s9 --> s7: you run the anchor: it fails
+  s9 --> s11: you push: the book records no landing
+  s6 --> s11: you list an observation to make after landing
+  s7 --> s3: you close the loop
+  s10 --> s5: you change the code
+  s10 --> s11: you run the anchor: it passes or you declare a passing verify
+  s8 --> s3: you close the loop
+  s9 --> s3: you close the loop
+  s11 --> s5: you change the code
+  s11 --> s10: you run the anchor: it fails
+  s10 --> s3: you close the loop
+  s11 --> s3: you close the loop
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  class s0 bugPath
+  class s1 bugPath
+  class s5 bugPath
+  class s9 breaks
+  class s9 bugPath
+  class s11 breaks

@@ -1,0 +1,32 @@
+---
+title: "a coordinator with two units and two workers (proposed)"
+---
+stateDiagram-v2
+  direction LR
+  state "At the same time" as all {
+    state "MP-1001" as r0 {
+      s0: not started
+      s1: worker started
+      s2: worker editing
+      s3: complete
+      s4: closed
+      [*] --> s0
+      s0 --> s1: MP-1001: you start its worker
+      s1 --> s2: MP-1001: its worker edits in its worktree
+      s2 --> s3: MP-1001's worker returns, its check passed
+      s3 --> s4: you close the loop [when complete]
+    }
+    --
+    state "MP-1002" as r1 {
+      s5: not started
+      s6: worker started
+      s7: worker editing
+      s8: complete
+      s9: closed
+      [*] --> s5
+      s5 --> s6: MP-1002: you start its worker
+      s6 --> s7: MP-1002: its worker edits in its worktree
+      s7 --> s8: MP-1002's worker returns, its check passed
+      s8 --> s9: you close the loop [when complete]
+    }
+  }
