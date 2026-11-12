@@ -1,0 +1,59 @@
+---
+title: "a reviewed loop, as the phase line reads it"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: open
+    lg1: done
+    lg2: closed
+    lg3: Breaks ReviewReadTheChange in some cases
+    lg4: Path to the ReviewReadTheChange bug
+  }
+  class lg0 blue
+  class lg1 teal
+  class lg2 tan
+  class lg3 mayBreak
+  class lg4 bugPath
+  s0: No change yet
+  s1: Changed, check missing
+  s2: Closed
+  s3: Check failed: fix
+  s4: Checked, review missing
+  s5: Review found blocking defects: fix
+  s6: Complete: close
+  [*] --> s0
+  s0 --> s1: you change the code
+  s1 --> s3: you run the anchor: it fails
+  s1 --> s1: you start a reviewer and wait or you change the code or the reviewer you started comes back: Blocking P0=0 P1=0
+  s1 --> s4: you run the anchor: it passes or you declare a passing verify
+  s3 --> s1: you change the code
+  s3 --> s4: you run the anchor: it passes or you declare a passing verify
+  s4 --> s1: you change the code
+  s4 --> s3: you run the anchor: it fails
+  s1 --> s5: you run the anchor: it passes or you declare a passing verify
+  s4 --> s5: the reviewer you started comes back: blocking findings
+  s4 --> s6: the reviewer you started comes back: Blocking P0=0 P1=0
+  s1 --> s6: you run the anchor: it passes or you declare a passing verify
+  s3 --> s5: you run the anchor: it passes or you declare a passing verify
+  s5 --> s1: you change the code
+  s5 --> s3: you run the anchor: it fails
+  s3 --> s6: you run the anchor: it passes or you declare a passing verify
+  s6 --> s1: you change the code
+  s6 --> s3: you run the anchor: it fails
+  s5 --> s6: the reviewer you started comes back: Blocking P0=0 P1=0
+  s6 --> s2: you close the loop [every todo done or given a followup]
+  s6 --> s5: the reviewer you started comes back: blocking findings
+  classDef mayBreak fill:#fff3e6,stroke:#e8730c,stroke-width:2.5px,color:#b85a06
+  class s0 blue
+  class s0 bugPath
+  class s1 blue
+  class s1 mayBreak
+  class s1 bugPath
+  class s2 tan
+  class s2 mayBreak
+  class s3 blue
+  class s3 mayBreak
+  class s4 blue
+  class s5 blue
+  class s6 teal
+  class s6 mayBreak

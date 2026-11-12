@@ -1,0 +1,209 @@
+---
+title: "one loop book: what it asks for, and what really happened"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks AcceptedCounts or ReviewReadTheChange
+    lg1: Breaks AcceptedCounts or ReviewReadTheChange in some cases
+    lg2: Path to the AcceptedCounts or ReviewReadTheChange bug
+  }
+  class lg0 breaks
+  class lg1 mayBreak
+  class lg2 bugPath
+  s0: No change yet
+  s1: No change yet#59; the tool answered ok to a verify
+  s2: Changed, check missing
+  s3: Closed
+  s4: Check failed: fix
+  s5: Changed, check missing#59; the tool answered ok to a verify
+  s6: Changed, check missing#59; reviewer reading
+  s7: Checked, review missing
+  s8: Check failed: fix#59; the tool answered ok to a verify
+  s9: Check failed: fix#59; reviewer reading
+  s10: Changed, check missing#59; the tool answered ok to a verify#59; reviewer reading
+  s11: Checked, review missing#59; reviewer reading
+  s12: Check failed: fix#59; the tool answered ok to a verify#59; reviewer reading
+  s13: Review found blocking defects: fix
+  s14: Changed, check missing#59; the code changed while the reviewer read
+  s15: Complete: close
+  s16: Review found blocking defects: fix#59; reviewer reading
+  s17: Check failed: fix#59; the code changed while the reviewer read
+  s18: Changed, check missing#59; the tool answered ok to a verify#59; the code changed while the reviewer read
+  s19: Changed, check missing#59; the code changed while the reviewer read#59; reviewer reading
+  s20: Complete: close#59; the code changed while the reviewer read
+  s21: Complete: close#59; reviewer reading
+  s22: Check failed: fix#59; the tool answered ok to a verify#59; the code changed while the reviewer read
+  s23: Check failed: fix#59; the code changed while the reviewer read#59; reviewer reading
+  s24: Changed, check missing#59; the tool answered ok to a verify#59; the code changed while the reviewer read#59; reviewer reading
+  s25: Complete: close#59; the code changed while the reviewer read#59; reviewer reading
+  s26: Check failed: fix#59; the tool answered ok to a verify#59; the code changed while the reviewer read#59; reviewer reading
+  [*] --> s0
+  s0 --> s1: you declare a passing verify with no task: the tool answers ok
+  s0 --> s2: you change the code
+  s0 --> s3: you close the loop
+  s1 --> s0: you run the anchor: it fails or you declare a passing verify for one unit or you run the anchor: it passes
+  s1 --> s2: you change the code
+  s2 --> s4: you run the anchor: it fails
+  s2 --> s5: you declare a passing verify with no task: the tool answers ok
+  s2 --> s6: you start a reviewer and wait
+  s2 --> s7: you run the anchor: it passes or you declare a passing verify for one unit
+  s1 --> s3: you close the loop
+  s4 --> s2: you change the code
+  s4 --> s7: you run the anchor: it passes or you declare a passing verify for one unit
+  s4 --> s8: you declare a passing verify with no task: the tool answers ok
+  s4 --> s9: you start a reviewer and wait
+  s2 --> s3: you close the loop
+  s5 --> s2: you change the code
+  s5 --> s4: you run the anchor: it fails
+  s5 --> s7: you declare a passing verify for one unit or you run the anchor: it passes
+  s5 --> s10: you start a reviewer and wait
+  s6 --> s2: the review comes back with blocking findings or the review comes back: Blocking P0=0 P1=0
+  s6 --> s9: you run the anchor: it fails
+  s6 --> s10: you declare a passing verify with no task: the tool answers ok
+  s6 --> s6: you change the code
+  s6 --> s11: you run the anchor: it passes or you declare a passing verify for one unit
+  s7 --> s2: you change the code
+  s7 --> s4: you run the anchor: it fails
+  s7 --> s11: you start a reviewer and wait
+  s2 --> s13: you run the anchor: it passes or you declare a passing verify for one unit
+  s4 --> s3: you close the loop
+  s8 --> s2: you change the code
+  s8 --> s4: you run the anchor: it fails
+  s8 --> s7: you declare a passing verify for one unit or you run the anchor: it passes
+  s8 --> s12: you start a reviewer and wait
+  s5 --> s3: you close the loop
+  s9 --> s6: you change the code
+  s9 --> s11: you run the anchor: it passes or you declare a passing verify for one unit
+  s9 --> s4: the review comes back with blocking findings or the review comes back: Blocking P0=0 P1=0
+  s9 --> s12: you declare a passing verify with no task: the tool answers ok
+  s6 --> s3: you close the loop
+  s10 --> s9: you run the anchor: it fails
+  s10 --> s6: you change the code
+  s10 --> s11: you declare a passing verify for one unit or you run the anchor: it passes
+  s10 --> s5: the review comes back with blocking findings or the review comes back: Blocking P0=0 P1=0
+  s6 --> s14: the review comes back: Blocking P0=0 P1=0
+  s7 --> s3: you close the loop
+  s11 --> s6: you change the code
+  s11 --> s9: you run the anchor: it fails
+  s11 --> s13: the review comes back with blocking findings
+  s11 --> s15: the review comes back: Blocking P0=0 P1=0
+  s2 --> s15: you run the anchor: it passes or you declare a passing verify for one unit
+  s4 --> s13: you run the anchor: it passes or you declare a passing verify for one unit
+  s5 --> s13: you declare a passing verify for one unit or you run the anchor: it passes
+  s6 --> s16: you run the anchor: it passes or you declare a passing verify for one unit
+  s8 --> s3: you close the loop
+  s9 --> s3: you close the loop
+  s12 --> s9: you run the anchor: it fails
+  s12 --> s6: you change the code
+  s12 --> s11: you declare a passing verify for one unit or you run the anchor: it passes
+  s12 --> s8: the review comes back with blocking findings or the review comes back: Blocking P0=0 P1=0
+  s10 --> s3: you close the loop
+  s9 --> s17: the review comes back: Blocking P0=0 P1=0
+  s10 --> s18: the review comes back: Blocking P0=0 P1=0
+  s13 --> s2: you change the code
+  s13 --> s4: you run the anchor: it fails
+  s13 --> s16: you start a reviewer and wait
+  s11 --> s3: you close the loop
+  s11 --> s20: the review comes back: Blocking P0=0 P1=0
+  s4 --> s15: you run the anchor: it passes or you declare a passing verify for one unit
+  s14 --> s2: you change the code
+  s14 --> s17: you run the anchor: it fails
+  s14 --> s18: you declare a passing verify with no task: the tool answers ok
+  s14 --> s19: you start a reviewer and wait
+  s14 --> s20: you run the anchor: it passes or you declare a passing verify for one unit
+  s5 --> s15: you declare a passing verify for one unit or you run the anchor: it passes
+  s6 --> s21: you run the anchor: it passes or you declare a passing verify for one unit
+  s15 --> s2: you change the code
+  s15 --> s4: you run the anchor: it fails
+  s15 --> s21: you start a reviewer and wait
+  s8 --> s13: you declare a passing verify for one unit or you run the anchor: it passes
+  s9 --> s16: you run the anchor: it passes or you declare a passing verify for one unit
+  s10 --> s16: you declare a passing verify for one unit or you run the anchor: it passes
+  s12 --> s3: you close the loop
+  s12 --> s22: the review comes back: Blocking P0=0 P1=0
+  s13 --> s3: you close the loop
+  s16 --> s6: you change the code
+  s16 --> s13: the review comes back with blocking findings
+  s16 --> s15: the review comes back: Blocking P0=0 P1=0
+  s16 --> s9: you run the anchor: it fails
+  s17 --> s2: you change the code
+  s17 --> s20: you run the anchor: it passes or you declare a passing verify for one unit
+  s17 --> s22: you declare a passing verify with no task: the tool answers ok
+  s17 --> s23: you start a reviewer and wait
+  s14 --> s3: you close the loop
+  s8 --> s15: you declare a passing verify for one unit or you run the anchor: it passes
+  s18 --> s2: you change the code
+  s18 --> s17: you run the anchor: it fails
+  s18 --> s20: you declare a passing verify for one unit or you run the anchor: it passes
+  s18 --> s24: you start a reviewer and wait
+  s9 --> s21: you run the anchor: it passes or you declare a passing verify for one unit
+  s19 --> s2: the review comes back with blocking findings or the review comes back: Blocking P0=0 P1=0
+  s19 --> s6: you change the code
+  s19 --> s23: you run the anchor: it fails
+  s19 --> s24: you declare a passing verify with no task: the tool answers ok
+  s19 --> s25: you run the anchor: it passes or you declare a passing verify for one unit
+  s10 --> s21: you declare a passing verify for one unit or you run the anchor: it passes
+  s20 --> s2: you change the code
+  s20 --> s17: you run the anchor: it fails
+  s20 --> s25: you start a reviewer and wait
+  s15 --> s3: you close the loop
+  s21 --> s6: you change the code
+  s21 --> s13: the review comes back with blocking findings
+  s21 --> s15: the review comes back: Blocking P0=0 P1=0
+  s21 --> s9: you run the anchor: it fails
+  s12 --> s16: you declare a passing verify for one unit or you run the anchor: it passes
+  s16 --> s3: you close the loop
+  s17 --> s3: you close the loop
+  s22 --> s2: you change the code
+  s22 --> s17: you run the anchor: it fails
+  s22 --> s20: you declare a passing verify for one unit or you run the anchor: it passes
+  s22 --> s26: you start a reviewer and wait
+  s18 --> s3: you close the loop
+  s23 --> s6: you change the code
+  s23 --> s4: the review comes back with blocking findings or the review comes back: Blocking P0=0 P1=0
+  s23 --> s25: you run the anchor: it passes or you declare a passing verify for one unit
+  s23 --> s26: you declare a passing verify with no task: the tool answers ok
+  s19 --> s3: you close the loop
+  s12 --> s21: you declare a passing verify for one unit or you run the anchor: it passes
+  s24 --> s6: you change the code
+  s24 --> s5: the review comes back with blocking findings or the review comes back: Blocking P0=0 P1=0
+  s24 --> s23: you run the anchor: it fails
+  s24 --> s25: you declare a passing verify for one unit or you run the anchor: it passes
+  s20 --> s3: you close the loop
+  s25 --> s6: you change the code
+  s25 --> s13: the review comes back with blocking findings
+  s25 --> s15: the review comes back: Blocking P0=0 P1=0
+  s25 --> s23: you run the anchor: it fails
+  s21 --> s3: you close the loop
+  s22 --> s3: you close the loop
+  s23 --> s3: you close the loop
+  s26 --> s6: you change the code
+  s26 --> s8: the review comes back with blocking findings or the review comes back: Blocking P0=0 P1=0
+  s26 --> s23: you run the anchor: it fails
+  s26 --> s25: you declare a passing verify for one unit or you run the anchor: it passes
+  s24 --> s3: you close the loop
+  s25 --> s3: you close the loop
+  s26 --> s3: you close the loop
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  classDef mayBreak fill:#fff3e6,stroke:#e8730c,stroke-width:2.5px,color:#b85a06
+  class s0 bugPath
+  class s1 breaks
+  class s1 bugPath
+  class s2 bugPath
+  class s3 mayBreak
+  class s5 breaks
+  class s6 bugPath
+  class s8 breaks
+  class s10 breaks
+  class s12 breaks
+  class s14 breaks
+  class s14 bugPath
+  class s17 breaks
+  class s18 breaks
+  class s19 breaks
+  class s20 breaks
+  class s22 breaks
+  class s23 breaks
+  class s24 breaks
+  class s25 breaks
+  class s26 breaks

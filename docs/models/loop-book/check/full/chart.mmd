@@ -1,0 +1,59 @@
+---
+title: "one loop book: what it asks for, and what really happened"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks CanFinish or KeptDone or NoStalePass or QuietWhileWaiting or ReportedReviewCounts or ReviewReadTheChange
+    lg1: Path to the CanFinish or KeptDone or NoStalePass or QuietWhileWaiting or ReportedReviewCounts or ReviewReadTheChange bug
+  }
+  class lg0 breaks
+  class lg1 bugPath
+  s0: No change yet
+  s1: Changed, check missing
+  s2: No change yet#59; the code changed after the check
+  s3: Changed, check missing#59; worker out
+  s4: Changed, check missing#59; another role reviewing
+  s5: Changed, check missing#59; reviewer reading
+  s6: Changed, check missing#59; a check passed and nothing it tests changed since
+  s7: Checked, review missing
+  s8: Changed, check missing#59; worker out#59; turn over
+  s9: Check passed, observation waits for a landing#59; no ref watched
+  s10: Changed, check missing#59; a review came back with no blocking finding
+  s11: Changed, check missing#59; the code changed while the reviewer read
+  s12: Changed, check missing#59; worker out#59; judged while waiting#59; turn over
+  [*] --> s0
+  s0 --> s1: you change the code
+  s0 --> s0: you run the anchor: it passes
+  s1 --> s3: you start a worker and wait
+  s1 --> s4: you ask a subagent of another role to review, and wait
+  s1 --> s5: you start a reviewer and wait
+  s1 --> s7: you run the anchor: it passes
+  s0 --> s2: you change the code through a shell command
+  s0 --> s6: you write a file in another repository
+  s3 --> s8: your turn ends: no notice
+  s4 --> s10: the review comes back: Blocking P0=0 P1=0, and the book records no review
+  s5 --> s5: you change the code
+  s7 --> s9: you list an observation to make after landing
+  s5 --> s11: the review comes back: Blocking P0=0 P1=0
+  s8 --> s3: someone speaks to you
+  s3 --> s12: your turn ends: the notice judges the loop
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  class s0 bugPath
+  class s1 bugPath
+  class s2 breaks
+  class s2 bugPath
+  class s3 bugPath
+  class s4 bugPath
+  class s5 bugPath
+  class s6 breaks
+  class s6 bugPath
+  class s7 bugPath
+  class s8 bugPath
+  class s9 breaks
+  class s9 bugPath
+  class s10 breaks
+  class s10 bugPath
+  class s11 breaks
+  class s11 bugPath
+  class s12 breaks
+  class s12 bugPath

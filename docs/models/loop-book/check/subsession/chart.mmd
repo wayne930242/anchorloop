@@ -1,0 +1,101 @@
+---
+title: "one loop book: what it asks for, and what really happened"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks CanFinish or ReportedReviewCounts
+    lg1: Breaks ReportedReviewCounts in some cases
+    lg2: Path to the CanFinish or ReportedReviewCounts bug
+  }
+  class lg0 breaks
+  class lg1 mayBreak
+  class lg2 bugPath
+  s0: No change yet
+  s1: Changed, check missing
+  s2: Closed
+  s3: Check failed: fix
+  s4: Changed, check missing#59; reviewer reading
+  s5: Checked, review missing
+  s6: Check failed: fix#59; reviewer reading
+  s7: Checked, review missing#59; reviewer reading
+  s8: Changed, check missing#59; a review came back with no blocking finding
+  s9: Check failed: fix#59; a review came back with no blocking finding
+  s10: Changed, check missing#59; a review came back with no blocking finding#59; reviewer reading
+  s11: Checked, review missing#59; a review came back with no blocking finding
+  s12: Check failed: fix#59; a review came back with no blocking finding#59; reviewer reading
+  s13: Checked, review missing#59; a review came back with no blocking finding#59; reviewer reading
+  [*] --> s0
+  s0 --> s1: you change the code
+  s0 --> s2: you close the loop
+  s1 --> s3: you run the anchor: it fails
+  s1 --> s4: you start a reviewer and wait
+  s1 --> s5: you run the anchor: it passes or you declare a passing verify
+  s3 --> s1: you change the code
+  s3 --> s5: you run the anchor: it passes or you declare a passing verify
+  s3 --> s6: you start a reviewer and wait
+  s1 --> s2: you close the loop
+  s4 --> s1: the review comes back with blocking findings
+  s4 --> s6: you run the anchor: it fails
+  s4 --> s7: you run the anchor: it passes or you declare a passing verify
+  s4 --> s8: the review comes back: Blocking P0=0 P1=0, and the book records no review
+  s5 --> s1: you change the code
+  s5 --> s3: you run the anchor: it fails
+  s5 --> s7: you start a reviewer and wait
+  s3 --> s2: you close the loop
+  s6 --> s4: you change the code
+  s6 --> s7: you run the anchor: it passes or you declare a passing verify
+  s6 --> s3: the review comes back with blocking findings
+  s6 --> s9: the review comes back: Blocking P0=0 P1=0, and the book records no review
+  s4 --> s2: you close the loop
+  s5 --> s2: you close the loop
+  s7 --> s4: you change the code
+  s7 --> s6: you run the anchor: it fails
+  s7 --> s5: the review comes back with blocking findings
+  s7 --> s11: the review comes back: Blocking P0=0 P1=0, and the book records no review
+  s8 --> s1: you change the code
+  s8 --> s9: you run the anchor: it fails
+  s8 --> s10: you start a reviewer and wait
+  s8 --> s11: you run the anchor: it passes or you declare a passing verify
+  s6 --> s2: you close the loop
+  s7 --> s2: you close the loop
+  s9 --> s1: you change the code
+  s9 --> s11: you run the anchor: it passes or you declare a passing verify
+  s9 --> s12: you start a reviewer and wait
+  s8 --> s2: you close the loop
+  s10 --> s1: the review comes back with blocking findings
+  s10 --> s4: you change the code
+  s10 --> s8: the review comes back: Blocking P0=0 P1=0, and the book records no review
+  s10 --> s12: you run the anchor: it fails
+  s10 --> s13: you run the anchor: it passes or you declare a passing verify
+  s11 --> s1: you change the code
+  s11 --> s9: you run the anchor: it fails
+  s11 --> s13: you start a reviewer and wait
+  s9 --> s2: you close the loop
+  s12 --> s4: you change the code
+  s12 --> s3: the review comes back with blocking findings
+  s12 --> s9: the review comes back: Blocking P0=0 P1=0, and the book records no review
+  s12 --> s13: you run the anchor: it passes or you declare a passing verify
+  s10 --> s2: you close the loop
+  s11 --> s2: you close the loop
+  s13 --> s4: you change the code
+  s13 --> s5: the review comes back with blocking findings
+  s13 --> s11: the review comes back: Blocking P0=0 P1=0, and the book records no review
+  s13 --> s12: you run the anchor: it fails
+  s12 --> s2: you close the loop
+  s13 --> s2: you close the loop
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  classDef mayBreak fill:#fff3e6,stroke:#e8730c,stroke-width:2.5px,color:#b85a06
+  class s0 bugPath
+  class s1 bugPath
+  class s2 mayBreak
+  class s4 bugPath
+  class s5 breaks
+  class s5 bugPath
+  class s7 breaks
+  class s8 breaks
+  class s8 bugPath
+  class s9 breaks
+  class s10 breaks
+  class s11 breaks
+  class s12 breaks
+  class s13 breaks
