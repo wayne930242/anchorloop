@@ -143,3 +143,42 @@ The agent declares only what the program cannot observe; everything observable i
 - A child that closed its loop and opens another keeps the closed book as `<id>.closed-<n>.yml` beside the new one; main's `read` lists both (`name~n` for the earlier loops) and main's close or the sweep removes them with the child.
 - A run counts only where its exit can be the call's: not inside `$(`, `<(` or `>(` (except the whole of `x=$(run)`); an `||` or `!` before any enclosing group makes the exit unknown. Unrecognized is the fail-safe outcome.
 - TTSR: a match that blocks a tool call ignores the repeat policy; reminders and prose injections keep it. Rule text renders literally.
+
+## Amendment: evidence per tree and per unit, the notice per unit (user decisions 2026-11-12, issues #2 to #8 and #10 to #16; 2.16.0)
+
+The decisions on the issues the loop book models found (`docs/models/loop-book/`, `docs/models/loop-book/multitask/`) override earlier sections where they conflict. The replays in `tests/test_model_loop_book.py` and `tests/test_model_multitask.py` hold each rule.
+
+### Checks and reviews
+
+- A check counts while the code it ran on is unchanged (#2, #7). Every anchor run (a `verify`, a child's `check`, a task anchor's `taskrun`) records `treeAt`: the repo root its command ran in (the session's checkout, moved by a leading `cd`; for a worker run adopted for its unit, the worker's worktree) with that repo's working-state tree. The run stands while that tree is the working tree now and no later `edit` names that repo or names none. A write in another repository, a worker's edit in its own worktree, and a file git ignores (which is no `edit` at all) leave it; a change through a shell command voids it. A run with no `treeAt` (a declared verify, a book written before 2.16.0) stands until any later change, as before.
+- `edit` entries carry the `repo` they touched; consecutive edits in one repo stay one entry, and a write to a file git ignores is not recorded.
+- A review counts from its reviewer's dispatch (#8): the review entry names the `link` or `send` it answers (`from`) and the trees that dispatch gave the reviewer (`treeAt`, recorded for reviewer roles). It stands while no change follows the dispatch and those trees hold. Only `reviewer` and `adversarial-reviewer` results are review rounds (#4); a subagent session records its own reviewers' rounds, and no other subagent result.
+- With two or more units, `verify` without `task` is refused and the refusal lists the units with their task ids (#3).
+- A `verify` with `checkpoint` that names no observation of the loop says which todo lists observations and to give `task` (#5).
+
+### Units
+
+- A unit's trees are its non-reviewer workers' repos (their worktrees, or the checkout they work in), else the loop's own repos. An `edit` counts for the units whose trees hold its repo, and for every unit when none does or its repo is unknown; a unit compares only its own trees, so one unit's change never takes another unit's check away (#11, P1, P3).
+- `back` and `skip` with `task` reach only that unit, and `phase` is checked against that unit's kind (#11).
+- A child bound to a unit inherits that unit's anchor (task entries now record `kind`, `lands`, and `agents`, so the child reads the unit from its parent's book). When the child returns, its latest passing run of that anchor, made after its last edit, is recorded as the unit's verify with the run's `treeAt` (#10).
+- Each `subagent_send` or `subagent_resume` to a linked child is a `send` entry bound to the unit its brief names by ticket; a reviewer's verdict counts for the unit of the dispatch it answers, else the unit its result's brief names, else the unit its child is bound to (#12).
+
+### Landings
+
+- A loop that lists an observation (on its anchor or on a todo) watches its own repo's integration ref even with no linked child; a plain session with neither still makes no landing git calls (#5).
+- A bash call that may push (`git … push`) in a loop that watches refs lists the remote-tracking refs of its own repos around it; a ref git shows moved by this checkout's own push is a `push` entry (a car), bound to the unit its name names by ticket. When the integration ref takes it, the landing counts for that unit, and `landed` with `task` takes it as a candidate too (#16).
+
+### The turn-end notice
+
+- A run that called `MonitorCreate`, `LoopCreate`, or `goal_wait`, or a subagent tool whose child the book has not linked yet, is waiting and is not judged. A dispatch is out until a result of that child follows it.
+- One unit's loop (fewer than two units): while any child is out, the loop is neither judged nor continued (#6); otherwise as before.
+- Two or more units (P5, the comment on #6, #13): a child out for no unit keeps every unit quiet; a child out for a unit keeps only that unit quiet. The notice takes the first unit that waits on the coordinator (its todo open, its phases not complete, nothing of its own out, and started: a child bound to it, or an edit or landing of its own) whose step it has not asked since that unit's evidence last changed. It judges, speaks, and continues for that unit (Jev's state is that unit's phase, check, and review), and names every other such unit on its own `next:` line. A unit is asked again only when its step or its evidence count changes; a child's result, failed or not, is evidence of its unit. When every unit is done or closed, the loop is judged whole as before.
+- What the notice judged and said is kept in the book as `notice` entries, keyed by unit and step and that unit's evidence count (or by the loop's evidence count and open todos, with the advisory key sent), so a `/reload` rebuilds nothing and repeats nothing (#14).
+
+### Sessions
+
+- A handoff names its book through the todos it carries (#15): when a main session with no book of its own creates its first todos (or declares a `kind` whose intent names a ticket) and exactly one open main book of another session of this project has an open todo naming one of those tickets, the session adopts that book. The file moves to this session's path with this session's file in its header, and an `adopt` entry names the book it came from; what the units proved and what the notice asked carry over.
+
+### Book format
+
+New entry stages (`send`, `push`, `adopt`, `notice`) and fields (`treeAt`, `repo`, `from`, `task` on reviews, landings, and skips, `kind`/`lands`/`agents` on task entries) are additions. A book written by an earlier version loads and reads as it did: runs without `treeAt` and edits without `repo` fall back to order, task entries without unit metadata give a child its parent's loop anchor, and a book without `notice` entries is judged as new.

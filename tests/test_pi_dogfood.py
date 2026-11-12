@@ -220,8 +220,9 @@ class TestCloseOutput(BookCase):
         (other / "new.py").write_text("untracked\n")
         steps = [*self.open_loop(anchor="pytest -q"), tool_call("edit", str(other / "lib.py")), tool_call("edit", "app.py"), edit(), bash_result("pytest -q", 0, "ok"),
                  stage(stage="skip", phase="reflect", reason="nothing to reflect")]
-        self.replay(steps)
+        # The change is on disk before the anchor runs: a change after the run is no longer covered by it (issue #7).
         (self.cwd / "app.py").write_text("print(1)\nprint(2)\n")
+        self.replay(steps)
         out = self.replay([stage(stage="close", verdict="landed")])
         self.assertEqual(text_of(out["results"][-1]), "closed (landed). Clear the todo list.")
         diff = out["appended"][0]["data"]["diff"]

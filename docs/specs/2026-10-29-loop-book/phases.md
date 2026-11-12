@@ -118,3 +118,12 @@ questions:
     label: 其他意見（例如階段名稱、還想加的階段）
     type: text
 ```
+
+## 修訂：證據依 tree 與 unit 計算（使用者 2026-11-12 決定，2.16.0）
+
+完整契約見 `spec.md` 最後一節「Amendment: evidence per tree and per unit, the notice per unit」。階段機的改變：
+
+- **verify／check**：每次 anchor 執行都記下它所在 repo 的工作狀態 tree（`treeAt`）。那個 tree 沒變、之後也沒有指向那個 repo 的修改，這次檢查就仍算完成；不再只看「是否在最後一次 act 之後」。在別的 repo 寫檔、git 忽略的筆記、worker 在自己 worktree 的修改都不讓它退回；透過 shell 指令改程式碼會讓它退回。舊 book 沒有 `treeAt` 的執行，仍依先後順序判斷。
+- **review**：從 reviewer 被派出的時間起算，不是從結果回來的時間；只採 `reviewer` 與 `adversarial-reviewer` 的結論。
+- **多個 unit**：每個 unit 只看自己的 tree、自己的修改、帶自己 `task` 的 `back`／`skip`，以及自己子代理的結果；一個 unit 的修改或退回不會讓另一個 unit 的階段退回。
+- **提醒**：子代理還沒回報時，那個 unit（只有一個 unit 時就是整個 loop）不被判斷；提醒點名等著協調者的 unit，同一 unit 的同一步驟在證據沒變時不會再問，`/reload` 之後也不會。

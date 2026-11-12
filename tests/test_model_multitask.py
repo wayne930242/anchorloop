@@ -2,9 +2,10 @@
 MP-1001 and MP-1002, each with its own anchor and its own worker. Each test walks one path of a check report on the real
 extensions and asserts the rule at its end, in the reader's words.
 
-Every test here is red on purpose: the model found the path on the code at 04f083a, and the fix is not part of this branch.
-The rules are proposed; a rule the reader rejects takes its tests with it. Paths the twelve tests of test_model_loop_book.py
-already walk (a turn another wake starts is judged while a worker is out; a verify with no `task`) are not repeated here.
+The model found each path on the code at 04f083a, where every test here was red; the boss chose the proposed changes P1 to P8
+(2026-11-12, issues #10 to #16 and the comments on #6 and #7), and the code since 2.16.0 holds them. Paths the twelve tests of
+test_model_loop_book.py already walk (a turn another wake starts is judged while a worker is out; a verify with no `task`) are
+not repeated here.
 """
 
 import subprocess

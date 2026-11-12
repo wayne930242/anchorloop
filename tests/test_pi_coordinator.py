@@ -398,8 +398,9 @@ class TestLanding(LandingCase):
         (self.cwd / "own.py").write_text("o = 1\n")
         self.sh("add", "own.py")
         self.sh("commit", "-qm", "own change")
-        self.replay([edit("own.py"), bash_result(self.ANCHOR, 0, "ok")])
+        # The untracked file is there when the anchor runs: a file written after the run changes the tree the run recorded (issue #7).
         (self.cwd / "notes.txt").write_text("todo\n")
+        self.replay([edit("own.py"), bash_result(self.ANCHOR, 0, "ok")])
         line = self.phase_line(*self.bash(run("git", "push", "-q", "origin", "HEAD:main")))
         self.assertEqual(line, "inline \u00b7 phase verify \u2713 \u2192 close")
         self.assertTrue([entry for entry in self.lands() if "child" not in entry][0]["exact"])
@@ -838,8 +839,11 @@ class TestOrphans(CoordinatorCase):
             alive.wait()
 
     def test_the_second_thought_snapshot_carries_the_count_of_children_without_a_result(self):
-        self.replay([*self.open_loop(), spawn("kid", "w1", "/s/a.jsonl"), spawn("kid2", "w2", "/s/b.jsonl")])
-        out = self.replay([SETTLE],
+        # While a child is out the turn end is quiet (issue #6), so Jev reads the count at close.
+        self.replay([*done_loop(self), spawn("kid", "w1", "/s/a.jsonl"), spawn("kid2", "w2", "/s/b.jsonl")])
+        close = {"event": "tool_call", "payload": {"toolName": "anchorloop_stage", "toolCallId": "c9", "input": {"stage": "close", "verdict": "abandoned"}}}
+        out = self.replay([close, stage(stage="close", verdict="abandoned"), tool_result("anchorloop_stage", {"stage": "close"}, "closed", call_id="c9")],
+                          branch=[todo_state({"subject": "unit", "status": "completed"})],
                           extensions=("book.ts", "second-thought.ts"), classify={"stopReason": "stop", "answers": {"move": {"type": "choice", "choice": "advance", "probabilities": {"advance": 0.7}}, "done": {"type": "bool", "probability": 0.9}, "review": {"type": "choice", "choice": "none", "probabilities": {"none": 0.6}}, "quality": {"type": "score", "score": 2.9}}})
         self.assertIn("2 children without a result", out["classifyCalls"][0]["verify"])
 
@@ -946,6 +950,9 @@ class TestUnits(CoordinatorCase):
 
     def test_the_second_thought_state_carries_the_unit_lines_in_its_tasks_field(self):
         self.start()
+        # A unit whose worker is out is quiet (issue #6): w1 edits and returns, so MP-4366 waits on the coordinator and is judged.
+        self.child_edit("k1", "w1")
+        self.replay([returned("w1")], branch=self.branch())
         answers = {"stopReason": "stop", "answers": {"move": {"type": "choice", "choice": "advance", "probabilities": {"advance": 0.7}}, "done": {"type": "bool", "probability": 0.9}, "review": {"type": "choice", "choice": "none", "probabilities": {"none": 0.6}}, "quality": {"type": "score", "score": 2.9}}}
         out = self.replay([SETTLE], branch=self.branch(), extensions=("book.ts", "second-thought.ts"), classify=answers)
         self.assertIn("MP-4366 reviewed", out["classifyCalls"][0]["tasks"])

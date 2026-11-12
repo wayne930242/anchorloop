@@ -1,11 +1,31 @@
 /**
  * Units: parallel tickets in one loop book. A todo that carries `observe`, `kind`, `lands`, or `agents` metadata is a
  * unit (an `anchor` alone is not), and so is the one open todo a child's name or brief names by ticket id. Each unit gets the phases of its own kind over the book's
- * entries that belong to it (its children's links, landings, reviews, its task-anchor runs) plus the entries nobody owns. A loop with fewer
- * than two units is read as one loop, as before.
+ * entries that belong to it (its children's links, landings, reviews, its task-anchor runs, the `back` and `skip` given its task, the
+ * edits in its trees) plus the entries nobody owns. A unit's trees are its workers' worktrees (or checkouts), else the loop's own repos;
+ * its checks compare only those trees, so one unit's change leaves another unit's check alone. A loop with fewer than two units is read
+ * as one loop, as before.
  */
 
-import { type Book, type Entry, KINDS, type Kind, type Task, isOpenTask, validFollowup } from "./book.ts";
+import {
+	type Book,
+	type Entry,
+	KINDS,
+	type Kind,
+	REVIEWERS,
+	type Scope,
+	type Task,
+	type TreeCache,
+	anchorCommand,
+	anchorIsCommand,
+	bases,
+	findParentBooks,
+	isOpenTask,
+	latestTasks,
+	ownBases,
+	real,
+	validFollowup,
+} from "./book.ts";
 import { type Inputs, type Phases, computePhases } from "./phases.ts";
 
 export type Unit = { id: number; subject: string; label: string; open: boolean; anchor?: string; observe: string[]; kind?: Kind; lands?: string; agents: string[] };
@@ -46,7 +66,52 @@ function taskTickets(task: Task): string[] {
 	return ticketKeys(`${task.subject} ${validFollowup(followup) ? String(followup) : ""}`);
 }
 
-export type Units = { units: Unit[]; /** Child id to the id of the unit it works for; a child absent from it belongs to the whole loop. */ bound: Map<string, number> };
+export type Units = {
+	units: Unit[];
+	/** Child id to the id of the unit it works for; a child absent from it belongs to the whole loop. */
+	bound: Map<string, number>;
+	/** Unit id to the repo roots that hold its code: its workers' worktrees (or checkouts), else the loop's own repos. */
+	trees: Map<number, string[]>;
+};
+
+/** The todos as the book recorded them, for a reader that has no todo list (a child reading its parent's book). */
+export function tasksFromEntries(entries: Entry[]): Task[] {
+	return latestTasks(entries).map((entry) => {
+		const metadata: Record<string, unknown> = {};
+		for (const key of ["anchor", "observe", "kind", "lands", "agents", "followup"]) if (entry[key] !== undefined) metadata[key] = entry[key];
+		return { id: entry.id as number, subject: String(entry.subject ?? ""), status: String(entry.status ?? "pending"), metadata };
+	});
+}
+
+/** The latest link of each child. */
+function latestLinks(entries: Entry[]): Map<string, Entry> {
+	const latest = new Map<string, Entry>();
+	for (const entry of entries) if (entry.stage === "link" && typeof entry.child === "string") latest.set(entry.child, entry);
+	return latest;
+}
+
+const within = (root: string, path: string): boolean => path === root || path.startsWith(`${root}/`);
+
+/** The repo root a linked child works in: the base its link recorded (its worktree), else the loop's own repo that holds its directory. */
+function childRepo(entries: Entry[], link: Entry): string | undefined {
+	const child = String(link.child);
+	const base = bases(entries).find((item) => item.child === child);
+	if (base) return base.repo;
+	const worktree = link.worktree as { path?: unknown } | undefined;
+	const dir = typeof worktree?.path === "string" ? real(worktree.path) : typeof link.cwd === "string" ? real(link.cwd) : undefined;
+	if (!dir) return undefined;
+	return ownBases(entries)
+		.map((item) => item.repo)
+		.filter((repo) => within(repo, dir))
+		.sort((a, b) => b.length - a.length)[0];
+}
+
+/** The open todo that exactly one of `tickets` names, if exactly one does. */
+export function todoForTickets(todos: Task[], tickets: string[]): number | undefined {
+	if (tickets.length === 0) return undefined;
+	const matches = todos.filter((task) => isOpenTask(task) && taskTickets(task).some((key) => tickets.includes(key)));
+	return matches.length === 1 ? matches[0].id : undefined;
+}
 
 /**
  * The units of the loop and which unit each linked child works for: the unit whose `agents` names the child, else the one open todo that
@@ -55,8 +120,7 @@ export type Units = { units: Unit[]; /** Child id to the id of the unit it works
 export function unitsOf(entries: Entry[], todos: Task[]): Units {
 	const units = todos.map(ofTask).filter(hasUnitMetadata);
 	const bound = new Map<string, number>();
-	const latest = new Map<string, Entry>();
-	for (const entry of entries) if (entry.stage === "link" && typeof entry.child === "string") latest.set(entry.child, entry);
+	const latest = latestLinks(entries);
 	for (const link of latest.values()) {
 		const child = String(link.child);
 		const named = units.find((unit) => unit.agents.includes(String(link.name ?? "")) || unit.agents.includes(child));
@@ -65,12 +129,62 @@ export function unitsOf(entries: Entry[], todos: Task[]): Units {
 			continue;
 		}
 		const tickets = Array.isArray(link.tickets) ? link.tickets.map(String) : [];
-		const matches = tickets.length ? todos.filter((task) => isOpenTask(task) && taskTickets(task).some((key) => tickets.includes(key))) : [];
-		if (matches.length !== 1) continue;
-		bound.set(child, matches[0].id);
-		if (!units.some((unit) => unit.id === matches[0].id)) units.push(ofTask(matches[0]));
+		const id = todoForTickets(todos, tickets);
+		const task = todos.find((item) => item.id === id);
+		if (!task) continue;
+		bound.set(child, task.id);
+		if (!units.some((unit) => unit.id === task.id)) units.push(ofTask(task));
 	}
-	return { units: units.sort((a, b) => a.id - b.id), bound };
+	const own = ownBases(entries).map((base) => base.repo);
+	const trees = new Map<number, string[]>();
+	for (const unit of units) {
+		// A reviewer reads a unit's code and writes none, so its checkout is not one of the unit's trees.
+		const workers = [...latest.values()].filter((link) => bound.get(String(link.child)) === unit.id && !REVIEWERS.has(String(link.agent ?? "")));
+		const repos = [...new Set(workers.map((link) => childRepo(entries, link)).filter((repo): repo is string => repo !== undefined))];
+		trees.set(unit.id, repos.length ? repos : [...new Set(own)]);
+	}
+	return { units: units.sort((a, b) => a.id - b.id), bound, trees };
+}
+
+/** The anchor a linked child inherits: the anchor of the unit it is bound to in a loop of two or more units, else its parent's loop anchor command. */
+export function childAnchor(id: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+	for (const book of findParentBooks(id, env)) {
+		const found = unitsOf(book.entries, tasksFromEntries(book.entries));
+		const unit = found.units.length >= 2 ? unitById(found, found.bound.get(id) ?? -1) : undefined;
+		if (unit?.anchor) return unit.anchor;
+		const anchor = anchorCommand(book.entries);
+		if (anchor && anchorIsCommand(book.entries)) return anchor;
+	}
+	return undefined;
+}
+
+/** The unit a dispatch or result works for: the one open todo its brief names by ticket, else the unit its child is bound to. */
+export function unitOfDispatch(found: Units, todos: Task[], child: string | undefined, brief: string): number | undefined {
+	const named = todoForTickets(todos, ticketKeys(brief));
+	if (named !== undefined && found.units.some((unit) => unit.id === named)) return named;
+	return child === undefined ? undefined : found.bound.get(child);
+}
+
+export type Dispatch = { child: string; index: number; /** The unit the dispatch works for; absent for the whole loop. */ task?: number };
+
+/**
+ * The dispatches still out: for each child, its latest `link` or `send` when no `result` of that child follows it. A link recorded
+ * before links carried `cwd` comes from a book that kept no results, so it is not counted as out.
+ */
+export function outDispatches(entries: Entry[], found?: Units): Dispatch[] {
+	const latest = new Map<string, number>();
+	entries.forEach((entry, index) => {
+		if ((entry.stage === "link" || entry.stage === "send") && typeof entry.child === "string") latest.set(entry.child, index);
+	});
+	const out: Dispatch[] = [];
+	for (const [child, index] of latest) {
+		const dispatch = entries[index];
+		if (dispatch.stage === "link" && typeof dispatch.cwd !== "string") continue;
+		if (entries.slice(index + 1).some((entry) => entry.stage === "result" && entry.child === child)) continue;
+		const task = typeof dispatch.task === "number" ? dispatch.task : found?.bound.get(child);
+		out.push({ child, index, ...(task !== undefined ? { task } : {}) });
+	}
+	return out;
 }
 
 /** The unit with this todo id, if the loop has one. */
@@ -87,6 +201,10 @@ export function childrenOf(entries: Entry[], found: Units, unit: Unit): string[]
  */
 export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[] {
 	const mine = (child: unknown): boolean => typeof child !== "string" || !found.bound.has(child) || found.bound.get(child) === unit.id;
+	const ownTrees = found.trees.get(unit.id) ?? [];
+	// A change counts for the units whose trees hold its repo; one no unit's tree holds, or whose repo is unknown, counts for every unit.
+	const touches = (repo: unknown): boolean =>
+		typeof repo !== "string" || ownTrees.length === 0 || ownTrees.includes(repo) || ![...found.trees.values()].some((trees) => trees.includes(repo));
 	const kept: Entry[] = [];
 	for (const entry of entries) {
 		switch (entry.stage) {
@@ -95,8 +213,19 @@ export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[]
 				break;
 			case "link":
 			case "result":
-			case "land":
 				if (mine(entry.child)) kept.push(entry);
+				break;
+			case "send":
+			case "land":
+			case "review":
+				if (entry.task !== undefined ? entry.task === unit.id : mine(entry.child)) kept.push(entry);
+				break;
+			case "edit":
+				if (touches(entry.repo)) kept.push(entry);
+				break;
+			case "back":
+			case "skip":
+				if (entry.task === undefined || entry.task === unit.id) kept.push(entry);
 				break;
 			case "verify":
 			case "check":
@@ -107,9 +236,6 @@ export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[]
 				} else if (entry.checkpoint !== undefined ? unit.observe.length === 0 : unit.anchor === undefined) {
 					kept.push(entry);
 				}
-				break;
-			case "review":
-				if (mine(entry.child)) kept.push(entry);
 				break;
 			default:
 				kept.push(entry);
@@ -125,11 +251,18 @@ export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[]
 export type UnitRow = { unit: Unit; phases: Phases };
 
 /** The loop's phases, and a row per unit when the loop has two or more. The loop's own phases are those of the first unit not yet done. */
-export function computeLoop(book: Pick<Book, "entries">, inputs: Omit<Inputs, "entries">): { phases: Phases; rows: UnitRow[] } {
+export function computeLoop(book: Pick<Book, "entries">, inputs: Omit<Inputs, "entries">): { phases: Phases; rows: UnitRow[]; found: Units } {
 	const found = unitsOf(book.entries, inputs.todos);
-	if (found.units.length < 2) return { phases: computePhases(book, inputs), rows: [] };
-	const rows = found.units.map((unit) => ({ unit, phases: computePhases({ entries: unitEntries(book.entries, unit, found) }, inputs) }));
-	return { phases: (rows.find((row) => row.phases.next !== "close") ?? rows[rows.length - 1]).phases, rows };
+	const cache: TreeCache = inputs.scope?.cache ?? new Map();
+	if (found.units.length < 2) return { phases: computePhases(book, { ...inputs, scope: { ...inputs.scope, cache } }), rows: [], found };
+	const rows = found.units.map((unit) => ({ unit, phases: computePhases({ entries: unitEntries(book.entries, unit, found) }, { ...inputs, scope: unitScope(found, unit, cache) }) }));
+	return { phases: (rows.find((row) => row.phases.next !== "close") ?? rows[rows.length - 1]).phases, rows, found };
+}
+
+/** The trees a unit's readings compare: its own trees, or all when it has none it can tell. */
+export function unitScope(found: Units, unit: Unit, cache?: TreeCache): Scope {
+	const trees = found.trees.get(unit.id) ?? [];
+	return { ...(trees.length ? { comparable: (repo: string) => trees.includes(repo) } : {}), ...(cache ? { cache } : {}) };
 }
 
 /** `MP-4366 reviewed · act ✓ → verify (missing: …)`. */

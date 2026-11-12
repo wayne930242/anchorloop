@@ -2,7 +2,7 @@
 
 A TLA+ model of the loop book of a straw-boss coordinator: the main of a Herdr tab that runs two units at once, each a todo with its own anchor, each worked by its own pi-herdr-agents worker in its own worktree, with one persistent reviewer, sb car notices, and the many wakes such a session gets. The model beside it (`../LoopBook.tla`) covers one unit; this one covers what one unit's steps do to the other, and what the turn-end notice says while workers are out. A change to `pi/support/units.ts`, `pi/support/book.ts`, `pi/support/landing.ts`, `pi/book.ts`, or `pi/second-thought.ts` edits `MultiTask.tla` first and reruns the checks.
 
-The rules are proposed (2026-11-12); the reader, the person who decides how a coordinator's loop should behave, has not confirmed them.
+The rules were proposed on 2026-11-12, and the boss decided them the same day (issues #10 to #16, the comments on #6 and #7): `proposed` is the chosen design, except M6, which P5 replaces by the quiet per unit. The code since 2.16.0 builds it; the replays in `tests/test_model_multitask.py` pass. Where the code goes past the model: the notice also names every other unit that waits on its own line and counts it as asked; a run made in a tree that is not its unit's stands until a change of that unit in that tree; the handoff names the book through the ticket ids of the todos it carries.
 
 ## Three designs
 

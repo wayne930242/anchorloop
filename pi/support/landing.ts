@@ -12,6 +12,7 @@ import {
 	appendEntry,
 	findChildBooks,
 	git,
+	observeItems,
 	ownBases,
 	passingRunOf,
 	repoRootOf,
@@ -94,8 +95,8 @@ export function standing(repo: string, ref: string, head: string, base: string):
 /** What watches one ref: the directory git queries run in, and the ref name there. */
 type Watch = { key: string; dir: string; ref: string };
 
-/** A branch whose landing is watched: a linked worker's branch, or the coordinator's own commits. */
-type Candidate = { key: string; dir: string; ref: string; label: string; child?: string; head: string; base: string; repo: string };
+/** A branch whose landing is watched: a linked worker's branch, a branch this session pushed (`pushed`), or the coordinator's own commits. */
+type Candidate = { key: string; dir: string; ref: string; label: string; child?: string; pushed?: string; task?: number; head: string; base: string; repo: string };
 
 const watchKey = (dir: string, ref: string): string => `${dir}\0${ref}`;
 
@@ -127,10 +128,22 @@ function ownRefs(entries: Entry[]): Watch[] {
 	return found;
 }
 
-/** Every ref the book watches: the integration ref of each linked worker that has not landed, and of each own repo; none without a linked worker. */
+/** True when the loop lists a post-landing observation, on its anchor or on a todo: it then watches its own ref, linked children or not. */
+function listsObservation(entries: Entry[]): boolean {
+	return observeItems(entries).length > 0 || entries.some((entry) => entry.stage === "task" && Array.isArray(entry.observe) && entry.observe.length > 0);
+}
+
+/** True when the book watches any ref: it linked a child, or it lists an observation to make after landing. */
+export function watchesRefs(entries: Entry[]): boolean {
+	return linkEntries(entries).length > 0 || listsObservation(entries);
+}
+
+/**
+ * Every ref the book watches: the integration ref of each linked worker that has not landed, and of each own repo. A session that linked
+ * no child and lists no observation has nothing to land: it is read as a plain session, with no git calls for landings.
+ */
 function watched(entries: Entry[]): Watch[] {
-	// A session that spawned no linked child has nothing to land: it is read as a plain session, with no git calls for landings.
-	if (linkEntries(entries).length === 0) return [];
+	if (!watchesRefs(entries)) return [];
 	const landedChildren = new Set(entries.filter((entry) => entry.stage === "land" && entry.verified !== false && typeof entry.child === "string").map((entry) => String(entry.child)));
 	const found = new Map<string, Watch>();
 	for (const link of linkEntries(entries)) {
@@ -245,6 +258,48 @@ function candidatesOn(entries: Entry[], watch: Watch, ownBase?: string): Candida
 		const head = git(watch.dir, ["rev-parse", "HEAD"]);
 		if (head) found.push({ key: watch.key, dir: watch.dir, ref: watch.ref, label: "this session", head, base: ownBase, repo: watch.dir });
 	}
+	for (const push of pushedBranches(entries)) {
+		if (push.repo !== watch.dir || push.ref === watch.ref || !existsSync(watch.dir)) continue;
+		found.push({ key: watch.key, dir: watch.dir, ref: watch.ref, label: push.ref, pushed: push.ref, ...(push.task !== undefined ? { task: push.task } : {}), head: push.head, base: push.base, repo: watch.dir });
+	}
+	return found;
+}
+
+type Pushed = { repo: string; ref: string; head: string; base: string; task?: number };
+
+/** The latest push of each branch this session pushed (`push` entries), the car it sends to an integrator. */
+function pushedBranches(entries: Entry[]): Pushed[] {
+	const latest = new Map<string, Pushed>();
+	for (const entry of entries) {
+		if (entry.stage !== "push" || typeof entry.repo !== "string" || typeof entry.ref !== "string" || typeof entry.head !== "string" || typeof entry.base !== "string") continue;
+		latest.set(`${entry.repo}\0${entry.ref}`, { repo: entry.repo, ref: entry.ref, head: entry.head, base: entry.base, ...(typeof entry.task === "number" ? { task: entry.task } : {}) });
+	}
+	return [...latest.values()];
+}
+
+/** The remote-tracking refs of `repo` and their tips, taken around a bash call that may push. */
+export function remoteTips(repo: string): Record<string, string> {
+	const tips: Record<string, string> = {};
+	for (const line of (git(repo, ["for-each-ref", "--format=%(objectname) %(refname:short)", "refs/remotes"]) ?? "").split("\n")) {
+		const [sha, name] = line.split(" ");
+		if (sha && name && !name.endsWith("/HEAD")) tips[name] = sha;
+	}
+	return tips;
+}
+
+/**
+ * The remote-tracking refs a bash call pushed: refs of `repo` whose tip differs from `before` and whose last reflog move is this
+ * checkout's own `update by push`, each with the commit it shares with the repo's integration ref (the base of the car it sends).
+ */
+export function pushedSince(repo: string, before: Record<string, string>): { ref: string; head: string; base: string }[] {
+	const into = ownRef(repo);
+	const found: { ref: string; head: string; base: string }[] = [];
+	for (const [ref, head] of Object.entries(remoteTips(repo))) {
+		if (before[ref] === head || ref === into) continue;
+		if (movedByFetch(repo, ref) !== false) continue;
+		const base = (into ? git(repo, ["merge-base", head, into]) : undefined) || before[ref];
+		if (base) found.push({ ref, head, base });
+	}
 	return found;
 }
 
@@ -300,7 +355,7 @@ export function checkLandings(book: Book, before: Record<string, string> = {}): 
 		const own = self && movedByFetch(watch.dir, watch.ref) === false ? before[watch.key] : undefined;
 		for (const candidate of candidatesOn(book.entries, watch, own)) {
 			if (done.has(`${candidate.child ?? "self"}\0${candidate.head}`)) continue;
-			if (candidate.child === undefined && explained) continue;
+			if (candidate.child === undefined && candidate.pushed === undefined && explained) continue;
 			// A worker whose head the ref already held before this move brought nothing to it (it only updated its branch from the ref).
 			if (candidate.child !== undefined && last !== undefined && aheadOf(candidate.repo, last, candidate.head) === 0) continue;
 			const found = standing(candidate.repo, candidate.ref, candidate.head, candidate.base);
@@ -308,9 +363,12 @@ export function checkLandings(book: Book, before: Record<string, string> = {}): 
 			if (candidate.child !== undefined) explained = true;
 			const run = candidate.child ? childPassingRun(book, candidate.child) : undefined;
 			const checked = new Set(Array.isArray(run?.run.trees) ? (run?.run.trees as unknown[]).map(String) : []);
-			const exact = candidate.child ? tipTree !== undefined && checked.has(tipTree) : tipTree !== undefined && git(candidate.repo, ["rev-parse", "HEAD^{tree}"]) === tipTree;
+			const ownHead = candidate.pushed ? `${candidate.head}^{tree}` : "HEAD^{tree}";
+			const exact = candidate.child ? tipTree !== undefined && checked.has(tipTree) : tipTree !== undefined && git(candidate.repo, ["rev-parse", ownHead]) === tipTree;
 			const land = appendEntry(book.path, "land", {
 				...(candidate.child ? { child: candidate.child } : {}),
+				...(candidate.pushed ? { pushed: candidate.pushed } : {}),
+				...(candidate.task !== undefined ? { task: candidate.task } : {}),
 				label: candidate.label,
 				ref: candidate.ref,
 				sha: tip,
@@ -347,7 +405,7 @@ export type Declared = { ok: boolean; text: string };
  * An owner's landed notice. It counts only when git agrees: `sha`, when given, is in `ref`, and each branch not yet landed is proven
  * landed by the rules. A notice git cannot confirm is recorded `verified: false` and says to fetch the ref and declare again.
  */
-export function declareLanded(book: Book, params: { sha?: string; ref?: string; note?: string; children?: string[] }): Declared {
+export function declareLanded(book: Book, params: { sha?: string; ref?: string; note?: string; children?: string[]; task?: number }): Declared {
 	const watches = watched(book.entries);
 	const wanted = params.ref ? watches.filter((watch) => watch.ref === params.ref) : watches;
 	const ref = params.ref ?? wanted[0]?.ref;
@@ -373,6 +431,8 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 		for (const candidate of candidatesOn(book.entries, watch)) {
 			if (done.has(`${candidate.child ?? "self"}\0${candidate.head}`)) continue;
 			if (params.children && candidate.child !== undefined && !params.children.includes(candidate.child)) continue;
+			// A branch this session pushed lands for the unit it was pushed for; one bound to no unit lands for whichever unit is named.
+			if (params.task !== undefined && candidate.pushed !== undefined && candidate.task !== undefined && candidate.task !== params.task) continue;
 			const found = standing(candidate.repo, candidate.ref, candidate.head, candidate.base);
 			if (!found.rule) {
 				lines.push(`${candidate.label}: ${found.total > 0 ? `${found.upstream}/${found.total} of its commits are in ${candidate.ref}` : "nothing to land"}`);
@@ -380,11 +440,14 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 			}
 			const run = candidate.child ? childPassingRun(book, candidate.child) : undefined;
 			const checked = new Set(Array.isArray(run?.run.trees) ? (run?.run.trees as unknown[]).map(String) : []);
-			const exact = candidate.child ? watchTree !== undefined && checked.has(watchTree) : false;
+			const exact = candidate.child ? watchTree !== undefined && checked.has(watchTree) : candidate.pushed !== undefined && watchTree !== undefined && git(candidate.repo, ["rev-parse", `${candidate.head}^{tree}`]) === watchTree;
+			const task = candidate.task ?? (candidate.pushed !== undefined ? params.task : undefined);
 			book.entries.push(
 				appendEntry(book.path, "land", {
 					...base,
 					...(candidate.child ? { child: candidate.child } : {}),
+					...(candidate.pushed ? { pushed: candidate.pushed } : {}),
+					...(task !== undefined ? { task } : {}),
 					label: candidate.label,
 					ref: candidate.ref,
 					sha: watchTip,

@@ -13,6 +13,7 @@ export const envOnly: Host = {
 	childName: () => undefined,
 	childSession: () => undefined,
 	linkFrom: () => undefined,
+	dispatchFrom: () => undefined,
 	resultFrom: () => undefined,
 	liveness: () => "unknown",
 };

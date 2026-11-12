@@ -255,7 +255,9 @@ class TestSecondThought(ExtensionCase):
         env = {"PI_SUBAGENT_ID": "kid", "PI_SUBAGENT_NAME": "worker-1", "PI_SUBAGENT_SESSION": str(self.session_file)}
         self.replay([todo_create(), stage(stage="kind", kind="inline", intent="child"), stage(stage="friction", tried="old cmd", found="renamed")], env=env)
         link = tool_result("subagent", {}, "started", details={"id": "kid", "name": "worker-1", "agent": "worker", "status": "started"})
-        out = self.replay([*self.loop(), link, SETTLE], classify=answers())
+        # The loop is quiet while its child has no result (issue #6), so the child returns before the turn ends.
+        back = {"event": "message_end", "payload": {"message": {"role": "custom", "customType": "subagent_result", "details": {"name": "worker-1", "agent": "worker", "resultContent": "done", "task": "work"}}}}
+        out = self.replay([*self.loop(), link, back, SETTLE], classify=answers())
         self.assertIn("worker-1#1: old cmd → renamed [unreflected]", out["classifyCalls"][0]["friction"])
 
     def test_jev_agreeing_with_no_concerns_and_no_open_todos_says_nothing_but_the_verdict_is_recorded(self):
@@ -373,7 +375,8 @@ class TestSecondThought(ExtensionCase):
     def test_a_loop_with_no_change_yet_never_continues_for_verify_or_review(self):
         # RV-F005: nothing was changed, so no check or review is missing.
         for kind in ("inline", "reviewed"):
-            out = self.settle_after(answers(), kind=kind)
+            # One session per kind: what the notice judged is kept in the book, which a second loop in the same session would reopen.
+            out = self.replay([*self.loop(kind), SETTLE], classify=answers(), session=f"s-{kind}")
             self.assertNotIn("continue", out["results"][-1], kind)
             self.assertIsNone(self.advice(out["results"][-1]), kind)
 

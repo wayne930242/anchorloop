@@ -13,6 +13,8 @@ import { basename, dirname, join, resolve } from "node:path";
 import { childId as hostChildId, childName, childSession } from "./host.ts";
 
 export const KINDS = ["quick", "inline", "reviewed", "durable"] as const;
+/** The subagent roles whose `Blocking:` verdict is a review round. */
+export const REVIEWERS: ReadonlySet<string> = new Set(["reviewer", "adversarial-reviewer"]);
 export type Kind = (typeof KINDS)[number];
 
 export type Entry = { ts: string; stage: string; [key: string]: unknown };
@@ -166,6 +168,47 @@ export function createBook(who: Who, env: NodeJS.ProcessEnv = process.env): Book
 	const lines = ["# anchorloop loop book", ...Object.entries(header).map(([key, value]) => `${key}: ${JSON.stringify(value)}`), "entries:", ""];
 	appendBytes(path, lines.join("\n"), true);
 	return { path, header, entries: [] };
+}
+
+/**
+ * Adopts the open book another main session of this project left behind, as a handoff to a new session does: the one open main book,
+ * not this session's, that `matches` (the caller tests the todos it recorded against the todos this session recreates). The book moves to
+ * this session's path with this session's file in its header, so what its units proved and what the notice asked carry over. Undefined
+ * in a child, when this session already has a book, or when no book or more than one matches.
+ */
+export function adoptBook(who: Who, matches: (entries: Entry[]) => boolean, env: NodeJS.ProcessEnv = process.env): Book | undefined {
+	if (childId(env) !== undefined) return undefined;
+	const path = bookPath(who, env);
+	if (existsSync(path)) return undefined;
+	let files: string[];
+	try {
+		files = readdirSync(dirname(path)).filter((file) => file.endsWith(".yml"));
+	} catch {
+		return undefined;
+	}
+	const found = files
+		.map((file) => parseBook(join(dirname(path), file)))
+		.filter((book): book is Book => book !== undefined && book.path !== path && !isClosed(book) && book.header.owner === "main" && matches(book.entries));
+	if (found.length !== 1) return undefined;
+	const [old] = found;
+	const session = who.sessionManager.getSessionFile?.() || null;
+	let text: string;
+	try {
+		text = readFileSync(old.path, "utf-8");
+	} catch {
+		return undefined;
+	}
+	// The header names the session that owns the book, which the sweep checks; entries are copied as they are.
+	const moved = text.split("\n").map((line) => (line.startsWith("session: ") ? `session: ${JSON.stringify(session)}` : line)).join("\n");
+	const temp = `${path}.adopt-${process.pid}`;
+	mkdirSync(dirname(path), { recursive: true });
+	appendBytes(temp, moved, true);
+	renameSync(temp, path);
+	deleteBook(old.path);
+	const book = parseBook(path);
+	if (!book) return undefined;
+	book.entries.push(appendEntry(path, "adopt", { from: basename(old.path, ".yml"), id: old.header.id ?? null }));
+	return book;
 }
 
 export function appendEntry(path: string, stage: string, fields: Record<string, unknown> = {}): Entry {
@@ -360,7 +403,7 @@ export function currentIntent(entries: Entry[]): string | undefined {
 	return found?.intent as string | undefined;
 }
 
-const NOT_STAGES = new Set(["base", "link", "result", "watch", "observe", "close", "task", "taskrun", "verification", "skip", "back", "friction", "reflect", "goldfish"]);
+const NOT_STAGES = new Set(["base", "link", "send", "push", "adopt", "notice", "result", "watch", "observe", "close", "task", "taskrun", "verification", "skip", "back", "friction", "reflect", "goldfish"]);
 
 /** A landing that counts: git confirmed a watched branch in the ref. A declared sha no watched branch explains is recorded but is neither the act nor a point to observe from. */
 export const countsAsLanding = (entry: Entry): boolean => entry.stage === "land" && entry.verified !== false && entry.rule !== "declared";
@@ -403,10 +446,87 @@ export function withChildActs(entries: Entry[], env: NodeJS.ProcessEnv = process
 /** A landing changes what the coordinator holds only when it pushed or merged it itself and the ref now differs from what was checked. */
 const reopensVerify = (entry: Entry): boolean => countsAsLanding(entry) && entry.self === true && entry.exact !== true;
 
-/** The index of the latest change entry (a production write or edit, a commit, a landing the coordinator made that no check covered), or -1. */
+/** A change entry: a production write or edit, a commit or merge, a landing the coordinator made that no check covered. */
+export const isChange = (entry: Entry): boolean => entry.stage === "edit" || reopensVerify(entry);
+
+/** The index of the latest change entry, or -1. */
 export function lastActIndex(entries: Entry[]): number {
-	for (let i = entries.length - 1; i >= 0; i--) if (entries[i].stage === "edit" || reopensVerify(entries[i])) return i;
+	for (let i = entries.length - 1; i >= 0; i--) if (isChange(entries[i])) return i;
 	return -1;
+}
+
+/** The working-state tree of each repo a run or dispatch recorded (`treeAt`: repo root to tree), or undefined for an entry that recorded none. */
+export function treeAtOf(entry: Entry): Record<string, string> | undefined {
+	const at = entry.treeAt;
+	if (!at || typeof at !== "object" || Array.isArray(at)) return undefined;
+	const found = Object.entries(at as Record<string, unknown>).filter((pair): pair is [string, string] => typeof pair[1] === "string");
+	return found.length ? Object.fromEntries(found) : undefined;
+}
+
+/** Working trees computed during one reading of the book, so each repo is built once however many units ask. */
+export type TreeCache = Map<string, string | undefined>;
+
+function treeNow(repo: string, cache?: TreeCache): string | undefined {
+	if (cache?.has(repo)) return cache.get(repo);
+	const tree = existsSync(repo) ? workingTree(repo) : undefined;
+	cache?.set(repo, tree);
+	return tree;
+}
+
+/** Which recorded trees a reading compares with the working state: a unit compares only its own trees; a loop of one unit compares all. */
+export type Scope = { comparable?: (repo: string) => boolean; cache?: TreeCache };
+
+/**
+ * True while the trees `entry` recorded still hold: each comparable repo's working tree is the one recorded (a repo git cannot
+ * build a tree for any more, such as a removed worktree, proves nothing and counts as unchanged). An entry with no trees holds.
+ */
+export function treesHold(entry: Entry, scope: Scope = {}): boolean {
+	const at = treeAtOf(entry);
+	if (!at) return true;
+	for (const [repo, tree] of Object.entries(at)) {
+		if (scope.comparable && !scope.comparable(repo)) continue;
+		const now = treeNow(repo, scope.cache);
+		if (now !== undefined && now !== tree) return false;
+	}
+	return true;
+}
+
+/**
+ * True while the run at `index` stands for the code it checked. A run that recorded the tree its command ran in stands while that tree
+ * is unchanged and no later change entry names that repo (or names none); a change in another repo, a note git ignores, or a worker's
+ * edit in its own worktree leaves it. A run with no recorded tree (an older book, a declared verify) stands until any later change.
+ */
+export function runStands(entries: Entry[], index: number, scope: Scope = {}): boolean {
+	const at = treeAtOf(entries[index]);
+	for (let i = index + 1; i < entries.length; i++) {
+		if (!isChange(entries[i])) continue;
+		const repo = typeof entries[i].repo === "string" ? (entries[i].repo as string) : undefined;
+		if (!at || repo === undefined || repo in at) return false;
+	}
+	return treesHold(entries[index], scope);
+}
+
+/**
+ * The index a review counts from: its reviewer's dispatch (the `link` or `send` entry its `from` names), not its result. A dispatch
+ * held in another unit's entries is placed by time, before any entry of the same instant. A review that names no dispatch counts from itself.
+ */
+export function dispatchIndex(entries: Entry[], index: number): number {
+	const review = entries[index];
+	const from = typeof review.from === "string" ? review.from : undefined;
+	if (from === undefined) return index;
+	for (let i = index - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if ((entry.stage === "link" || entry.stage === "send") && entry.child === review.child && entry.ts === from) return i;
+	}
+	const at = entries.findIndex((entry) => entry.ts >= from);
+	return at < 0 || at > index ? index : at;
+}
+
+/** True while the review at `index` covers the code: no change since its reviewer was dispatched, and the trees it was given still hold. */
+export function reviewStands(entries: Entry[], index: number, scope: Scope = {}): boolean {
+	const from = dispatchIndex(entries, index);
+	for (let i = from; i < entries.length; i++) if (isChange(entries[i])) return false;
+	return treesHold(entries[index], scope);
 }
 
 export function reviews(entries: Entry[]): Entry[] {
@@ -429,11 +549,11 @@ export function reviewTrend(entries: Entry[]): string {
 	return `${rounds.length} round(s): ${rounds.map((round) => (round.blocking === true ? `blocking${round.p0 !== undefined ? ` P0=${round.p0} P1=${round.p1}` : ""}` : round.blocking === false ? "clear" : "unknown")).join(" → ")}`;
 }
 
-/** A review recorded after the last change with no blocking finding on it. */
-export function reviewClearAfterLastAct(raw: Entry[]): boolean {
+/** A review that still covers the code (see `reviewStands`) with no blocking finding on it. */
+export function reviewClearAfterLastAct(raw: Entry[], scope: Scope = {}): boolean {
 	const entries = withChildActs(raw);
 	const review = lastIndex(entries, "review");
-	return review >= 0 && review > lastActIndex(entries) && entries[review].blocking === false;
+	return review >= 0 && entries[review].blocking === false && reviewStands(entries, review, scope);
 }
 
 /** The latest anchor text, matched against bash commands; an anchor that never occurs in a command is verified by declaration. */
@@ -467,12 +587,12 @@ function evidenceLine(entry: Entry): string {
 	return `${entry.stage} ${entry.declared ? `declared: ${entry.note ?? entry.result}` : `exit ${entry.exit ?? "unknown"}${entry.last ? `: ${entry.last}` : ""}`}`;
 }
 
-/** The latest check or verify entry after the last change, or undefined when none follows it. */
-export function verifyAfterLastAct(raw: Entry[]): Entry | undefined {
+/** The latest check or verify entry when it still stands for the code it checked (see `runStands`), else undefined. */
+export function verifyAfterLastAct(raw: Entry[], scope: Scope = {}): Entry | undefined {
 	const entries = withChildActs(raw);
 	let index = -1;
 	for (let i = entries.length - 1; i >= 0 && index < 0; i--) if (isRunEntry(entries[i])) index = i;
-	return index >= 0 && index > lastActIndex(entries) ? entries[index] : undefined;
+	return index >= 0 && runStands(entries, index, scope) ? entries[index] : undefined;
 }
 
 export function childIds(entries: Entry[]): string[] {
@@ -639,6 +759,22 @@ export function workingTree(repo: string): string | undefined {
 /** The working-state tree of each repo in `repos`, leaving out a repo git cannot build one for. */
 export function workingTrees(repos: Iterable<string>): string[] {
 	return [...new Set(repos)].map(workingTree).filter((tree): tree is string => tree !== undefined);
+}
+
+/** The `treeAt` field for `repos`: each repo root with its working-state tree now, leaving out a repo git cannot build one for. */
+export function treeAtField(repos: Iterable<string>): { treeAt?: Record<string, string> } {
+	const at: Record<string, string> = {};
+	for (const repo of new Set(repos)) {
+		const tree = workingTree(repo);
+		if (tree) at[repo] = tree;
+	}
+	return Object.keys(at).length ? { treeAt: at } : {};
+}
+
+/** True when git ignores `path` in its repo: such a file is in no diff, so writing it changes no code. */
+export function ignoredByGit(path: string): boolean {
+	const dir = existingDir(dirname(resolve(path)));
+	return git(dir, ["check-ignore", "-q", "--", resolve(path)]) !== undefined;
 }
 
 const CD_STEP = /^cd\s+("[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/;

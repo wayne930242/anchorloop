@@ -380,10 +380,11 @@ class TestReview(BookCase):
         self.assertEqual([(e["blocking"], e["source"]) for e in self.rounds()], [(None, "failed")] * 4)
         self.assertEqual(out["classifyCalls"], [])
 
-    def test_only_the_main_session_records_reviews(self):
+    def test_a_subagent_session_records_its_own_reviewers_verdicts_and_no_other_result(self):
+        # Issue #4 (2026-11-12): a worker's own reviewer is its review round; other children's results are its parent's to judge.
         env = {"PI_SUBAGENT_ID": "kid", "PI_SUBAGENT_NAME": "w", "PI_SUBAGENT_SESSION": str(self.session_file)}
-        self.replay([*self.open_loop(), reviewer_result("Blocking: P0=0 P1=0")], env=env)
-        self.assertEqual(self.stages(next(self.books.rglob("kid.yml"))), ["kind"])
+        self.replay([*self.open_loop(), reviewer_result("Blocking: P0=0 P1=0", agent="worker"), reviewer_result("Blocking: P0=0 P1=0")], env=env)
+        self.assertEqual(self.stages(next(self.books.rglob("kid.yml"))), ["kind", "result", "review"])
 
 
 class TestChildren(BookCase):

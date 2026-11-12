@@ -1,8 +1,9 @@
 """Replays of the bug paths of the loop book model (docs/models/loop-book): each test walks one path of a check report
 on the real extensions and asserts the rule at its end, in the reader's words.
 
-Every test here is red on purpose: the model found the path, and the fix is not part of this branch. The rules are
-proposed; a rule the reader rejects takes its tests with it. A step a fix may refuse is an attempt, and its refusal passes.
+The model found each path on the code at 230605a, where every test here was red; the boss decided the rules on issues #2 to
+#8 (2026-11-12), and the code since 2.16.0 holds them. Rule 3 is narrowed by the decision on #4: only a reviewer's verdict is
+a review round. A step a fix may refuse is an attempt, and its refusal passes.
 """
 
 import subprocess
@@ -117,14 +118,16 @@ class TestRule2AVerifyTheToolAcceptedCounts(ModelCase):
 
 
 class TestRule3AReviewThatCameBackClearCounts(ModelCase):
-    """Rule 3 (ReportedReviewCounts): a review that came back Blocking P0=0 P1=0 after the last change counts as the review."""
+    """Rule 3 (ReportedReviewCounts), narrowed by the decision on issue #4 (2026-11-12): a review that came back Blocking P0=0 P1=0
+    after the last change counts as the review when a reviewer (`reviewer`, `adversarial-reviewer`) reported it."""
 
-    def test_a_clear_review_from_a_subagent_of_another_role_counts(self):
+    def test_a_clear_report_from_a_subagent_of_another_role_is_not_a_review(self):
         # check/full/report.md, ReportedReviewCounts: you ask a subagent whose role is not reviewer; it reports no blocking finding.
+        # Issue #4 decided that only a reviewer's verdict counts, so the book still asks for the review.
         self.git_repo()
         after = self.line(*self.opening("reviewed"), *self.change(), self.passes(), subagent_result("worker", "review-1", CLEAR))
-        self.assertEqual(after, "reviewed · phase review ✓ → close",
-                         f"a subagent reported `Blocking: P0=0 P1=0` after the last change and no tool call records a review, yet the book reads: {after}")
+        self.assertEqual(after, "reviewed · phase verify ✓ → review (missing: a review round after the last change with Blocking: P0=0 P1=0)",
+                         f"a worker reported `Blocking: P0=0 P1=0`; only a reviewer's verdict is a review round, yet the book reads: {after}")
 
     def test_a_clear_review_counts_in_a_session_that_is_itself_a_subagent(self):
         # check/subsession/report.md, ReportedReviewCounts and CanFinish: a worker's own reviewer returns; the result is not read.

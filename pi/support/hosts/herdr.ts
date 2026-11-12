@@ -6,7 +6,7 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import type { Host, Link, Liveness, Result, Worktree } from "../host.ts";
+import type { Dispatch, Host, Link, Liveness, Result, Worktree } from "../host.ts";
 
 const text = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
 const record = (value: unknown): Record<string, unknown> | undefined => (value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined);
@@ -67,6 +67,19 @@ export const herdr: Host = {
 			...(text(record(input)?.cwd) ? { cwd: text(record(input)?.cwd) } : {}),
 			...(worktree ? { worktree } : {}),
 		};
+	},
+	dispatchFrom(toolName, input, details): Dispatch | undefined {
+		// `subagent_send` names a persistent specialist by id or name; `subagent_resume` a session file, optionally with a message.
+		if (toolName !== "subagent_send" && toolName !== "subagent_resume") return undefined;
+		const given = record(input) ?? {};
+		if (record(details)?.error !== undefined) return undefined;
+		const dispatch: Dispatch = {
+			...(text(given.id) ? { id: text(given.id) } : {}),
+			...(text(given.name) ? { name: text(given.name) } : {}),
+			...(text(given.sessionPath) ? { sessionFile: text(given.sessionPath) } : {}),
+			task: text(given.message) ?? "",
+		};
+		return dispatch.id || dispatch.name || dispatch.sessionFile ? dispatch : undefined;
 	},
 	resultFrom(message): Result | undefined {
 		if (message.role !== "custom" || message.customType !== "subagent_result") return undefined;

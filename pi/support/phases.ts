@@ -27,6 +27,9 @@ import {
 	lastIndex,
 	observeItems,
 	repoRootOf,
+	reviewStands,
+	runStands,
+	type Scope,
 	specFolder,
 	withChildActs,
 } from "./book.ts";
@@ -52,7 +55,7 @@ export type Phases = {
 	backs: string[];
 };
 
-export type Inputs = { entries: Entry[]; cwd: string; todos: Task[]; env?: NodeJS.ProcessEnv };
+export type Inputs = { entries: Entry[]; cwd: string; todos: Task[]; env?: NodeJS.ProcessEnv; /** Which recorded trees count as this reading's code; all of them when absent. */ scope?: Scope };
 
 // --- paths ---------------------------------------------------------------------------------------
 
@@ -306,7 +309,8 @@ function evaluate(name: string, ctx: Ctx): Status {
 			return lastWhere(entries, from, (entry) => entry.stage === "edit" || countsAsLanding(entry)) >= 0 ? done(name) : missing(name, "a change to the code");
 		case "check":
 		case "verify": {
-			const index = lastWhere(entries, Math.max(from, ctx.lastAct + 1), isRunEntry);
+			const latest = lastWhere(entries, from, isRunEntry);
+			const index = latest >= 0 && runStands(entries, latest, ctx.scope) ? latest : -1;
 			if (index < 0) {
 				const command = anchorCommand(entries);
 				if (!command) return missing(name, "a verify declaration or a run of the anchor");
@@ -323,7 +327,8 @@ function evaluate(name: string, ctx: Ctx): Status {
 			return done(name, entry.declared === true ? "declared" : "");
 		}
 		case "review": {
-			const index = lastWhere(entries, Math.max(from, ctx.lastAct + 1), (entry) => entry.stage === "review");
+			const latest = lastWhere(entries, from, (entry) => entry.stage === "review");
+			const index = latest >= 0 && reviewStands(entries, latest, ctx.scope) ? latest : -1;
 			if (index < 0) return missing(name, "a review round after the last change with Blocking: P0=0 P1=0");
 			const round = entries[index];
 			if (round.blocking === false) return done(name);
@@ -356,8 +361,10 @@ export function computePhases(book: Pick<Book, "entries">, inputs: Omit<Inputs, 
 	let next = first ? first.name : "close";
 	let note = first ? first.note : "";
 	const last = ctx.lastAct;
-	const verify = entries.map((entry, index) => ({ entry, index })).filter(({ entry, index }) => index > last && isRunEntry(entry)).at(-1)?.entry;
-	const review = entries.map((entry, index) => ({ entry, index })).filter(({ entry, index }) => index > last && entry.stage === "review").at(-1)?.entry;
+	const latestRun = lastWhere(entries, 0, isRunEntry);
+	const latestReview = lastWhere(entries, 0, (entry) => entry.stage === "review");
+	const verify = latestRun >= 0 && runStands(entries, latestRun, ctx.scope) ? entries[latestRun] : undefined;
+	const review = latestReview >= 0 && reviewStands(entries, latestReview, ctx.scope) ? entries[latestReview] : undefined;
 	if ((next === "verify" || next === "check") && last >= 0 && verify && verify.exit !== 0 && verify.declared !== true) next = "fix";
 	else if (next === "review" && last >= 0 && review?.blocking === true) next = "fix";
 	if (next === "fix") note = first?.note ?? "";

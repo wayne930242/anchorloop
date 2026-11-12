@@ -21,7 +21,7 @@ import {
 	verifyAfterLastAct,
 } from "./book.ts";
 import { pendingLinks } from "./orphans.ts";
-import { computeLoop, unitLine } from "./units.ts";
+import { computeLoop, unitEntries, unitLine, unitScope } from "./units.ts";
 
 export type Snapshot = {
 	state: Record<string, string>;
@@ -34,6 +34,8 @@ export type Snapshot = {
 	reviewClear: boolean;
 	/** Open todos that no valid `metadata.followup` settles yet. */
 	unsettled: { id: number; subject: string }[];
+	/** The unit the snapshot reads, in a loop of two or more units: its label and todo id. */
+	unit?: { id: number; label: string };
 };
 
 const LISTED_TODOS = 3;
@@ -50,15 +52,22 @@ export function listTodos(todos: { id: number; subject: string }[], limit = LIST
 	return [...lines, ...(todos.length > limit ? [`+${todos.length - limit} more`] : [])].join("; ");
 }
 
-export function snapshot(book: Book, ctx: { cwd: string; sessionManager: { getBranch(): unknown[] } }): Snapshot {
+/**
+ * The loop state Jev judges. With `unitId` in a loop of two or more units, the phase, the check, and the review are that unit's, so the
+ * notice judges and names the unit that waits on the coordinator; the rest (diff, todos, friction) is the loop's.
+ */
+export function snapshot(book: Book, ctx: { cwd: string; sessionManager: { getBranch(): unknown[] } }, unitId?: number): Snapshot {
 	const { entries } = book;
 	const todos = replayTodos(ctx.sessionManager.getBranch());
 	const openTasks = todos.filter(isOpenTask);
 	const unsettled = openTasks.filter((task) => !validFollowup(task.metadata?.followup));
 	const settled = openTasks.length - unsettled.length;
 	const looped = computeLoop(book, { cwd: ctx.cwd, todos });
-	const phases = looped.phases;
-	const check = verifyAfterLastAct(entries);
+	const row = unitId === undefined ? undefined : looped.rows.find((item) => item.unit.id === unitId);
+	const phases = row?.phases ?? looped.phases;
+	const own = row ? unitEntries(entries, row.unit, looped.found) : entries;
+	const scope = row ? unitScope(looped.found, row.unit) : {};
+	const check = verifyAfterLastAct(own, scope);
 	const verify = [
 		`stages: ${stagesDone(entries).join(", ") || "none"}`,
 		`last check: ${check ? `${check.declared ? `declared ${check.result}` : `exit ${check.exit ?? "unknown"}`}${check.last ? ` — ${check.last}` : ""}` : "none after the last change"}`,
@@ -77,7 +86,7 @@ export function snapshot(book: Book, ctx: { cwd: string; sessionManager: { getBr
 			intent: (currentIntent(entries) ?? "not declared").slice(0, 500),
 			anchor: `${latestAnchor(entries) ?? "none"}${observeItems(entries).length ? `; observe: ${observeItems(entries).join(" | ")}` : ""}`.slice(0, 500),
 			diff: diffText(diffAgainstBases(entries)),
-			phase: `current: ${phases.current}; next: ${phases.next}${phases.missing ? `; missing: ${phases.missing}` : ""}${phases.skipped.length ? `; skipped: ${phases.skipped.join(", ")}` : ""}`.slice(0, 600),
+			phase: `${row ? `${row.unit.label} · ` : ""}current: ${phases.current}; next: ${phases.next}${phases.missing ? `; missing: ${phases.missing}` : ""}${phases.skipped.length ? `; skipped: ${phases.skipped.join(", ")}` : ""}`.slice(0, 600),
 			verify: verify.slice(0, 1200),
 			todos: `${openTasks.length} open of ${todos.length}${unsettled.length ? `: ${listTodos(unsettled, 5)}` : ""}${settled ? ` (${settled} with a followup)` : ""}`.slice(0, 700),
 			tasks: [`legend: ${TASK_LEGEND}`, ...taskLines(entries, todos, ctx.cwd), ...looped.rows.map(unitLine)].join("\n").slice(0, 1500),
@@ -86,7 +95,8 @@ export function snapshot(book: Book, ctx: { cwd: string; sessionManager: { getBr
 		next: phases.next,
 		missing: phases.missing,
 		current: phases.current,
-		reviewClear: reviewClearAfterLastAct(entries),
+		reviewClear: reviewClearAfterLastAct(own, scope),
 		unsettled: unsettled.map((task) => ({ id: task.id, subject: task.subject })),
+		...(row ? { unit: { id: row.unit.id, label: row.unit.label } } : {}),
 	};
 }

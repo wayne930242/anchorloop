@@ -23,6 +23,9 @@ export type Result = {
 	handoff?: { headSha?: string; commitsAhead?: number; changedFiles?: string[] };
 };
 
+/** A follow-up task sent to a child already linked (a persistent specialist, a resumed session): the child by id, name, or session file, and its brief. */
+export type Dispatch = { id?: string; name?: string; sessionFile?: string; task: string };
+
 export type Liveness = "alive" | "gone" | "unknown";
 
 export interface Host {
@@ -33,6 +36,7 @@ export interface Host {
 	childName(env: NodeJS.ProcessEnv): string | undefined;
 	childSession(env: NodeJS.ProcessEnv): string | undefined;
 	linkFrom(toolName: string, input: unknown, details: unknown): Link | undefined;
+	dispatchFrom(toolName: string, input: unknown, details: unknown): Dispatch | undefined;
 	resultFrom(message: { role?: string; customType?: string; details?: unknown }): Result | undefined;
 	liveness(link: Link): Liveness;
 }
@@ -44,6 +48,7 @@ const NONE: Host = {
 	childName: () => undefined,
 	childSession: () => undefined,
 	linkFrom: () => undefined,
+	dispatchFrom: () => undefined,
 	resultFrom: () => undefined,
 	liveness: () => "unknown",
 };
@@ -65,6 +70,15 @@ export function linkFrom(toolName: string, input: unknown, details: unknown): Li
 	for (const host of HOSTS) {
 		const link = host.linkFrom(toolName, input, details);
 		if (link) return link;
+	}
+	return undefined;
+}
+
+/** The follow-up dispatch a tool result describes, from whichever adapter recognizes it. */
+export function dispatchFrom(toolName: string, input: unknown, details: unknown): Dispatch | undefined {
+	for (const host of HOSTS) {
+		const dispatch = host.dispatchFrom(toolName, input, details);
+		if (dispatch) return dispatch;
 	}
 	return undefined;
 }

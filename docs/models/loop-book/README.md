@@ -2,7 +2,7 @@
 
 A TLA+ model of one loop book as the agent meets it: what the book counts as the last change, the check and the review after it, post-landing observations, linked subagents, the turn-end notice, and close. It lives beside the code because the loop book is a long-lived flow: a change to `pi/support/phases.ts`, `pi/support/book.ts`, `pi/support/units.ts`, `pi/support/landing.ts`, `pi/book.ts`, or `pi/second-thought.ts` edits `LoopBook.tla` first and reruns the checks.
 
-The rules are proposed (2026-11-12); the reader, the person who decides how a loop should behave, has not confirmed them yet.
+The rules were proposed on 2026-11-12 and decided the same day (issues #2 to #8): every rule holds, except that rule 3 counts only a `reviewer` or `adversarial-reviewer` verdict (#4), and rule 5 is per unit in a loop of several units (the comment on #6). The code since 2.16.0 builds them; the replays in `tests/test_model_loop_book.py` pass.
 
 A coordinator that runs several units at once, each with its own worker, has its own model in `multitask/` ([README](multitask/README.md)): what one unit's steps do to the other, and the turn-end notice while workers are out, for today's code, the decided fixes, and the changes proposed on top of them.
 

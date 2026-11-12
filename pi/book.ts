@@ -40,7 +40,6 @@ import {
 	observeItems,
 	openLoop,
 	ownBases,
-	parentAnchor,
 	repoOf,
 	replayTodos,
 	refsOf,
@@ -63,19 +62,25 @@ import {
 	verifyAfterLastAct,
 	workingTrees,
 	adoptableRun,
+	REVIEWERS,
+	treeAtField,
+	ignoredByGit,
+	passingRunOf,
+	adoptBook,
+	resultOf,
+	type TreeCache,
 } from "./support/book.ts";
-import { type Link, isChild, linkFrom, resultFrom } from "./support/host.ts";
+import { type Link, dispatchFrom, isChild, linkFrom, resultFrom } from "./support/host.ts";
 import { classify } from "./support/jev.ts";
-import { checkLandings, declareLanded, integrationRef, landLines, linkNotes, partialLines, refSha, watchTips } from "./support/landing.ts";
+import { checkLandings, declareLanded, integrationRef, landLines, linkNotes, partialLines, pushedSince, refSha, remoteTips, watchesRefs, watchTips } from "./support/landing.ts";
 import { linkOfResult, priorSpawns } from "./support/links.ts";
 import { orphanLines } from "./support/orphans.ts";
 import { REVIEWLESS, SEQUENCES, describe, incompleteBefore, outsideWork, reachLine, reachOf, unansweredReach } from "./support/phases.ts";
 import { type Snapshot, snapshot } from "./support/snapshot.ts";
-import { childrenOf, computeLoop, ticketKeys, unitById, unitLine, unitsOf, unitWidgetLine } from "./support/units.ts";
+import { childAnchor, childrenOf, computeLoop, ticketKeys, todoForTickets, unitById, unitLine, unitOfDispatch, unitsOf, unitWidgetLine } from "./support/units.ts";
 
 export const SESSION_ENTRY = "anchorloop-loop";
 const STAGES = ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "back", "landed", "close", "read"] as const;
-const REVIEWERS = new Set(["reviewer", "adversarial-reviewer"]);
 const BLOCKING = /Blocking\s*:?\**\s*:?\s*P0\s*=\s*(\d+)\D{0,5}P1\s*=\s*(\d+)/gi;
 const ANCHOR_LINE = /Reality anchor:[ \t]*(.*)/;
 
@@ -373,6 +378,15 @@ function cdsOutside(before: string, roots: string[], cwd: string): boolean {
 	return false;
 }
 
+/** The directory a run at `at` in `command` runs in: `cwd` moved by each `cd` before it. */
+function ranIn(command: string, at: number, cwd: string): string {
+	let dir = cwd;
+	for (const found of command.slice(0, at).matchAll(/\bcd\s+("[^"]*"|'[^']*'|[^\s;&|]+)/g)) {
+		dir = resolve(dir, found[1].replace(/^(["'])(.*)\1$/, "$2").replace(/^~(?=\/|$)/, homedir()));
+	}
+	return dir;
+}
+
 /** The text a `Reality anchor:` line states in an assistant message, if any. */
 function statedAnchor(message: { role?: string; content?: unknown } | undefined): string | undefined {
 	if (message?.role !== "assistant") return undefined;
@@ -381,6 +395,8 @@ function statedAnchor(message: { role?: string; content?: unknown } | undefined)
 }
 
 const WIDGET_KEY = "anchorloop";
+// A bash call that may push: only then are the remote-tracking refs listed around it, and git decides what it pushed.
+const PUSH = /\bgit\b[^|;&\n]*\bpush\b/;
 
 const reply = (text: string) => ({ content: [{ type: "text" as const, text }], details: undefined });
 
@@ -388,17 +404,14 @@ export default function (pi: ExtensionAPI) {
 	const subagent = isChild();
 	// Watched-ref tips taken before each bash call, by call id.
 	const tipsBefore = new Map<string, Record<string, string>>();
+	// The remote-tracking tips of the loop's own repos before a bash call that may push, by call id: the branches it pushes are cars.
+	const remotesBefore = new Map<string, Map<string, Record<string, string>>>();
 	function todosOf(ctx: ExtensionContext) {
 		return replayTodos(ctx.sessionManager.getBranch());
 	}
 
 	function phasesOf(book: Book, ctx: ExtensionContext) {
 		return computeLoop(book, { cwd: ctx.cwd, todos: todosOf(ctx) }).phases;
-	}
-
-	/** One line per unit when the loop has two or more; empty for a single-ticket loop. */
-	function unitLines(book: Book, ctx: ExtensionContext): string[] {
-		return computeLoop(book, { cwd: ctx.cwd, todos: todosOf(ctx) }).rows.map(unitLine);
 	}
 
 	/** The line that tells the agent Jev did not accept a returned subagent as the fresh read, while the read is still open. */
@@ -409,15 +422,17 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function summaryLines(book: Book, ctx: ExtensionContext): string[] {
-		const phases = phasesOf(book, ctx);
+		const cache: TreeCache = new Map();
+		const looped = computeLoop(book, { cwd: ctx.cwd, todos: todosOf(ctx), scope: { cache } });
+		const { phases } = looped;
 		const verify = [...book.entries].reverse().find((entry) => entry.stage === "verify" || entry.stage === "check");
 		const open = todosOf(ctx).filter(isOpenTask).length;
 		const friction = allFriction(book.entries);
 		return [
 			describe(phases),
-			...unitLines(book, ctx),
+			...looped.rows.map(unitLine),
 			`intent: ${currentIntent(book.entries) ?? "not declared"}`,
-			`last ${verify?.stage ?? "verify"}: ${verify ? `${verify.declared ? `declared ${verify.result}` : `exit ${verify.exit ?? "unknown"}`}${verify.last ? ` — ${verify.last}` : ""}${verifyAfterLastAct(book.entries) ? "" : " (before the last change)"}` : "none"}`,
+			`last ${verify?.stage ?? "verify"}: ${verify ? `${verify.declared ? `declared ${verify.result}` : `exit ${verify.exit ?? "unknown"}`}${verify.last ? ` — ${verify.last}` : ""}${verifyAfterLastAct(book.entries, { cache }) ? "" : " (before the last change)"}` : "none"}`,
 			`reviews: ${reviewTrend(book.entries)}; open todos: ${open}; friction: ${friction.length} (${friction.filter((item) => !item.reflected).length} unreflected)`,
 			...childLines(book.entries).map((line) => `child ${line}`),
 			...linkNotes(book.entries),
@@ -435,7 +450,8 @@ export default function (pi: ExtensionAPI) {
 		const touched = input.action === "create" ? tasks.filter((task) => !known.has(task.id)) : tasks.filter((task) => task.id === Number(input.id));
 		for (const task of touched) {
 			const refs = refsOf(task.metadata).map((ref) => ({ ref, range: resolveRef(ref, cwd, book.entries) }));
-			const { anchor, followup, observe } = task.metadata ?? {};
+			const { anchor, followup, observe, kind, lands, agents } = task.metadata ?? {};
+			// The unit metadata is kept too, so a child reading this book finds the unit it works for and that unit's anchor.
 			book.entries.push(
 				appendEntry(book.path, "task", {
 					id: task.id,
@@ -443,6 +459,9 @@ export default function (pi: ExtensionAPI) {
 					status: task.status,
 					...(typeof anchor === "string" ? { anchor } : {}),
 					...(Array.isArray(observe) ? { observe: observe.map(String) } : {}),
+					...(typeof kind === "string" ? { kind } : {}),
+					...(typeof lands === "string" ? { lands } : {}),
+					...(Array.isArray(agents) ? { agents: agents.map(String) } : typeof agents === "string" ? { agents: [agents] } : {}),
 					...(refs.length ? { refs } : {}),
 					...(followup !== undefined ? { followup } : {}),
 				}),
@@ -489,12 +508,49 @@ export default function (pi: ExtensionAPI) {
 				cwd: source,
 				...(link.worktree ? { worktree: link.worktree } : {}),
 				...(ref ? { ref, ...(tip ? { refSha: tip } : {}) } : {}),
+				// A reviewer's verdict is of the code as it was when it was dispatched: the trees it was given.
+				...(REVIEWERS.has(String(link.agent ?? "")) ? treeAtField(reviewedRepos(book, cwd)) : {}),
 			}),
 		);
 		const where = repoOf(join(tree ?? source, "_"));
 		if (where && !bases(book.entries).some((base) => base.repo === where.repo)) {
 			book.entries.push(appendEntry(book.path, "base", { repo: where.repo, head: tree ? link.worktree?.baseSha ?? where.head : where.head, via: "link", child: link.child, dirty: {} }));
 		}
+	}
+
+	/** The repos a reviewer reads: the loop's own repos, the one the session runs in, and each linked child's repo. */
+	function reviewedRepos(book: Book, cwd: string): string[] {
+		const here = repoRootOf(join(cwd, "_"));
+		return [...new Set([...bases(book.entries).map((base) => base.repo), ...(here ? [here] : [])])].filter((repo) => existsSync(repo));
+	}
+
+	/**
+	 * Records a follow-up task sent to a linked child (`subagent_send`, `subagent_resume`) as its own dispatch: the unit its brief names by
+	 * ticket, and for a reviewer the trees it is given. A persistent reviewer's verdicts then count for the unit each brief names.
+	 */
+	function recordSend(book: Book, toolName: string, input: unknown, details: unknown, ctx: ExtensionContext): void {
+		const dispatch = dispatchFrom(toolName, input, details);
+		if (!dispatch) return;
+		const link = [...book.entries].reverse().find(
+			(entry) =>
+				entry.stage === "link" &&
+				((dispatch.id !== undefined && entry.child === dispatch.id) || (dispatch.sessionFile !== undefined && entry.sessionFile === dispatch.sessionFile) || (dispatch.name !== undefined && entry.name === dispatch.name)),
+		);
+		if (!link) return;
+		const child = String(link.child);
+		const todos = todosOf(ctx);
+		const found = unitsOf(book.entries, todos);
+		const task = unitOfDispatch(found, todos, child, dispatch.task);
+		const tickets = ticketKeys(dispatch.task);
+		book.entries.push(
+			appendEntry(book.path, "send", {
+				child,
+				name: link.name,
+				...(tickets.length ? { tickets } : {}),
+				...(task !== undefined ? { task } : {}),
+				...(REVIEWERS.has(String(link.agent ?? "")) ? treeAtField(reviewedRepos(book, ctx.cwd)) : {}),
+			}),
+		);
 	}
 
 	/** Links the children spawned before this loop opened and not yet returned. */
@@ -507,12 +563,12 @@ export default function (pi: ExtensionAPI) {
 		return !entries.some((entry) => entry.stage === "kind" && typeof entry.kind === "string" && entry.auto !== true);
 	}
 
-	// A child looks up its parent's anchor on each bash call; the lookup scans books, so it is kept for a few seconds.
+	// A child looks up the anchor it inherits (its unit's, else its parent's loop anchor) on each bash call; the lookup scans books, so it is kept for a few seconds.
 	let parent: { at: number; anchor: string | undefined } | undefined;
 	function parentAnchorNow(): string | undefined {
 		const id = childId();
 		if (id === undefined) return undefined;
-		if (!parent || Date.now() - parent.at > 5000) parent = { at: Date.now(), anchor: parentAnchor(id) };
+		if (!parent || Date.now() - parent.at > 5000) parent = { at: Date.now(), anchor: childAnchor(id) };
 		return parent.anchor;
 	}
 
@@ -557,6 +613,18 @@ export default function (pi: ExtensionAPI) {
 		if (inherited) book.entries.push(appendEntry(book.path, "anchor", { check: inherited, parent: true }));
 		const observe = first?.metadata?.observe;
 		if (Array.isArray(observe) && observe.length > 0) book.entries.push(appendEntry(book.path, "observe", { items: observe.map((item) => clip(String(item), 200)).slice(0, 10) }));
+		return book;
+	}
+
+	/**
+	 * The open book a previous session of this project handed off, adopted when the todos this session creates (or the intent it declares)
+	 * name a ticket an open todo of that book names: the handoff carries the open todos, and recreating them names the book.
+	 */
+	function adoptHandedOff(ctx: ExtensionContext, texts: string[]): Book | undefined {
+		const tickets = ticketKeys(texts.join(" "));
+		if (tickets.length === 0) return undefined;
+		const book = adoptBook(ctx, (entries) => latestTasks(entries).some((task) => (task.status === "pending" || task.status === "in_progress") && ticketKeys(String(task.subject ?? "")).some((key) => tickets.includes(key))));
+		if (book) touchRepo(book, join(ctx.cwd, "_"));
 		return book;
 	}
 
@@ -666,9 +734,12 @@ export default function (pi: ExtensionAPI) {
 		if (!book && stage === "kind") {
 			// A todo create in the same batch may not have landed yet; whichever comes first opens the loop.
 			if (!params.kind || !params.intent) throw new Error("the first kind declaration needs `kind` and a one-line `intent`");
-			book = createBook(ctx);
-			recordPriorAnchor(book, ctx);
-			recordPriorLinks(book, ctx);
+			book = adoptHandedOff(ctx, [params.intent]);
+			if (!book) {
+				book = createBook(ctx);
+				recordPriorAnchor(book, ctx);
+				recordPriorLinks(book, ctx);
+			}
 		}
 		if (!book) return reply("No loop is open, so nothing was recorded. A loop opens with the first `todo` create or `kind`.");
 		const had = currentKind(book.entries);
@@ -684,7 +755,7 @@ export default function (pi: ExtensionAPI) {
 			const found = unitsOf(book.entries, todosOf(ctx));
 			const unit = params.task === undefined ? undefined : unitById(found, params.task);
 			if (params.task !== undefined && !unit) throw new Error(`task ${String(params.task)} is not a unit of this loop`);
-			return reply(declareLanded(book, { sha: params.sha, ref: params.ref, note: params.note, ...(unit ? { children: childrenOf(book.entries, found, unit) } : {}) }).text);
+			return reply(declareLanded(book, { sha: params.sha, ref: params.ref, note: params.note, ...(unit ? { children: childrenOf(book.entries, found, unit), task: unit.id } : {}) }).text);
 		}
 		if (stage === "close") {
 			if (!params.verdict) throw new Error("close needs a verdict: landed, blocked, or abandoned");
@@ -715,9 +786,19 @@ export default function (pi: ExtensionAPI) {
 			const found = unitsOf(book.entries, todos);
 			const unit = params.task === undefined ? undefined : unitById(found, params.task);
 			if (params.task !== undefined && !unit) throw new Error(`task ${String(params.task)} is not a unit of this loop (a todo with observe, kind, lands, or agents metadata)`);
+			// With two or more units a verify counts for one of them only, so the tool asks which instead of recording one that counts for none.
+			if (!unit && found.units.length >= 2) throw new Error(`verify needs \`task\` in a loop of ${found.units.length} units: ${found.units.map((item) => `${item.label} (task ${item.id})`).join(", ")}`);
 			if (params.checkpoint !== undefined) {
 				const items = unit ? unit.observe : observeItems(book.entries);
-				if (!Number.isInteger(params.checkpoint) || params.checkpoint < 1 || params.checkpoint > items.length) throw new Error(`checkpoint ${String(params.checkpoint)} is not an observation of this loop (${items.length ? `1 to ${items.length}` : "none listed: give `observe` on the kind call"})`);
+				if (!Number.isInteger(params.checkpoint) || params.checkpoint < 1 || params.checkpoint > items.length) {
+					const listing = unit ? undefined : found.units.find((item) => item.observe.length > 0);
+					const where = items.length
+						? `1 to ${items.length}`
+						: listing
+							? `none listed on the loop; todo #${listing.id} ${listing.label === `#${listing.id}` ? `"${clip(listing.subject, 60)}"` : listing.label} lists ${listing.observe.length}: give \`task: ${listing.id}\``
+							: "none listed: give `observe` on the kind call";
+					throw new Error(`checkpoint ${String(params.checkpoint)} is not an observation of this ${unit ? `unit (${unit.label})` : "loop"} (${where})`);
+				}
 				appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, checkpoint: params.checkpoint, ...(unit ? { task: unit.id } : {}) });
 				return reply(book.entries.some(countsAsLanding) ? "ok" : "ok (an observation counts once the work has landed)");
 			}
@@ -745,12 +826,16 @@ export default function (pi: ExtensionAPI) {
 			appendEntry(book.path, "reflect", { friction: ids, class: params.class, ...(params.action ? { action: params.action } : {}) });
 			return reply("ok");
 		}
-		// skip and back
+		// skip and back; with `task`, they reach only that unit, and the phase is one of that unit's kind
 		const phase = params.phase;
-		const known = sequence.filter((name) => name !== "close");
-		if (!phase || !known.includes(phase)) throw new Error(`${stage} needs \`phase\`, one of ${known.join(", ")} for a ${had ?? "undeclared"} loop`);
+		const units = params.task === undefined ? undefined : unitsOf(book.entries, todosOf(ctx));
+		const unit = units && params.task !== undefined ? unitById(units, params.task) : undefined;
+		if (params.task !== undefined && !unit) throw new Error(`task ${String(params.task)} is not a unit of this loop (a todo with observe, kind, lands, or agents metadata)`);
+		const kindOf = unit?.kind ?? had;
+		const known = (unit?.kind ? SEQUENCES[unit.kind] : sequence).filter((name) => name !== "close");
+		if (!phase || !known.includes(phase)) throw new Error(`${stage} needs \`phase\`, one of ${known.join(", ")} for ${unit ? `${unit.label}, a` : "a"} ${kindOf ?? "undeclared"} ${unit ? "unit" : "loop"}`);
 		if (!params.reason) throw new Error(`${stage} needs a \`reason\``);
-		appendEntry(book.path, stage, { phase, reason: params.reason });
+		appendEntry(book.path, stage, { phase, reason: params.reason, ...(unit ? { task: unit.id } : {}) });
 		return reply("ok");
 	}
 
@@ -773,6 +858,10 @@ export default function (pi: ExtensionAPI) {
 				// The tips of the watched refs before the call, so a ref the call itself moves is told from one moved elsewhere.
 				const book = openLoop(ctx);
 				if (book) tipsBefore.set(event.toolCallId, watchTips(book));
+				const command = String((event.input as { command?: unknown }).command ?? "");
+				if (book && PUSH.test(command) && watchesRefs(book.entries)) {
+					remotesBefore.set(event.toolCallId, new Map(ownBases(book.entries).filter((base) => existsSync(base.repo)).map((base) => [base.repo, remoteTips(base.repo)])));
+				}
 				return;
 			}
 			if (event.toolName !== "write" && event.toolName !== "edit") return;
@@ -784,6 +873,22 @@ export default function (pi: ExtensionAPI) {
 			if (book) touchRepo(book, resolve(ctx.cwd, path));
 		}),
 	);
+
+	/**
+	 * Records each branch a bash call pushed (git says so: the remote-tracking ref moved by this checkout's own push) as a car this session
+	 * sends, bound to the unit whose ticket its name holds; its landing in the integration ref then counts for that unit.
+	 */
+	function recordPushes(book: Book, before: Map<string, Record<string, string>>, ctx: ExtensionContext): void {
+		const todos = todosOf(ctx);
+		const found = unitsOf(book.entries, todos);
+		for (const [repo, tips] of before) {
+			for (const pushed of pushedSince(repo, tips)) {
+				const task = todoForTickets(todos, ticketKeys(pushed.ref));
+				const unit = task === undefined ? undefined : unitById(found, task);
+				book.entries.push(appendEntry(book.path, "push", { repo, ...pushed, ...(unit ? { task: unit.id } : {}) }));
+			}
+		}
+	}
 
 	/** The reach of an unreviewed loop's diff, recorded on its verify or check entry; a reviewed loop is never measured. */
 	function reachField(book: Book, cwd: string): { reach?: ReturnType<typeof reachOf> } {
@@ -821,11 +926,42 @@ export default function (pi: ExtensionAPI) {
 		const anchor = anchorCommand(book.entries);
 		if (!anchor || verifyAfterLastAct(book.entries) || !book.entries.some((entry) => entry.stage === "link")) return;
 		const repos = loopRepos(book, cwd);
-		const trees = workingTrees(repos);
+		const at = treeAtField(repos);
+		const trees = Object.values(at.treeAt ?? {});
 		const found = adoptableRun(book.entries, anchor, trees, repos, cwd);
 		if (!found) return;
 		const last = `adopted from ${found.name}${found.run.last ? `: ${String(found.run.last)}` : ""}`.slice(0, 200);
-		book.entries.push(appendEntry(book.path, "verify", { command: anchor.slice(0, 200), exit: 0, last, adopted: found.name, child: found.child, trees, ...reachField(book, cwd) }));
+		book.entries.push(appendEntry(book.path, "verify", { command: anchor.slice(0, 200), exit: 0, last, adopted: found.name, child: found.child, trees, ...at, ...reachField(book, cwd) }));
+	}
+
+	/**
+	 * In a loop of two or more units, records a returned child's passing run of its own unit's anchor as that unit's verify, with the tree
+	 * the run recorded (its worktree, or the checkout it ran in): the verify stands while that tree is unchanged, so the coordinator does
+	 * not run the unit's anchor again. A run the child's later edit made stale, or one already adopted, is not taken.
+	 */
+	function adoptUnitRuns(book: Book, ctx: ExtensionContext): void {
+		const found = unitsOf(book.entries, todosOf(ctx));
+		const repos = loopRepos(book, ctx.cwd);
+		for (const unit of found.units) {
+			if (!unit.anchor) continue;
+			for (const [child, id] of found.bound) {
+				if (id !== unit.id || !resultOf(book.entries, child)) continue;
+				const found = passingRunOf(book.entries, child, unit.anchor, repos, ctx.cwd);
+				if (!found) continue;
+				const ran = found.run.ts;
+				const stale = findChildBooks(child).some(({ book: own }) => own.entries.some((entry) => entry.stage === "edit" && entry.ts > ran));
+				if (stale || book.entries.some((entry) => entry.stage === "verify" && entry.child === child && entry.task === unit.id && entry.ran === ran)) continue;
+				const last = `adopted from ${found.name}${found.run.last ? `: ${String(found.run.last)}` : ""}`.slice(0, 200);
+				const at = found.run.treeAt && typeof found.run.treeAt === "object" ? { treeAt: found.run.treeAt } : {};
+				book.entries.push(appendEntry(book.path, "verify", { command: unit.anchor.slice(0, 200), exit: 0, last, adopted: found.name, child, task: unit.id, ran, ...at }));
+			}
+		}
+	}
+
+	/** Adopts a returned child's passing run: per unit in a loop of two or more units, else as the loop's verify. */
+	function adoptRuns(book: Book, ctx: ExtensionContext): void {
+		if (unitsOf(book.entries, todosOf(ctx)).units.length >= 2) adoptUnitRuns(book, ctx);
+		else adoptChildRun(book, ctx.cwd);
 	}
 
 	/**
@@ -843,6 +979,14 @@ export default function (pi: ExtensionAPI) {
 		// A failed run keeps its key line, so a rerun that passes can name what failed without the whole output.
 		const keyOf = (code: unknown) => (typeof code === "number" && code !== 0 ? { key: keyLine(output) } : {});
 		const inherited = parentAnchorNow();
+		// Each run records the working tree of the repo it ran in (a leading `cd` moves it), and stands while that tree is unchanged.
+		const trees = new Map<string, { treeAt?: Record<string, string> }>();
+		const treeOf = (at: number) => {
+			const repo = repoRootOf(join(ranIn(command, at, cwd), "_"));
+			if (!repo) return {};
+			if (!trees.has(repo)) trees.set(repo, treeAtField([repo]));
+			return trees.get(repo) ?? {};
+		};
 		for (const own of [...new Set([anchor, inherited].filter((item): item is string => item !== undefined))]) {
 			const run = anchorRun(command, own);
 			if (!run) continue;
@@ -851,22 +995,25 @@ export default function (pi: ExtensionAPI) {
 			const child = childId() !== undefined;
 			const recorded = child || currentKind(book.entries) === "quick" ? "check" : "verify";
 			const code = anchorExit(command, own, exit);
-			const entry = appendEntry(book.path, recorded, { command: own.slice(0, 200), exit: code, last, ...keyOf(code), ...reachField(book, cwd), ...(child ? treesField(book, cwd) : {}) });
+			const entry = appendEntry(book.path, recorded, { command: own.slice(0, 200), exit: code, last, ...keyOf(code), ...reachField(book, cwd), ...(child ? treesField(book, cwd) : {}), ...treeOf(run.at) });
 			book.entries.push(entry);
 			const reach = reachNotice(book, entry);
 			if (reach) notices.push(reach);
 		}
 		for (const task of latestTasks(book.entries)) {
-			if (typeof task.anchor !== "string" || !anchorRun(command, task.anchor)) continue;
+			const run = typeof task.anchor === "string" ? anchorRun(command, task.anchor) : undefined;
+			if (typeof task.anchor !== "string" || !run) continue;
 			const code = anchorExit(command, task.anchor, exit);
-			book.entries.push(appendEntry(book.path, "taskrun", { id: task.id, command: task.anchor.slice(0, 200), exit: code, last, ...keyOf(code) }));
+			book.entries.push(appendEntry(book.path, "taskrun", { id: task.id, command: task.anchor.slice(0, 200), exit: code, last, ...keyOf(code), ...treeOf(run.at) }));
 		}
 		autoFriction(book);
 		const merged = mergeRun(command);
 		if (exit === 0 && merged && !/Already up[ -]to[ -]date/i.test(last ?? "")) {
 			if (book.entries.at(-1)?.stage !== "edit") {
-				touchRepoBeforeMerge(book, resolve(String(book.header.cwd ?? process.cwd()), merged.dir), merged.verb);
-				book.entries.push(appendEntry(book.path, "edit", { via: "merge" }));
+				const dir = resolve(String(book.header.cwd ?? process.cwd()), merged.dir);
+				touchRepoBeforeMerge(book, dir, merged.verb);
+				const repo = repoRootOf(join(dir, "_"));
+				book.entries.push(appendEntry(book.path, "edit", { via: "merge", ...(repo ? { repo } : {}) }));
 			}
 			adoptChildRun(book, cwd);
 		}
@@ -916,11 +1063,12 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.setWidget(WIDGET_KEY, undefined);
 			return;
 		}
-		const phases = phasesOf(book, ctx);
+		const looped = computeLoop(book, { cwd: ctx.cwd, todos: todosOf(ctx) });
+		const { phases } = looped;
 		const open = allFriction(book.entries).filter((item) => !item.reflected).length;
 		const kind = phases.kind === "undeclared" ? "no kind" : phases.kind;
 		const at = `${phases.current}${phases.current === "start" ? "" : " ✓"} → ${phases.next}`;
-		const units = computeLoop(book, { cwd: ctx.cwd, todos: todosOf(ctx) }).rows.map(unitWidgetLine);
+		const units = looped.rows.map(unitWidgetLine);
 		ctx.ui.setWidget(WIDGET_KEY, [`⚓ ${kind} · ${at}${open ? ` · ${open} friction` : ""}`, ...units], { placement: "belowEditor" });
 	}
 
@@ -932,6 +1080,9 @@ export default function (pi: ExtensionAPI) {
 				const notice = book ? recordBash(book, event, ctx.cwd) : undefined;
 				const before = tipsBefore.get(event.toolCallId);
 				tipsBefore.delete(event.toolCallId);
+				const remotes = remotesBefore.get(event.toolCallId);
+				remotesBefore.delete(event.toolCallId);
+				if (book && remotes) recordPushes(book, remotes, ctx);
 				if (book) checkLandings(book, before);
 				// The line only appends text, so the bash call's structured output passes on unchanged.
 				return notice ? { content: [...((event.content as unknown[]) ?? []), { type: "text", text: notice }], structuredContent: event.structuredContent } : undefined;
@@ -940,7 +1091,7 @@ export default function (pi: ExtensionAPI) {
 			if (event.toolName === "todo") {
 				const input = event.input as { action?: unknown; id?: unknown };
 				let open = openLoop(ctx);
-				if (!open && input.action === "create") open = openFromTodo(ctx, event.details);
+				if (!open && input.action === "create") open = adoptHandedOff(ctx, (taskDetails(event.details) ?? []).map((task) => task.subject)) ?? openFromTodo(ctx, event.details);
 				if (!open) return;
 				recordTasks(open, event.details, input, ctx.cwd);
 				return;
@@ -952,11 +1103,20 @@ export default function (pi: ExtensionAPI) {
 				if (link) recordLink(book, link, ctx);
 				return;
 			}
+			if (event.toolName === "subagent_send" || event.toolName === "subagent_resume") {
+				recordSend(book, event.toolName, event.input, event.details, ctx);
+				return;
+			}
 			if (event.toolName !== "write" && event.toolName !== "edit") return;
 			const path = (event.input as { path?: unknown }).path;
 			if (typeof path !== "string") return;
 			if (!artifactKind(path)) {
-				if (!outsideWork(path, ctx.cwd) && book.entries.at(-1)?.stage !== "edit") appendEntry(book.path, "edit", { path });
+				const target = resolve(ctx.cwd, path);
+				// A file git ignores (a handoff note, a plan) is in no diff, so it is no change to the code.
+				if (outsideWork(path, ctx.cwd) || ignoredByGit(target)) return;
+				const repo = repoRootOf(target);
+				const last = book.entries.at(-1);
+				if (last?.stage !== "edit" || last.repo !== repo) appendEntry(book.path, "edit", { path, ...(repo ? { repo } : {}) });
 				return;
 			}
 			let text: string;
@@ -978,7 +1138,25 @@ export default function (pi: ExtensionAPI) {
 		}),
 	);
 
-	async function recordReview(ctx: ExtensionContext, book: Book, name: string, text: string, failed: boolean, child?: unknown): Promise<void> {
+	/**
+	 * Records a reviewer's verdict as a review round. It counts from the reviewer's dispatch (the latest `link` or `send` of that child
+	 * before the result), with the trees that dispatch gave it, and for the unit its brief names by ticket, else the unit its child is bound to.
+	 */
+	async function recordReview(ctx: ExtensionContext, book: Book, result: { name: string; agent: string; task: string; resultContent: unknown; failed: boolean }, link: Entry | undefined): Promise<void> {
+		const name = result.name || result.agent;
+		const text = textOf(result.resultContent);
+		const failed = result.failed;
+		const child = link?.child;
+		let dispatch: Entry | undefined;
+		for (let i = book.entries.length - 1; i >= 0 && !dispatch; i--) {
+			const entry = book.entries[i];
+			if ((entry.stage === "link" || entry.stage === "send") && entry.child === child && child !== undefined) dispatch = entry;
+		}
+		const todos = todosOf(ctx);
+		const found = unitsOf(book.entries, todos);
+		const brief = dispatch?.stage === "send" && typeof dispatch.task === "number" ? undefined : result.task;
+		const task = dispatch?.stage === "send" && typeof dispatch.task === "number" ? dispatch.task : found.units.length >= 2 ? unitOfDispatch(found, todos, typeof child === "string" ? child : undefined, brief ?? "") : undefined;
+		const trees = dispatch?.treeAt ? { treeAt: dispatch.treeAt } : dispatch ? {} : treeAtField(reviewedRepos(book, ctx.cwd));
 		const counts = parseBlocking(text);
 		let blocking: boolean | null = null;
 		let source = `reviewer ${name}`;
@@ -998,7 +1176,16 @@ export default function (pi: ExtensionAPI) {
 		} else {
 			blocking = counts.p0 + counts.p1 > 0;
 		}
-		const entry = appendEntry(book.path, "review", { round: reviews(book.entries).length + 1, ...(source === "failed" ? {} : (counts ?? {})), blocking, source, ...(typeof child === "string" ? { child } : {}) });
+		const entry = appendEntry(book.path, "review", {
+			round: reviews(book.entries).length + 1,
+			...(source === "failed" ? {} : (counts ?? {})),
+			blocking,
+			source,
+			...(typeof child === "string" ? { child } : {}),
+			...(dispatch ? { from: dispatch.ts } : {}),
+			...(task !== undefined ? { task } : {}),
+			...trees,
+		});
 		book.entries.push(entry);
 		if (reviewsStalled(book.entries)) ctx.ui.notify("anchorloop: two consecutive review rounds still raised blocking findings; stop and hand the trend to the user.", "warning");
 	}
@@ -1049,21 +1236,26 @@ function headAndTail(text: string): string {
 				appendEntry(book.path, "anchor", { check: stated, line: true });
 				showStatus(ctx);
 			}
-			const result = subagent ? undefined : resultFrom(message);
+			const result = resultFrom(message);
 			if (!result) return;
+			// A subagent session reads only its own reviewers' results: their verdicts are its review rounds; the rest its parent judges.
+			if (subagent && !REVIEWERS.has(result.agent)) return;
 			const handoff = result.handoff;
-			appendEntry(book.path, "result", {
-				...(linkOfResult(book.entries, result)?.child ? { child: linkOfResult(book.entries, result)?.child } : {}),
+			const link = linkOfResult(book.entries, result);
+			book.entries.push(appendEntry(book.path, "result", {
+				...(link?.child ? { child: link.child } : {}),
 				name: result.name,
 				failed: result.failed,
 				...(result.sessionFile ? { sessionFile: result.sessionFile } : {}),
 				...(handoff?.headSha ? { headSha: handoff.headSha } : {}),
 				...(handoff?.commitsAhead !== undefined ? { commitsAhead: handoff.commitsAhead } : {}),
 				...(handoff?.changedFiles ? { changedFiles: handoff.changedFiles.slice(0, 50) } : {}),
-			});
-			checkLandings(book);
-			adoptChildRun(book, ctx.cwd);
-			if (REVIEWERS.has(result.agent)) await recordReview(ctx, book, result.name || result.agent, textOf(result.resultContent), result.failed, linkOfResult(book.entries, result)?.child);
+			}));
+			if (!subagent) {
+				checkLandings(book);
+				adoptRuns(book, ctx);
+			}
+			if (REVIEWERS.has(result.agent)) await recordReview(ctx, book, result, link);
 			else await detectFreshRead(ctx, book, result);
 		}),
 	);
