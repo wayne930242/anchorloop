@@ -7,7 +7,7 @@ anchorloop's extensions keep one loop book per open loop, read what the loop has
 <!-- Diagram: pi/book.ts (tool_result evidence, setWidget), pi/support/phases.ts (computePhases), pi/anchor-gate.ts (tool_call, tool_result), pi/second-thought.ts (agent_before_settle). -->
 
 ```mermaid
-flowchart LR
+flowchart TD
   agent["Agent<br/>todo and<br/>anchorloop_stage"] -->|"declares"| book
   tools["Tool results<br/>edits, bash exit codes,<br/>reviews, spec files,<br/>subagent results"] -->|"evidence"| book
   git["git refs"] -->|"landings"| book
@@ -91,22 +91,22 @@ Nothing blocks: a phase that starts too early earns one warning line, and phases
 <!-- Diagram: SEQUENCES in pi/support/phases.ts. -->
 
 ```mermaid
-flowchart LR
-  subgraph quick
-    direction LR
-    q1[act] --> q2[check] --> q3[reflect] --> q4[close]
-  end
-  subgraph inline
-    direction LR
-    i1[anchor] --> i2[act] --> i3[verify] --> i4[reflect] --> i5[close]
+flowchart TD
+  subgraph durable
+    direction TB
+    d1[decide] --> d2[grill] --> d3[spec] --> d4[read] --> d5[approve] --> d6[design] --> d7[anchor] --> d8[act] --> d9[verify] --> d10[review] --> d11[reflect] --> d12[close]
   end
   subgraph reviewed
-    direction LR
+    direction TB
     r1[anchor] --> r2[act] --> r3[verify] --> r4[review] --> r5[reflect] --> r6[close]
   end
-  subgraph durable
-    direction LR
-    d1[decide] --> d2[grill] --> d3[spec] --> d4[read] --> d5[approve] --> d6[design] --> d7[anchor] --> d8[act] --> d9[verify] --> d10[review] --> d11[reflect] --> d12[close]
+  subgraph inline
+    direction TB
+    i1[anchor] --> i2[act] --> i3[verify] --> i4[reflect] --> i5[close]
+  end
+  subgraph quick
+    direction TB
+    q1[act] --> q2[check] --> q3[reflect] --> q4[close]
   end
 ```
 
