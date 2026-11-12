@@ -15,6 +15,7 @@ This repository is the `pi-anchorloop` package: the workflow skills in `skills/`
 ## Versioning & Release Directives
 
 - Bump the version in `package.json` and `pyproject.toml` together whenever package capabilities, workflow contracts, or configurations change.
+- Before pushing a `v*` tag, run both checks under Development Workflow in a clean detached worktree of the commit to tag (`git worktree add --detach <dir> <sha>`, removed afterwards): files a working tree holds outside git can let `validate_all.py` pass where the publish workflow fails, as v2.15.0 did.
 
 ## Development Workflow
 
