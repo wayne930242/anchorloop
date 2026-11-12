@@ -1,4 +1,4 @@
-# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ e62e0acd -->
+# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ ba1a5fcc -->
 
 [README](../README.zh-TW.md) 背後的完整行為。skill 告訴 agent 怎麼工作；下面六個 pi extension 則盯著工作進行，說出還缺什麼，所以請找到需要的那一節，其餘可以略過。
 
@@ -246,6 +246,7 @@ unit 的檢查只比對自己的 tree，所以一個 unit 的修改不會讓另�
 
 列了 observation 的 loop，即使沒有關聯子代理，也監看自己 repo 的整合 ref。
 這個 session 自己 push 的分支（git 顯示 remote-tracking ref 是被它自己的 push 移動的）是一節車廂，併入後算給分支名稱裡票號所指的 unit。
+偵測 push 時，`git` 與 `push` 之間可以有帶引號值的全域選項（`git -c 'credential.helper=!glab auth git-credential' push`、`-C "a b"`、`--git-dir /x`），`git` 也可以是帶路徑的形式；指令中以 refspec 目的地點名的分支（`git push origin agent/mp-x`、`HEAD:refs/heads/x`、`src:dst`），即使 checkout 在另一個分支上，也是這個 session 的車廂；`--dry-run`、`-n`、`git stash push`，以及指令沒有點名的分支則不是。
 
 </details>
 
@@ -274,11 +275,11 @@ sequenceDiagram
 
 交接時以 `read` 的 `book:` 行寫明未關 book 的 id。
 新 session 在第一次 `kind` 帶 `resume: <book id>`，或在第一個 todo 的 `metadata.resume` 接手那本 book。
-各 unit 已證明的事與提醒問過的事都會延續。
+各 unit 已證明的事與提醒問過的事都會延續，新 session 在 `resume` 之前建立的 todo 也一併延續，讀取接手後 book 的子代理會看到它們的 unit metadata。
 
 不存在、已關、屬於 subagent 或其他專案的 id 會被拒絕並說明原因。
 同一張票上沒帶 id 的另一個 session 保有自己的 book。
-交出 book 的 session 下一次呼叫時會被告知是哪個 session 接手。
+交出 book 的 session 在下一次工具結果（不論哪個工具）時會被告知是哪個 session 接手，也不再於已搬走的 book 記錄任何東西。
 
 </details>
 
@@ -361,6 +362,7 @@ Jev 的判斷也在比對鍵裡，所以在新證據上轉成 `back` 或 `ask-us
 
 呼叫過 `MonitorCreate`、`LoopCreate`、`goal_wait`，或呼叫了 `subagent` 類工具而 book 還沒關聯到子代理的執行在等待中，不被判斷。
 loop 派出的子代理還沒回報、且它的 host 沒有回報它已消失時，loop 既不被判斷也不會多跑一輪。
+子代理完成時會先結束行程、結果才送達，所以已消失但 session 檔在最近 30 秒內寫過的子代理仍算在外。
 
 有兩個以上 unit 時，改為逐 unit 安靜。
 提醒為第一個等著協調者的 unit 判斷、發言並決定是否多跑一輪：已開始、未完成、自己沒有派出在外的子代理，而且自該 unit 最後一筆證據以來還沒問過它這一步。
