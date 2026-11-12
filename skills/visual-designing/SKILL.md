@@ -20,7 +20,7 @@ Draw every frame as a hand-written SVG file. SVG is text: a frame costs a few ki
 
 ## Self-check
 
-Measure each frame, then look at it. `node <skill dir>/scripts/measure.mjs 01-home.svg 02-detail.svg` loads each frame in a headless browser through `agent-browser` and prints, per frame, the defects as numbers; it exits 1 when it finds any. Fix every defect and measure again until it prints `defects 0`.
+Measure each frame, then look at it. `node <skill dir>/scripts/measure.mjs 01-home.svg 02-detail.svg` loads each frame in a headless browser through `agent-browser`, runs `scripts/measure.js` in the page, and prints, per frame, the defects as numbers; it exits 1 when it finds any. Fix every defect and measure again until it prints `defects 0`.
 
 The frame marks what the measurement needs, as attributes with values (the SVG is XML):
 
