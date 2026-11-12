@@ -1,0 +1,27 @@
+---
+title: "a coordinator with two units (proposed)"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks QuietWhileWaiting
+    lg1: Path to the QuietWhileWaiting bug
+  }
+  class lg0 breaks
+  class lg1 bugPath
+  s0: MP-1001: not started | MP-1002: not started
+  s1: MP-1001: worker started | MP-1002: not started
+  s2: MP-1001: worker died | MP-1002: not started
+  s3: MP-1001: worker died | MP-1002: worker started
+  s4: MP-1001: worker died | MP-1002: worker started#59; turn over
+  [*] --> s0
+  s0 --> s1: MP-1001: you start its worker
+  s1 --> s2: MP-1001: its worker dies (model quota)
+  s2 --> s3: MP-1002: you start its worker
+  s3 --> s4: your turn ends: the notice asks MP-1001 for act
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  class s0 bugPath
+  class s1 bugPath
+  class s2 bugPath
+  class s3 bugPath
+  class s4 breaks
+  class s4 bugPath

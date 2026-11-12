@@ -4,6 +4,8 @@ A TLA+ model of one loop book as the agent meets it: what the book counts as the
 
 The rules are proposed (2026-11-12); the reader, the person who decides how a loop should behave, has not confirmed them yet.
 
+A coordinator that runs several units at once, each with its own worker, has its own model in `multitask/` ([README](multitask/README.md)): what one unit's steps do to the other, and the turn-end notice while workers are out, for today's code, the decided fixes, and the changes proposed on top of them.
+
 ## Rerun
 
 ```sh
@@ -40,7 +42,7 @@ Each broken rule has replay tests in `tests/test_model_loop_book.py`, red on the
 
 - The anchor phase, the durable phases (decide to design), `quick` loops, friction and reflect.
 - How a bash command is recognized as a run of the anchor, and a run whose exit reads `unknown`.
-- Units beyond "a declared verify with no task counts for no unit": per-unit reviews, landings, and observations.
+- Units beyond "a declared verify with no task counts for no unit": per-unit reviews, landings, and observations are in `multitask/`.
 - Landings other than your own push with a ref watched: a worker's branch landing, adopted runs, a push that is not the checked tree.
 - What Jev answers. The model has only "the notice judged the loop or did not"; the wording of concerns and whether an advisory repeats are outside it.
 - Joined steps: a write is its call and its result in one step; starting a subagent and its link are one step; a reviewer's return and the review entry are one step.

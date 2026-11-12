@@ -1,0 +1,48 @@
+---
+title: "a coordinator with two units (cause owed-1)"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks OnePerChange or OwedIsNamed
+    lg1: Path to the OnePerChange or OwedIsNamed bug
+  }
+  class lg0 breaks
+  class lg1 bugPath
+  s0: MP-1001: not started | MP-1002: not started
+  s1: MP-1001: worker started | MP-1002: not started
+  s2: MP-1001: not started | MP-1002: not started#59; turn over
+  s3: MP-1001: worker editing | MP-1002: not started
+  s4: MP-1001: checked, review missing | MP-1002: not started
+  s5: MP-1001: not started | MP-1002: worker started
+  s6: MP-1001: checked, review missing | MP-1002: not started#59; turn over
+  s7: MP-1001: not started | MP-1002: worker editing
+  s8: MP-1001: not started | MP-1002: worker editing#59; turn over
+  s9: MP-1001: not started | MP-1002: checked, review missing
+  s10: MP-1001: not started | MP-1002: checked, review missing#59; turn over
+  [*] --> s0
+  s0 --> s1: MP-1001: you start its worker
+  s0 --> s2: your turn ends: the notice asks MP-1001 for act
+  s1 --> s3: MP-1001: its worker edits in its worktree
+  s2 --> s2: a todo is added or completed
+  s3 --> s4: MP-1001's worker returns, its check passed
+  s2 --> s0: someone else starts your turn
+  s0 --> s5: MP-1002: you start its worker
+  s4 --> s6: your turn ends: no notice
+  s5 --> s7: MP-1002: its worker edits in its worktree
+  s7 --> s8: your turn ends: no notice
+  s8 --> s9: MP-1002's worker returns, its check passed
+  s9 --> s10: your turn ends: the notice asks MP-1001 for act
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  class s0 bugPath
+  class s1 bugPath
+  class s2 bugPath
+  class s3 bugPath
+  class s4 bugPath
+  class s5 bugPath
+  class s6 breaks
+  class s6 bugPath
+  class s7 bugPath
+  class s8 bugPath
+  class s9 bugPath
+  class s10 breaks
+  class s10 bugPath

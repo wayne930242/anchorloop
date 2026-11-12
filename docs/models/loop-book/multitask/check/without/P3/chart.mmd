@@ -1,0 +1,30 @@
+---
+title: "a coordinator with two units (proposed without P3)"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks Counted or Isolation
+    lg1: Path to the Counted or Isolation bug
+  }
+  class lg0 breaks
+  class lg1 bugPath
+  s0: MP-1001: not started | MP-1002: not started
+  s1: MP-1001: changed, check missing | MP-1002: not started
+  s2: MP-1001: checked, review missing | MP-1002: not started
+  s3: MP-1001: reviewer reading | MP-1002: not started
+  s4: MP-1001: complete | MP-1002: not started
+  s5: MP-1001: reviewed clear, book asks for a review | MP-1002: changed, check missing
+  [*] --> s0
+  s0 --> s1: MP-1001: you change its code yourself
+  s1 --> s2: MP-1001: you run its anchor: it passes
+  s2 --> s3: MP-1001: you send it to the persistent reviewer
+  s3 --> s4: the reviewer comes back clear for MP-1001
+  s4 --> s5: MP-1002: you change its code yourself
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  class s0 bugPath
+  class s1 bugPath
+  class s2 bugPath
+  class s3 bugPath
+  class s4 bugPath
+  class s5 breaks
+  class s5 bugPath

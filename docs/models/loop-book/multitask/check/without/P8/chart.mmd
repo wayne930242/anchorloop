@@ -1,0 +1,24 @@
+---
+title: "a coordinator with two units (proposed without P8)"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks CanClose or Counted
+    lg1: Path to the CanClose or Counted bug
+  }
+  class lg0 breaks
+  class lg1 bugPath
+  s0: MP-1001: not started | MP-1002: not started
+  s1: MP-1001: changed, check missing | MP-1002: not started
+  s2: MP-1001: checked, car not landed | MP-1002: not started
+  s3: MP-1001: landed, book sees no landing | MP-1002: not started
+  [*] --> s0
+  s0 --> s1: MP-1001: you change its code yourself
+  s1 --> s2: MP-1001: you run its anchor: it passes
+  s2 --> s3: MP-1001: sb's notice: its car landed#59; you declare it
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  class s0 bugPath
+  class s1 bugPath
+  class s2 bugPath
+  class s3 breaks
+  class s3 bugPath

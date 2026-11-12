@@ -1,0 +1,49 @@
+---
+title: "a coordinator with two units (proposed without P4)"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks Counted or NotLent
+    lg1: Path to the Counted or NotLent bug
+  }
+  class lg0 breaks
+  class lg1 bugPath
+  s0: MP-1001: not started | MP-1002: not started
+  s1: MP-1001: changed, check missing | MP-1002: not started
+  s2: MP-1001: checked, review missing | MP-1002: not started
+  s3: MP-1001: reviewer reading | MP-1002: not started
+  s4: MP-1001: reviewer reading | MP-1002: changed, check missing
+  s5: MP-1001: reviewer reading | MP-1002: checked, review missing
+  s6: MP-1001: complete | MP-1002: checked, review missing
+  s7: MP-1001: changed, check missing | MP-1002: checked, review missing
+  s8: MP-1001: complete | MP-1002: reviewer reading
+  s9: MP-1001: changed, check missing | MP-1002: reviewer reading
+  s10: MP-1001: complete | MP-1002: reviewed clear, book asks for a review
+  s11: MP-1001: changed, check missing | MP-1002: reviewed clear, book asks for a review
+  [*] --> s0
+  s0 --> s1: MP-1001: you change its code yourself
+  s1 --> s2: MP-1001: you run its anchor: it passes
+  s2 --> s3: MP-1001: you send it to the persistent reviewer
+  s3 --> s4: MP-1002: you change its code yourself
+  s4 --> s5: MP-1002: you run its anchor: it passes
+  s5 --> s6: the reviewer comes back clear for MP-1001
+  s6 --> s7: MP-1001: you change its code yourself
+  s6 --> s8: MP-1002: you send it to the persistent reviewer
+  s7 --> s9: MP-1002: you send it to the persistent reviewer
+  s8 --> s10: the reviewer comes back clear for MP-1002
+  s9 --> s11: the reviewer comes back clear for MP-1002
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  class s0 bugPath
+  class s1 bugPath
+  class s2 bugPath
+  class s3 bugPath
+  class s4 bugPath
+  class s5 bugPath
+  class s6 bugPath
+  class s7 bugPath
+  class s8 bugPath
+  class s9 bugPath
+  class s10 breaks
+  class s10 bugPath
+  class s11 breaks
+  class s11 bugPath

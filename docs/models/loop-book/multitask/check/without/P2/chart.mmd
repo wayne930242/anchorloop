@@ -1,0 +1,55 @@
+---
+title: "a coordinator with two units and two workers (proposed without P2)"
+---
+stateDiagram-v2
+  direction LR
+  state "Legend" as legend {
+    lg0: Breaks Counted or QuietWhileWaiting
+    lg1: Breaks Counted or QuietWhileWaiting in some cases
+    lg2: Path to the Counted or QuietWhileWaiting bug
+  }
+  class lg0 breaks
+  class lg1 mayBreak
+  class lg2 bugPath
+  state "At the same time" as all {
+    state "MP-1001" as r0 {
+      s0: not started
+      s1: worker started
+      s2: worker editing
+      s3: complete
+      s4: closed
+      [*] --> s0
+      s0 --> s1: MP-1001: you start its worker
+      s1 --> s2: MP-1001: its worker edits in its worktree
+      s2 --> s3: MP-1001's worker returns, its check passed
+      s3 --> s4: you close the loop [when complete]
+    }
+    --
+    state "MP-1002" as r1 {
+      s5: not started
+      s6: worker started
+      s7: worker editing
+      s8: checked, book asks for the check
+      s9: complete
+      s10: closed
+      [*] --> s5
+      s5 --> s6: MP-1002: you start its worker
+      s6 --> s7: MP-1002: its worker edits in its worktree
+      s7 --> s8: MP-1002's worker returns, its check passed: the book does not count it
+      s8 --> s9: MP-1002: you run its anchor: it passes
+      s9 --> s10: you close the loop [when complete]
+    }
+  }
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  classDef mayBreak fill:#fff3e6,stroke:#e8730c,stroke-width:2.5px,color:#b85a06
+  class s0 bugPath
+  class s1 bugPath
+  class s3 mayBreak
+  class s4 mayBreak
+  class s5 bugPath
+  class s6 bugPath
+  class s7 bugPath
+  class s8 breaks
+  class s8 bugPath
+  class s9 mayBreak
+  class s10 mayBreak

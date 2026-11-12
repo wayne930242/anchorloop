@@ -1,0 +1,48 @@
+---
+title: "a coordinator with two units (today)"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks Counted or OwedIsNamed
+    lg1: Breaks AskOnlyOwed or OnePerChange or QuietWhileWaiting in some cases
+    lg2: Path to the AskOnlyOwed or Counted or OnePerChange or OwedIsNamed or QuietWhileWaiting bug
+  }
+  class lg0 breaks
+  class lg1 mayBreak
+  class lg2 bugPath
+  s0: MP-1001: not started | MP-1002: not started
+  s1: MP-1001: not started | MP-1002: worker started
+  s2: MP-1001: worker started | MP-1002: not started
+  s3: MP-1001: not started | MP-1002: not started#59; turn over
+  s4: MP-1001: not started | MP-1002: worker editing
+  s5: MP-1001: worker died | MP-1002: not started
+  s6: MP-1001: worker started | MP-1002: not started#59; turn over
+  s7: MP-1001: worker died | MP-1002: not started#59; turn over
+  s8: MP-1001: not started | MP-1002: checked, book asks for the check
+  [*] --> s0
+  s0 --> s1: MP-1002: you start its worker
+  s0 --> s2: MP-1001: you start its worker
+  s0 --> s3: your turn ends: the notice asks MP-1001 for act
+  s1 --> s4: MP-1002: its worker edits in its worktree
+  s2 --> s5: MP-1001: its worker dies (model quota)
+  s2 --> s6: your turn ends: no notice or your turn ends: the notice asks MP-1001 for act
+  s3 --> s3: you /reload after an install
+  s4 --> s8: MP-1002's worker returns, its check passed: the book does not count it
+  s5 --> s7: your turn ends: no notice
+  s6 --> s2: someone else starts your turn
+  s3 --> s0: someone else starts your turn
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  classDef mayBreak fill:#fff3e6,stroke:#e8730c,stroke-width:2.5px,color:#b85a06
+  class s0 bugPath
+  class s1 bugPath
+  class s2 bugPath
+  class s3 mayBreak
+  class s3 bugPath
+  class s4 bugPath
+  class s5 bugPath
+  class s6 mayBreak
+  class s6 bugPath
+  class s7 breaks
+  class s7 bugPath
+  class s8 breaks
+  class s8 bugPath
