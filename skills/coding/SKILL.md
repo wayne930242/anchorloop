@@ -39,3 +39,4 @@ Reviewed work adds the independent review [reviewed](references/reviewed.md) des
 - [Benchmark checklist](references/benchmark-checklist.md): the measurement checks `perf` runs before reporting a number.
 - [Design red flags](references/design-red-flags.md): the shape screen `feature` runs on a new interface.
 - [Reviewed](references/reviewed.md): the premises and independent review a Reviewed change carries.
+- [State model checks](references/state-model-checks.md): the config sizing and `statechart` notes `state-model` reads.
