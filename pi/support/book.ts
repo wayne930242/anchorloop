@@ -219,14 +219,18 @@ const OPENING_STAGES: ReadonlySet<string> = new Set(["kind", "anchor", "observe"
  * moves to this session's path with this session's file in its header, so what its units proved and what the notice asked carry
  * over, and an `adopt` entry names where it came from. The old path keeps a closed marker naming this session, so the session that
  * left the book is told on its next call instead of losing it silently. An id that is unknown, closed, a subagent's, another
- * project's, or asked for while this session's own loop already holds evidence is refused with the reason.
+ * project's, or asked for while this session's own loop already holds evidence is refused with the reason. The `task` entries this
+ * session recorded before resuming are appended to the adopted book, so a child reading it finds those todos' unit metadata.
  */
 export function adoptBook(who: Who, id: string, env: NodeJS.ProcessEnv = process.env): Adopted {
 	if (childId(env) !== undefined) return { refused: "a subagent session cannot resume a book; only a main session resumes a handed-off book" };
 	const path = bookPath(who, env);
 	const own = parseBook(path);
+	// What this session recorded before it resumed: the todos it created, whose unit metadata a child reads from the adopted book.
+	let carried: Entry[] = [];
 	if (own && !isClosed(own)) {
 		if (own.header.id === id) return { book: own };
+		carried = own.entries.filter((entry) => entry.stage === "task");
 		if (own.entries.some((entry) => !OPENING_STAGES.has(entry.stage))) {
 			return { refused: `this session's own loop ${String(own.header.id)} already holds evidence; \`resume\` goes on the first \`kind\` or todo, before the loop records anything` };
 		}
@@ -263,6 +267,8 @@ export function adoptBook(who: Who, id: string, env: NodeJS.ProcessEnv = process
 	const book = parseBook(path);
 	if (!book) return { refused: `book ${id} vanished while it was being resumed` };
 	book.entries.push(appendEntry(path, "adopt", { from: basename(old.path, ".yml"), id, session: old.header.session ?? null }));
+	// Later than the adopted entries, so this session's own todo of an id wins, as its todo list does.
+	for (const { ts: _ts, stage: _stage, ...fields } of carried) book.entries.push(appendEntry(path, "task", fields));
 	return { book };
 }
 

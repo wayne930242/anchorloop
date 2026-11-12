@@ -7,6 +7,7 @@
  * as one loop, as before.
  */
 
+import { statSync } from "node:fs";
 import {
 	type Book,
 	type Entry,
@@ -169,9 +170,28 @@ export function unitOfDispatch(found: Units, todos: Task[], child: string | unde
 export type Dispatch = { child: string; index: number; /** The unit the dispatch works for; absent for the whole loop. */ task?: number };
 
 /**
+ * How long after its last write to its session a gone child still counts as out: 1 s poll + 0.5 s sidecar wait + 15 s handoff
+ * git (pi-herdr-agents maestro/adapters/pi/pi-harness-adapter.ts:584, completion.ts:129-136, maestro/runtime/worktree-operations.ts:46),
+ * rounded up. A child killed in the middle of work counts for the same time, then stops.
+ */
+export const DELIVERY_GRACE_MS = 30_000;
+
+/** True when the child's session file was written within the delivery grace: a result that has not arrived yet is still on its way. */
+function deliveryPending(sessionFile: unknown): boolean {
+	if (typeof sessionFile !== "string") return false;
+	try {
+		return Date.now() - statSync(sessionFile).mtimeMs < DELIVERY_GRACE_MS;
+	} catch {
+		return false;
+	}
+}
+
+/**
  * The dispatches still out: for each child, its latest `link` or `send` when no `result` of that child follows it, while its host does
- * not say the child is gone (a killed pane or a rebooted box never sends a result). A link recorded before links carried `cwd` comes
- * from a book that kept no results, so it is not counted as out.
+ * not say the child is gone (a killed pane or a rebooted box never sends a result). A child that finished exits before its result is
+ * delivered (pi-herdr-agents polls the child's `.exit` sidecar once a second, then takes the worktree handoff, up to 15 s of git, before
+ * it sends the message), so a gone child whose session file was written within `DELIVERY_GRACE_MS` still counts as out. A link
+ * recorded before links carried `cwd` comes from a book that kept no results, so it is not counted as out.
  */
 export function outDispatches(entries: Entry[], found?: Units): Dispatch[] {
 	const latest = new Map<string, number>();
@@ -185,7 +205,7 @@ export function outDispatches(entries: Entry[], found?: Units): Dispatch[] {
 		if (entries.slice(index + 1).some((entry) => entry.stage === "result" && entry.child === child)) continue;
 		const link = entries.find((entry) => entry.stage === "link" && entry.child === child);
 		const sessionFile = typeof dispatch.sessionFile === "string" ? dispatch.sessionFile : link?.sessionFile;
-		if (liveness({ ...(link ?? {}), child, ...(typeof sessionFile === "string" ? { sessionFile } : {}) } as Link) === "gone") continue;
+		if (liveness({ ...(link ?? {}), child, ...(typeof sessionFile === "string" ? { sessionFile } : {}) } as Link) === "gone" && !deliveryPending(sessionFile)) continue;
 		const task = typeof dispatch.task === "number" ? dispatch.task : found?.bound.get(child);
 		out.push({ child, index, ...(task !== undefined ? { task } : {}) });
 	}

@@ -1,6 +1,7 @@
 /**
- * Where a worker's change stands against the ref it will land on. Pure git over the repo's refs: no bash command text is read,
- * so how a landing happened (push, merge, fetch, an integrator elsewhere) never matters, only what the ref holds afterwards.
+ * Where a worker's change stands against the ref it will land on. Pure git over the repo's refs: no bash command text is read
+ * (`pushedSince` takes only the branch names a push command named), so how a landing happened (push, merge, fetch, an integrator
+ * elsewhere) never matters, only what the ref holds afterwards.
  */
 
 import { existsSync } from "node:fs";
@@ -19,6 +20,7 @@ import {
 	resultOf,
 } from "./book.ts";
 import type { Worktree } from "./host.ts";
+import type { NamedRef } from "./pushes.ts";
 
 /** The commit a ref resolves to in `repo`, or undefined when the ref or repo is unknown. */
 export function refSha(repo: string, ref: string): string | undefined {
@@ -291,14 +293,17 @@ export function remoteTips(repo: string): Record<string, string> {
  * The remote-tracking refs a bash call pushed: refs of `repo` whose tip differs from `before` and whose last reflog move is this
  * checkout's own `update by push`, each with the commit it shares with the repo's integration ref (the base of the car it sends).
  * Worktrees of one repo share their remote-tracking refs, so only a ref of this checkout's branch counts: its upstream, the same
- * branch name on a remote, or a ref now at this checkout's HEAD; another worktree's push in the same moment is not this session's car.
+ * branch name on a remote, a ref now at this checkout's HEAD, or a branch the push command named as a refspec destination (`named`);
+ * another worktree's push in the same moment is not this session's car.
  */
-export function pushedSince(repo: string, before: Record<string, string>): { ref: string; head: string; base: string }[] {
+export function pushedSince(repo: string, before: Record<string, string>, named: NamedRef[] = []): { ref: string; head: string; base: string }[] {
 	const into = ownRef(repo);
 	const branch = git(repo, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
 	const upstream = branch ? git(repo, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]) : undefined;
 	const at = git(repo, ["rev-parse", "HEAD"]);
-	const ours = (ref: string, head: string) => head === at || ref === upstream || (branch !== undefined && ref.slice(ref.indexOf("/") + 1) === branch);
+	// A branch the push command itself named (`git push origin agent/mp-x` from a checkout on another branch) is this session's car too.
+	const asked = (ref: string) => named.some((item) => ref.slice(ref.indexOf("/") + 1) === item.branch && (item.remote === undefined || !/^[\w.-]+$/.test(item.remote) || ref.slice(0, ref.indexOf("/")) === item.remote));
+	const ours = (ref: string, head: string) => head === at || ref === upstream || (branch !== undefined && ref.slice(ref.indexOf("/") + 1) === branch) || asked(ref);
 	const found: { ref: string; head: string; base: string }[] = [];
 	for (const [ref, head] of Object.entries(remoteTips(repo))) {
 		if (before[ref] === head || ref === into || !ours(ref, head)) continue;

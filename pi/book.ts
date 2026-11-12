@@ -76,6 +76,7 @@ import {
 } from "./support/book.ts";
 import { type Link, dispatchFrom, isChild, linkFrom, resultFrom } from "./support/host.ts";
 import { classify } from "./support/jev.ts";
+import { PUSH, pushRefspecs } from "./support/pushes.ts";
 import { checkLandings, declareLanded, integrationRef, landLines, linkNotes, partialLines, pushedSince, refSha, remoteTips, watchesRefs, watchTips } from "./support/landing.ts";
 import { linkOfResult, priorSpawns } from "./support/links.ts";
 import { orphanLines } from "./support/orphans.ts";
@@ -403,9 +404,6 @@ function statedAnchor(message: { role?: string; content?: unknown } | undefined)
 }
 
 const WIDGET_KEY = "anchorloop";
-// A bash call that may push: only then are the remote-tracking refs listed around it, and git decides what it pushed. Only global
-// options stand between `git` and `push` (a stash push is none), and a `--dry-run` or `-n` push moves no ref.
-const PUSH = /(?<![\w./-])git(?:\s+(?:-[Cc]\s+\S+|--?[A-Za-z][\w-]*(?:=\S*)?))*\s+push\b(?![^|;&\n]*\s(?:--dry-run|-n)(?![\w-]))/;
 
 const reply = (text: string) => ({ content: [{ type: "text" as const, text }], details: undefined });
 
@@ -908,11 +906,12 @@ export default function (pi: ExtensionAPI) {
 	 * Records each branch a bash call pushed (git says so: the remote-tracking ref moved by this checkout's own push) as a car this session
 	 * sends, bound to the unit whose ticket its name holds; its landing in the integration ref then counts for that unit.
 	 */
-	function recordPushes(book: Book, before: Map<string, Record<string, string>>, ctx: ExtensionContext): void {
+	function recordPushes(book: Book, before: Map<string, Record<string, string>>, command: string, ctx: ExtensionContext): void {
+		const named = pushRefspecs(command);
 		const todos = todosOf(ctx);
 		const found = unitsOf(book.entries, todos);
 		for (const [repo, tips] of before) {
-			for (const pushed of pushedSince(repo, tips)) {
+			for (const pushed of pushedSince(repo, tips, named)) {
 				const task = todoForTickets(todos, ticketKeys(pushed.ref));
 				const unit = task === undefined ? undefined : unitById(found, task);
 				book.entries.push(appendEntry(book.path, "push", { repo, ...pushed, ...(unit ? { task: unit.id } : {}) }));
@@ -1110,8 +1109,19 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.setWidget(WIDGET_KEY, [`⚓ ${kind} · ${at}${open ? ` · ${open} friction` : ""}`, ...units], { placement: "belowEditor" });
 	}
 
-	/** Records what a finished tool call shows; returns the tool result with any line the loop adds. */
+	/**
+	 * Records what a finished tool call shows; returns the tool result with any line the loop adds. A main session whose book another
+	 * session resumed is told so on whatever tool result comes next, and that call records nothing in a loop that is no longer its own.
+	 */
 	function recordResult(event: ToolResultEvent, ctx: ExtensionContext) {
+		const moved = childId() === undefined && !openLoop(ctx) ? movedNotice(ctx) : undefined;
+		if (moved) {
+			return { content: [...((event.content as unknown[]) ?? []), { type: "text", text: moved }], ...(event.structuredContent !== undefined ? { structuredContent: event.structuredContent } : {}) };
+		}
+		return recordOwnResult(event, ctx);
+	}
+
+	function recordOwnResult(event: ToolResultEvent, ctx: ExtensionContext) {
 		if (event.toolName === "bash") {
 			const book = openLoop(ctx) ?? (childId() !== undefined ? openChildFromBash(ctx, event) : undefined);
 			const notice = book ? recordBash(book, event, ctx.cwd) : undefined;
@@ -1119,7 +1129,7 @@ export default function (pi: ExtensionAPI) {
 			tipsBefore.delete(event.toolCallId);
 			const remotes = remotesBefore.get(event.toolCallId);
 			remotesBefore.delete(event.toolCallId);
-			if (book && remotes) recordPushes(book, remotes, ctx);
+			if (book && remotes) recordPushes(book, remotes, String((event.input as { command?: unknown }).command ?? ""), ctx);
 			if (book) checkLandings(book, before);
 			// The line only appends text, so the bash call's structured output passes on unchanged.
 			return notice ? { content: [...((event.content as unknown[]) ?? []), { type: "text", text: notice }], structuredContent: event.structuredContent } : undefined;
@@ -1129,11 +1139,6 @@ export default function (pi: ExtensionAPI) {
 			const input = event.input as { action?: unknown; id?: unknown };
 			let open = openLoop(ctx);
 			let said: string | undefined;
-			if (!open && input.action === "create") {
-				// A session whose book another session resumed is told so, and opens nothing in its place this time.
-				const moved = movedNotice(ctx);
-				if (moved) return { content: [...((event.content as unknown[]) ?? []), { type: "text", text: moved }] };
-			}
 			const resume = input.action === "create" ? (taskDetails(event.details) ?? []).map((task) => task.metadata?.resume).find((id): id is string => typeof id === "string" && id.trim() !== "") : undefined;
 			// A todo's `resume` adopts the book whether or not an opening `kind` came first; a refusal is said, never dropped.
 			if (resume !== undefined && open?.header.id !== resume) {

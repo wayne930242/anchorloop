@@ -246,6 +246,7 @@ When a watched ref moves, a worker's branch counts as landed by ancestry, equal 
 
 A loop that lists an observation watches its own repo's integration ref even with no linked child.
 A branch this session pushed (git shows the remote-tracking ref moved by its own push) is a car whose landing counts for the unit its name names by ticket.
+A push is found through global options with quoted values (`git -c 'credential.helper=!glab auth git-credential' push`, `-C "a b"`, `--git-dir /x`) or a path to `git`, and a branch the command names as a refspec destination (`git push origin agent/mp-x`, `HEAD:refs/heads/x`, `src:dst`) is this session's car even from a checkout on another branch; `--dry-run`, `-n`, `git stash push`, and a branch the command does not name are not.
 
 </details>
 
@@ -274,11 +275,11 @@ sequenceDiagram
 
 A handoff names the open book by the id on the `book:` line of `read`.
 The new session adopts it with `resume: <book id>` on its first `kind`, or with the first todo's `metadata.resume`.
-What its units proved and what the notice asked carry over.
+What its units proved and what the notice asked carry over, and so do the todos the new session created before `resume`, which a child reading the adopted book finds with their unit metadata.
 
 An unknown, closed, subagent's, or other project's id is refused with the reason.
 A session on the same ticket that passes no id keeps its own book.
-The session that left the book is told which session resumed it on its next call.
+The session that left the book is told which session resumed it on its next tool result, whichever tool it is, and records nothing in the moved book.
 
 </details>
 
@@ -361,6 +362,7 @@ A `full` rating after a clean review that follows the last change is not a conce
 
 A run that called `MonitorCreate`, `LoopCreate`, or `goal_wait`, or a `subagent` tool whose child the book has not linked yet, is waiting and is not judged.
 While a child the loop started has no result and its host does not report it gone, the loop is neither judged nor continued.
+A child that finished exits before its result is delivered, so a gone child whose session file was written within the last 30 seconds still counts as out.
 
 With two or more units the quiet is per unit.
 The notice judges, speaks, and continues for the first unit that waits on the coordinator: started, not done, nothing of its own out, and its step not asked since that unit's last evidence.
