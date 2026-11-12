@@ -1,0 +1,53 @@
+---
+title: anchorloop
+description: Agent workflow skills and loop extensions for pi.
+template: splash
+hero:
+  tagline: Agent workflow skills and loop extensions for pi. Every task enters through its own skill, picks a playbook, and runs one shared loop, Align → Anchor → Act → Verify, that the extensions watch.
+  actions:
+    - text: Get started
+      link: /anchorloop/guide/install/
+      icon: right-arrow
+    - text: The concepts
+      link: /anchorloop/guide/concepts/
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/wayne930242/anchorloop
+      icon: github
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+An agent that is told to "just fix it" skips the part that makes a fix believable: say what the user wants, name the check that will observe the result, change the code in small steps, and report what the check saw.
+anchorloop is a set of [pi](https://github.com/earendil-works/pi) skills and extensions that make that the default way every task runs.
+
+<CardGrid>
+	<Card title="One loop" icon="random">
+		Align on the goal, fix an anchor (the exact check that observes the result), act in small increments, verify against the anchor. Every entry skill runs it.
+	</Card>
+	<Card title="An entry skill per task" icon="puzzle">
+		`coding`, `investigating`, `inspecting`, `answering`, `writing`, `visual-designing`, `integrating`, `deploying`, and `solid-loop`, each with playbooks and its own anchor.
+	</Card>
+	<Card title="A book that watches" icon="list-format">
+		A loop book reads edits, check results, reviews, and landings as evidence, so the phase of a loop comes from what happened, not from what the agent says.
+	</Card>
+	<Card title="Merge trains" icon="rocket">
+		Reviewed branches enter a shared branch as one train: one assembly, one review, one run of the heavy gates, then deploy target by target.
+	</Card>
+	<Card title="Friction becomes rules" icon="approve-check">
+		An instruction that misled a run is recorded, classified, and fixed at its root by `solid-loop`, so the same detour does not return.
+	</Card>
+	<Card title="Handoffs that keep evidence" icon="forward-slash">
+		A session that leaves a loop hands over its book's id; the next session resumes with what each unit already proved.
+	</Card>
+</CardGrid>
+
+## Read next
+
+<CardGrid>
+	<LinkCard title="Install" href="/anchorloop/guide/install/" description="One command, plus pi-better-show for review pages." />
+	<LinkCard title="Quick start" href="/anchorloop/guide/quick-start/" description="Four steps through a first task." />
+	<LinkCard title="Concepts" href="/anchorloop/guide/concepts/" description="The loop, the four kinds, anchors, units, landing, and friction." />
+	<LinkCard title="Skills" href="/anchorloop/guide/skills/" description="The skill tree and what each entry skill anchors on." />
+</CardGrid>

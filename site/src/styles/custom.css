@@ -1,0 +1,181 @@
+/* The hero's screenshot is a wide capture of the GUI: keep it beside the title, not over it. */
+.hero {
+	grid-template-columns: minmax(0, 1fr);
+}
+.hero img {
+	width: 100%;
+	max-width: 44rem;
+	border-radius: 0.5rem;
+	box-shadow: var(--sl-shadow-lg);
+}
+@media (min-width: 50rem) {
+	.hero {
+		grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+	}
+}
+.hero > .hero-html {
+	width: 100%;
+}
+
+/*
+ * Section numbers: every h2 to h4 in a page's body is numbered 1, 1.1, 1.1.1 so an audience can name a place ("section 2.3").
+ * They are drawn by CSS counters (counter-set, not counter-reset: a reset on a sibling heading does not restart the count in Chrome), so no heading text or anchor changes. The "On this page" outline counts the same way: its list
+ * nests as the headings do (an h2 entry holds its h3 entries), and the first entry, the page's overview, is not numbered.
+ */
+:root {
+	--secnum-color: var(--sl-color-gray-3);
+}
+.sl-markdown-content {
+	counter-reset: s2 s3 s4;
+}
+.sl-markdown-content .sl-heading-wrapper.level-h2 {
+	counter-increment: s2;
+	counter-set: s3 0 s4 0;
+}
+.sl-markdown-content .sl-heading-wrapper.level-h3 {
+	counter-increment: s3;
+	counter-set: s4 0;
+}
+.sl-markdown-content .sl-heading-wrapper.level-h4 {
+	counter-increment: s4;
+}
+.sl-markdown-content .sl-heading-wrapper.level-h2 > h2::before,
+.sl-markdown-content .sl-heading-wrapper.level-h3 > h3::before,
+.sl-markdown-content .sl-heading-wrapper.level-h4 > h4::before {
+	margin-inline-end: 0.55em;
+	color: var(--secnum-color);
+	font-size: 0.8em;
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+	letter-spacing: 0.01em;
+}
+.sl-markdown-content .sl-heading-wrapper.level-h2 > h2::before {
+	content: counter(s2);
+}
+.sl-markdown-content .sl-heading-wrapper.level-h3 > h3::before {
+	content: counter(s2) "." counter(s3);
+}
+.sl-markdown-content .sl-heading-wrapper.level-h4 > h4::before {
+	content: counter(s2) "." counter(s3) "." counter(s4);
+}
+/* Not a documentation page (the home page's splash): nothing to number. */
+:root:not([data-has-sidebar]) .sl-markdown-content .sl-heading-wrapper > :is(h2, h3, h4)::before {
+	content: none;
+}
+
+/* The outline: numbered like the headings, h2 entries as headings of the list, h3 entries larger and set off by a rule. */
+starlight-toc nav > ul,
+mobile-starlight-toc .dropdown > ul {
+	counter-reset: toc -1;
+}
+starlight-toc ul ul,
+mobile-starlight-toc ul ul {
+	counter-reset: toc;
+}
+starlight-toc li,
+mobile-starlight-toc li {
+	counter-increment: toc;
+}
+starlight-toc a,
+mobile-starlight-toc a {
+	display: flex;
+	justify-content: flex-start;
+	gap: 0.5em;
+	line-height: 1.35;
+	font-size: var(--sl-text-sm);
+}
+starlight-toc a::before,
+mobile-starlight-toc a::before {
+	content: counters(toc, ".");
+	flex: none;
+	min-width: 2.2em;
+	color: var(--secnum-color);
+	font-variant-numeric: tabular-nums;
+}
+/* h2 entries lead; h3 entries are indented under a rule and a step lighter; h4 entries one step smaller. */
+starlight-toc nav > ul > li > a {
+	color: var(--sl-color-white);
+	font-weight: 600;
+}
+starlight-toc ul ul {
+	margin-inline-start: 0.5rem;
+	border-inline-start: 1px solid var(--sl-color-gray-5);
+}
+starlight-toc ul ul a {
+	color: var(--sl-color-gray-2);
+	font-weight: 400;
+	font-size: var(--sl-text-sm);
+}
+starlight-toc ul ul ul a {
+	font-size: var(--sl-text-xs);
+}
+starlight-toc a:hover,
+starlight-toc a[aria-current="true"] {
+	color: var(--sl-color-text-accent);
+}
+starlight-toc a[aria-current="true"]::before {
+	color: inherit;
+}
+mobile-starlight-toc .dropdown > ul > li > a {
+	font-weight: 600;
+}
+mobile-starlight-toc .dropdown ul ul a {
+	color: var(--sl-color-gray-2);
+}
+mobile-starlight-toc .dropdown ul ul a {
+	padding-inline-start: calc(1rem * var(--depth) + var(--pad-inline));
+}
+starlight-toc nav > ul > li:first-child > a::before,
+mobile-starlight-toc .dropdown > ul > li:first-child > a::before {
+	content: none;
+}
+
+/* A diagram wider than the column scrolls sideways at its natural size instead of shrinking its text. */
+.sl-markdown-content pre.mermaid {
+	overflow-x: auto;
+	/* Centering a flex item wider than the box clips its left half out of reach; auto margins on the svg center it only when it fits. */
+	justify-content: flex-start;
+}
+.sl-markdown-content pre.mermaid svg {
+	flex: none;
+	max-width: none;
+	margin-inline: auto;
+}
+
+/* A table's first column is a name: keep it whole instead of breaking it per character on a narrow screen. */
+.sl-markdown-content table th:first-child,
+.sl-markdown-content table td:first-child {
+	min-width: 5.5em;
+	overflow-wrap: normal;
+	word-break: keep-all;
+}
+
+/*
+ * Folded details: each section of the reference opens with its principle (and a diagram), and the limits, refusal rules, security facts,
+ * edge cases, and log keys wait in a <details> that is closed by default. Headings stay outside, so every anchor and the outline hold.
+ */
+.sl-markdown-content details {
+	margin-block: 0.9rem 1.2rem;
+	border-inline-start: 2px solid var(--sl-color-gray-5);
+	padding-inline-start: 1rem;
+}
+.sl-markdown-content details > summary {
+	cursor: pointer;
+	color: var(--sl-color-gray-2);
+	font-size: var(--sl-text-sm);
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	line-height: 1.5;
+}
+.sl-markdown-content details > summary:hover,
+.sl-markdown-content details[open] > summary {
+	color: var(--sl-color-text-accent);
+}
+.sl-markdown-content details[open] > summary {
+	margin-bottom: 0.4rem;
+}
+
+/* Code in a table cell breaks where it must, so a path or a run of identifiers cannot push the table wider than the column. */
+.sl-markdown-content td code {
+	overflow-wrap: anywhere;
+}

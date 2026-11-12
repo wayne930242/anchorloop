@@ -1,0 +1,53 @@
+---
+title: anchorloop
+description: 給 pi 用的 agent 工作流程 skill 與循環 extension。
+template: splash
+hero:
+  tagline: 給 pi 用的 agent 工作流程 skill 與循環 extension。每一種任務都從自己的 skill 進來，選一本 playbook，然後跑同一個由 extension 盯著的循環：Align → Anchor → Act → Verify。
+  actions:
+    - text: 開始使用
+      link: /anchorloop/zh-tw/guide/install/
+      icon: right-arrow
+    - text: 概念
+      link: /anchorloop/zh-tw/guide/concepts/
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/wayne930242/anchorloop
+      icon: github
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+只被告知「修好它」的 agent，會跳過讓修復可信的那一段：說出使用者要什麼、指名會觀察結果的檢查、以小步修改程式碼，並回報檢查看到了什麼。
+anchorloop 是一組 [pi](https://github.com/earendil-works/pi) 的 skill 與 extension，讓這套做法成為每個任務預設的跑法。
+
+<CardGrid>
+	<Card title="一個循環" icon="random">
+		對齊目標，定下 anchor（會觀察結果的那道檢查），以小步修改，再對照 anchor 驗證。每個入口 skill 都跑它。
+	</Card>
+	<Card title="每種任務一個入口 skill" icon="puzzle">
+		`coding`、`investigating`、`inspecting`、`answering`、`writing`、`visual-designing`、`integrating`、`deploying` 與 `solid-loop`，各有 playbook 和自己的 anchor。
+	</Card>
+	<Card title="一本盯著的 book" icon="list-format">
+		loop book 把修改、檢查結果、review 與併入讀成證據，所以 loop 走到哪個階段，來自實際發生的事，而不是 agent 的說法。
+	</Card>
+	<Card title="合併列車" icon="rocket">
+		審過的 branch 併成一班列車進入共用 branch：一次組裝、一次 review、一次完整 gate，再逐個目標部署。
+	</Card>
+	<Card title="friction 變成規則" icon="approve-check">
+		誤導過一次執行的指令會被記錄、分類，並由 `solid-loop` 從根源修正，同樣的繞路不會再回來。
+	</Card>
+	<Card title="保留證據的交接" icon="forward-slash">
+		離開 loop 的 session 交出 book 的 id；下一個 session 接手時，各 unit 已證明的事都還在。
+	</Card>
+</CardGrid>
+
+## 接著讀
+
+<CardGrid>
+	<LinkCard title="安裝" href="/anchorloop/zh-tw/guide/install/" description="一行指令，另外加裝 pi-better-show 開複查頁。" />
+	<LinkCard title="快速開始" href="/anchorloop/zh-tw/guide/quick-start/" description="用四個步驟走完第一個任務。" />
+	<LinkCard title="概念" href="/anchorloop/zh-tw/guide/concepts/" description="循環、四種 loop、anchor、unit、併入與 friction。" />
+	<LinkCard title="Skill" href="/anchorloop/zh-tw/guide/skills/" description="skill 樹，以及每個入口 skill 的 anchor。" />
+</CardGrid>
