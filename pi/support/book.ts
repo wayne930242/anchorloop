@@ -1031,10 +1031,31 @@ export function repoRootOf(path: string): string | undefined {
 	// Git answers for the nearest existing directory, so that is the key: sibling paths under a missing directory share one spawn.
 	const dir = existingDir(dirname(resolve(path)));
 	if (roots?.has(dir)) return roots.get(dir);
-	const repo = git(dir, ["rev-parse", "--show-toplevel"]);
+	const found = gitRootAbove(dir);
+	const repo = found === "ask" ? git(dir, ["rev-parse", "--show-toplevel"]) : found;
 	const root = repo ? real(repo) : undefined;
 	roots?.set(dir, root);
 	return root;
+}
+
+/**
+ * The working tree root above `dir`, found without spawning git: the nearest ancestor holding a `.git` directory (with a
+ * `HEAD`) or a `.git` file naming its gitdir (a linked worktree or submodule), undefined when none does or when `dir` is
+ * inside a git dir. `"ask"` when the environment redirects git (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_CEILING_DIRECTORIES`), so only git can answer.
+ */
+function gitRootAbove(dir: string): string | undefined | "ask" {
+	if (process.env.GIT_DIR || process.env.GIT_WORK_TREE || process.env.GIT_CEILING_DIRECTORIES) return "ask";
+	for (let at = dir; ; at = dirname(at)) {
+		if (basename(at) === ".git") return undefined;
+		const dot = join(at, ".git");
+		try {
+			const info = statSync(dot);
+			if (info.isDirectory() ? existsSync(join(dot, "HEAD")) : info.isFile() && readFileSync(dot, "utf-8").startsWith("gitdir:")) return at;
+		} catch {
+			// No `.git` here: keep climbing.
+		}
+		if (dirname(at) === at) return undefined;
+	}
 }
 
 export type Base = { repo: string; head: string; /** The linked child whose repo this is, when a link recorded the base. */ child?: string };

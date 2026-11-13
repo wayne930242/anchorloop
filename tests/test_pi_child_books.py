@@ -29,8 +29,8 @@ PROJECTS = 120
 LINKS = 60
 
 
-def child_book(child: str, *entries: dict) -> str:
-    header = {"id": f"{child}-0000", "owner": child, "session": None, "cwd": f"/nowhere/{child}", "opened": "2026-11-13T00:00:00.000Z"}
+def child_book(child: str, *entries: dict, cwd: str | None = None) -> str:
+    header = {"id": f"{child}-0000", "owner": child, "session": None, "cwd": cwd or f"/nowhere/{child}", "opened": "2026-11-13T00:00:00.000Z"}
     lines = ["# anchorloop loop book", *(f"{key}: {json.dumps(value)}" for key, value in header.items()), "entries:"]
     lines += [f"- {json.dumps({'ts': '2026-11-13T00:00:01.000Z', **entry})}" for entry in entries]
     return "\n".join(lines) + "\n"
@@ -46,6 +46,10 @@ class TestChildBookReads(BookCase):
                 book.write("- " + json.dumps({"ts": "2026-11-13T00:00:02.000Z", "stage": "link", "child": f"c{i}", "name": f"w{i}"}) + "\n")
         for p in range(PROJECTS):
             (self.books / f"p{p:03d}" / "agents").mkdir(parents=True)
+        # Each child works in its own existing directory (as live worktrees do), so no two share a root lookup.
+        cwds = Path(self.temp_dir.name) / "cwds"
+        for i in range(LINKS):
+            (cwds / f"c{i}").mkdir(parents=True)
         open_friction = 0
         for i in range(LINKS):
             agents = self.books / f"p{i % PROJECTS:03d}" / "agents"
@@ -56,7 +60,7 @@ class TestChildBookReads(BookCase):
             if i % 6 == 0:
                 entries.append({"stage": "reflect", "friction": ["1"], "class": "resolved"})
                 open_friction -= 1
-            (agents / f"c{i}.yml").write_text(child_book(f"c{i}", *entries))
+            (agents / f"c{i}.yml").write_text(child_book(f"c{i}", *entries, cwd=str(cwds / f"c{i}")))
             if i % 10 == 0:
                 # An earlier closed loop of the child, and a second book of it in another project.
                 (agents / f"c{i}.closed-1.yml").write_text(child_book(f"c{i}", {"stage": "friction", "id": 1, "tried": "a", "found": "b", "led_by": "none"}))
@@ -100,7 +104,12 @@ class TestChildBookReads(BookCase):
         self.bounded([tool_call("write", "src/app.py")])
 
     def test_c_a_worker_result_indexes_once_and_spawns_git_once_per_repo(self):
+        # The children's directories are all distinct and exist: a git spawn per child directory would be LINKS spawns.
         got = self.bounded([subagent_result("worker", "w0", "done")])
+        self.assertLessEqual(got["counts"]["git"], 12, got["counts"])
+
+    def test_c2_a_reviewer_result_spawns_git_boundedly(self):
+        got = self.bounded([subagent_result("reviewer", "w0", "P0=0 P1=0")])
         self.assertLessEqual(got["counts"]["git"], 12, got["counts"])
 
     def test_d_closing_a_loop_indexes_once(self):
@@ -139,3 +148,33 @@ console.log(JSON.stringify(out));
         self.assertEqual(got["appended"], got["before"] + 1, got)
         self.assertLess(got["deleted"], got["appended"])
         self.assertEqual(got["children"], 0)
+
+    def test_g_the_root_found_without_git_is_the_root_git_reports(self):
+        base = Path(self.temp_dir.name) / "roots"
+        plain = base / "plain" / "sub"
+        plain.mkdir(parents=True)
+        repo = base / "repo"
+        (repo / "a" / "b").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        (repo / "f").write_text("x")
+        subprocess.run(["git", "-C", str(repo), "add", "f"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "m"], check=True)
+        tree = base / "tree"
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "--detach", str(tree)], check=True)
+        (tree / "deep").mkdir()
+        paths = [plain / "_", repo / "_", repo / "a" / "b" / "_", repo / "gone" / "x" / "_", tree / "_", tree / "deep" / "_", repo / ".git" / "_", base / "_"]
+        script = """
+import { registerHooks } from "node:module";
+registerHooks({ resolve: (s, c, next) => s === "@earendil-works/pi-coding-agent" ? { url: "data:text/javascript," + encodeURIComponent("export function parseSkillBlock(){return null}"), shortCircuit: true } : next(s, c) });
+const book = await import(process.argv[1]);
+console.log(JSON.stringify(process.argv.slice(2).map((p) => book.repoRootOf(p) ?? null)));
+"""
+        proc = subprocess.run(["node", "--input-type=module", "-e", script, (PI_DIR / "support" / "book.ts").as_uri(), *map(str, paths)], capture_output=True, text=True, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for path, ours in zip(paths, json.loads(proc.stdout.strip().splitlines()[-1])):
+            near = path.parent
+            while not near.exists():
+                near = near.parent
+            asked = subprocess.run(["git", "-C", str(near), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+            theirs = str(Path(asked.stdout.strip()).resolve()) if asked.returncode == 0 else None
+            self.assertEqual(ours, theirs, path)
