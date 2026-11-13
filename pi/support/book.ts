@@ -781,18 +781,22 @@ export function retryPairs(entries: Entry[]): RetryPair[] {
 	const pairs: RetryPair[] = [];
 	const passed = new Set<string>();
 	const failed = new Map<string, number>();
+	// A todo id names a todo of the list it was recorded under: runs of a reused id in a later list are another todo's.
+	let list = -1;
 	entries.forEach((entry, index) => {
+		if (TODO_LISTS.has(entry.stage)) list = index;
 		if (entry.declared === true) return;
 		const key = entry.stage === "taskrun" ? `task#${entry.id}` : entry.stage === "verify" || entry.stage === "check" ? `anchor:${String(entry.command ?? "")}` : undefined;
 		if (!key || typeof entry.exit !== "number") return;
+		const scoped = entry.stage === "taskrun" ? `${list}:${key}` : key;
 		if (entry.exit !== 0) {
-			if (passed.has(key) && !failed.has(key)) failed.set(key, index);
+			if (passed.has(scoped) && !failed.has(scoped)) failed.set(scoped, index);
 		} else {
-			if (failed.has(key)) {
-				pairs.push({ key, fail: failed.get(key) as number, pass: index });
-				failed.delete(key);
+			if (failed.has(scoped)) {
+				pairs.push({ key, fail: failed.get(scoped) as number, pass: index });
+				failed.delete(scoped);
 			}
-			passed.add(key);
+			passed.add(scoped);
 		}
 	});
 	return pairs;
@@ -1352,6 +1356,18 @@ export function taskOfEntry(entries: Entry[], index: number, epoch: number = tod
 	const entry = entries[index];
 	const id = entry.stage === "taskrun" ? entry.id : entry.task;
 	return typeof id === "number" && index > epoch ? id : undefined;
+}
+
+/**
+ * True when an entry is evidence for a todo of an earlier todo list: it names a todo id and was recorded before the current list
+ * started, or it is marked `retired` (the landing of a car pushed for such a todo, recorded after the list changed). It belongs to no
+ * unit, since the id now names another todo, or none.
+ */
+export function retiredEntry(entries: Entry[], index: number, epoch: number = todoEpoch(entries)): boolean {
+	const entry = entries[index];
+	if (entry.retired === true) return true;
+	const id = entry.stage === "taskrun" ? entry.id : entry.task;
+	return typeof id === "number" && index <= epoch;
 }
 
 /**

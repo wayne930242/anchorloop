@@ -20,7 +20,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type Book, type Entry, appendEntry, currentKind, guarded, isOpenTask, openLoop, replayTodos, validFollowup, withChildActs, withTrees } from "./support/book.ts";
+import { type Book, type Entry, appendEntry, currentKind, guarded, isOpenTask, openLoop, replayTodos, todoEpoch, validFollowup, withChildActs, withTrees } from "./support/book.ts";
 import { checkLandings } from "./support/landing.ts";
 import { type UnitRow, type Units, computeLoop, outDispatches, unitEntries } from "./support/units.ts";
 import { type Answers, classify } from "./support/jev.ts";
@@ -160,11 +160,17 @@ const evidenceCount = (entries: { stage: string }[]): number => entries.filter((
 /** The memory key of the loop as one unit; a unit of a loop of two or more is keyed by its todo id. */
 const LOOP = "loop";
 
-/** What the notice last recorded for `unit` in the book: the latest `notice` entry, and the latest one that carried the advisory sent. */
-function memory(book: Book, unit: string | number): { judged?: Entry; told?: string } {
-	const own = book.entries.filter((entry) => entry.stage === "notice" && entry.unit === unit);
-	const told = [...own].reverse().find((entry) => typeof entry.told === "string");
-	return { judged: own.at(-1), ...(told ? { told: String(told.told) } : {}) };
+/**
+ * What the notice last recorded for `unit` in the book: the latest `notice` entry, and the latest one that carried the advisory sent.
+ * A unit is keyed by its todo id, which names a todo of the current todo list only, so a unit's memory starts with that list; `current`
+ * says whether the latest notice was recorded under it (the loop's `open` todo ids are of the list they were recorded under).
+ */
+function memory(book: Book, unit: string | number): { judged?: Entry; told?: string; current: boolean } {
+	const epoch = todoEpoch(book.entries);
+	const own = book.entries.map((entry, index) => ({ entry, index })).filter(({ entry, index }) => entry.stage === "notice" && entry.unit === unit && (typeof unit !== "number" || index > epoch));
+	const told = [...own].reverse().find(({ entry }) => typeof entry.told === "string")?.entry;
+	const last = own.at(-1);
+	return { judged: last?.entry, ...(told ? { told: String(told.told) } : {}), current: last !== undefined && last.index > epoch };
 }
 
 function remember(book: Book, fields: Record<string, unknown>): void {
@@ -301,8 +307,8 @@ export default function (pi: ExtensionAPI) {
 		// A book is judged again on new evidence or on an open todo that needs an answer and was not there last time; a status flip alone is neither.
 		const evidence = evidenceCount(book.entries);
 		const open = todos.filter((task) => isOpenTask(task) && !validFollowup(task.metadata?.followup)).map((task) => task.id);
-		const { judged, told } = memory(book, LOOP);
-		const before = { evidence: Number(judged?.evidence ?? 0), open: Array.isArray(judged?.open) ? (judged.open as number[]) : [] };
+		const { judged, told, current } = memory(book, LOOP);
+		const before = { evidence: Number(judged?.evidence ?? 0), open: current && Array.isArray(judged?.open) ? (judged.open as number[]) : [] };
 		if (evidence <= before.evidence && open.every((todo) => before.open.includes(todo))) return;
 		remember(book, { unit: LOOP, evidence, open });
 		const snap = snapshot(book, ctx);

@@ -125,7 +125,7 @@ pi-anchorloop 從 2.11.0 起實作版本 1，而 pi-straw-boss 接受 2.11.0 或
 
 ## 輪替長壽的 session
 
-連續跑好幾天的 main 以 id 交出它的 loop，讓下一個 session 一開始就握有各 unit 已證明的事。
+連續跑好幾天的 main 以 id 交出它的 loop，讓下一個 session 一開始就握有這個 loop 已證明的事；各 unit 的審查與落地要重新取得。
 
 <details>
 <summary>交接</summary>

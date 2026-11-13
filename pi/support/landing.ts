@@ -18,6 +18,7 @@ import {
 	passingRunOf,
 	repoRootOf,
 	resultOf,
+	retiredEntry,
 	taskOfEntry,
 	todoEpoch,
 } from "./book.ts";
@@ -100,7 +101,7 @@ export function standing(repo: string, ref: string, head: string, base: string):
 type Watch = { key: string; dir: string; ref: string };
 
 /** A branch whose landing is watched: a linked worker's branch, a branch this session pushed (`pushed`), or the coordinator's own commits. */
-type Candidate = { key: string; dir: string; ref: string; label: string; child?: string; pushed?: string; task?: number; head: string; base: string; repo: string };
+type Candidate = { key: string; dir: string; ref: string; label: string; child?: string; pushed?: string; task?: number; retired?: true; head: string; base: string; repo: string };
 
 const watchKey = (dir: string, ref: string): string => `${dir}\0${ref}`;
 
@@ -264,12 +265,12 @@ function candidatesOn(entries: Entry[], watch: Watch, ownBase?: string): Candida
 	}
 	for (const push of pushedBranches(entries)) {
 		if (push.repo !== watch.dir || push.ref === watch.ref || !existsSync(watch.dir)) continue;
-		found.push({ key: watch.key, dir: watch.dir, ref: watch.ref, label: push.ref, pushed: push.ref, ...(push.task !== undefined ? { task: push.task } : {}), head: push.head, base: push.base, repo: watch.dir });
+		found.push({ key: watch.key, dir: watch.dir, ref: watch.ref, label: push.ref, pushed: push.ref, ...(push.task !== undefined ? { task: push.task } : {}), ...(push.retired ? { retired: push.retired } : {}), head: push.head, base: push.base, repo: watch.dir });
 	}
 	return found;
 }
 
-type Pushed = { repo: string; ref: string; head: string; base: string; task?: number };
+type Pushed = { repo: string; ref: string; head: string; base: string; task?: number; retired?: true };
 
 /** The latest push of each branch this session pushed (`push` entries), the car it sends to an integrator. */
 function pushedBranches(entries: Entry[]): Pushed[] {
@@ -277,9 +278,10 @@ function pushedBranches(entries: Entry[]): Pushed[] {
 	const epoch = todoEpoch(entries);
 	for (const [index, entry] of entries.entries()) {
 		if (entry.stage !== "push" || typeof entry.repo !== "string" || typeof entry.ref !== "string" || typeof entry.head !== "string" || typeof entry.base !== "string") continue;
-		// A push for a todo of an earlier todo list is bound to no unit: that id now names another todo.
+		// A push for a todo of an earlier todo list is bound to no unit: that id now names another todo, so its landing is marked retired.
 		const task = taskOfEntry(entries, index, epoch);
-		latest.set(`${entry.repo}\0${entry.ref}`, { repo: entry.repo, ref: entry.ref, head: entry.head, base: entry.base, ...(task !== undefined ? { task } : {}) });
+		const retired = retiredEntry(entries, index, epoch);
+		latest.set(`${entry.repo}\0${entry.ref}`, { repo: entry.repo, ref: entry.ref, head: entry.head, base: entry.base, ...(task !== undefined ? { task } : {}), ...(retired ? { retired } : {}) });
 	}
 	return [...latest.values()];
 }
@@ -385,6 +387,7 @@ export function checkLandings(book: Book, before: Record<string, string> = {}): 
 				...(candidate.child ? { child: candidate.child } : {}),
 				...(candidate.pushed ? { pushed: candidate.pushed } : {}),
 				...(candidate.task !== undefined ? { task: candidate.task } : {}),
+				...(candidate.retired ? { retired: true } : {}),
 				label: candidate.label,
 				ref: candidate.ref,
 				sha: tip,
@@ -439,7 +442,8 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 		const at = refSha(watch.dir, watch.ref);
 		if (!at || refSha(watch.dir, params.sha as string) === undefined || git(watch.dir, ["merge-base", "--is-ancestor", params.sha as string, at]) === undefined) return unconfirmed(`${(params.sha as string).slice(0, 12)} is not in ${watch.ref} here (fetch it, or give \`ref\`)`, true);
 	}
-	const done = landedKeys(book.entries);
+	// A landing of a retired todo's car does not keep a unit of the current list from declaring the same car its own.
+	const done = landedKeys(book.entries.filter((_, index) => params.task === undefined || !retiredEntry(book.entries, index)));
 	const lines: string[] = [];
 	for (const watch of wanted) {
 		const watchTip = refSha(watch.dir, watch.ref) ?? tip;
@@ -457,13 +461,16 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 			const run = candidate.child ? childPassingRun(book, candidate.child) : undefined;
 			const checked = new Set(Array.isArray(run?.run.trees) ? (run?.run.trees as unknown[]).map(String) : []);
 			const exact = candidate.child ? watchTree !== undefined && checked.has(watchTree) : candidate.pushed !== undefined && watchTree !== undefined && git(candidate.repo, ["rev-parse", `${candidate.head}^{tree}`]) === watchTree;
+			// A car pushed for a retired todo lands for the unit the declaration names, else for no unit.
 			const task = candidate.task ?? (candidate.pushed !== undefined ? params.task : undefined);
+			const retired = candidate.retired === true && task === undefined;
 			book.entries.push(
 				appendEntry(book.path, "land", {
 					...base,
 					...(candidate.child ? { child: candidate.child } : {}),
 					...(candidate.pushed ? { pushed: candidate.pushed } : {}),
 					...(task !== undefined ? { task } : {}),
+					...(retired ? { retired: true } : {}),
 					label: candidate.label,
 					ref: candidate.ref,
 					sha: watchTip,

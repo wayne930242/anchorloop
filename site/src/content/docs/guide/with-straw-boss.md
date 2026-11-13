@@ -125,7 +125,7 @@ pi-anchorloop implements version 1 since 2.11.0, and pi-straw-boss accepts pi-an
 
 ## Rotating a long-lived session
 
-A main that runs for days hands over its loop by id, so the next session starts with what each unit already proved.
+A main that runs for days hands over its loop by id, so the next session starts with what the loop proved; each unit earns its reviews and landings again.
 
 <details>
 <summary>The handoff</summary>

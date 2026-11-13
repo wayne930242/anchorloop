@@ -25,6 +25,7 @@ import {
 	latestTasks,
 	ownBases,
 	real,
+	retiredEntry,
 	taskOfEntry,
 	todoEpoch,
 	todoListEnd,
@@ -157,17 +158,25 @@ function boundUnit(entries: Entry[], child: string): Unit | undefined {
 	return found.units.length >= 2 ? unitById(found, found.bound.get(child) ?? -1) : undefined;
 }
 
+/** True when a todo of the current list, in any status, names the child `link` records: by its `agents`, or by a ticket of the link. */
+function namedByCurrentList(entries: Entry[], link: Entry): boolean {
+	const names = [String(link.child), String(link.name ?? "")];
+	const tickets = Array.isArray(link.tickets) ? link.tickets.map(String) : [];
+	return tasksFromEntries(entries).some((task) => ofTask(task).agents.some((agent) => names.includes(agent)) || taskTickets(task).some((key) => tickets.includes(key)));
+}
+
 /**
  * The anchor a linked child inherits: the anchor of the unit it is bound to in a loop of two or more units, else its parent's loop
  * anchor command. A child linked under an earlier todo list (its parent's book was adopted, or its todos cleared, while it worked)
- * that no unit of the current list binds keeps the unit it was dispatched for: the todos of the list its link was recorded under.
+ * that no todo of the current list names keeps the unit it was dispatched for: the todos of the list its link was recorded under.
+ * Once a todo of the current list names it, the current list decides, whatever the todo's status or the number of units.
  */
 export function childAnchor(id: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
 	for (const book of findParentBooks(id, env)) {
 		const { entries } = book;
 		let unit = boundUnit(entries, id);
 		const linked = entries.findLastIndex((entry) => entry.stage === "link" && entry.child === id);
-		if (!unit && linked >= 0 && linked < todoEpoch(entries)) unit = boundUnit(entries.slice(0, todoListEnd(entries, linked)), id);
+		if (!unit && linked >= 0 && linked < todoEpoch(entries) && !namedByCurrentList(entries, entries[linked])) unit = boundUnit(entries.slice(0, todoListEnd(entries, linked)), id);
 		if (unit?.anchor) return unit.anchor;
 		const anchor = anchorCommand(entries);
 		if (anchor && anchorIsCommand(entries)) return anchor;
@@ -257,7 +266,7 @@ export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[]
 	const epoch = todoEpoch(entries);
 	for (const [index, entry] of entries.entries()) {
 		// A task-tied entry of an earlier todo list is evidence for a todo that is gone.
-		if (index <= epoch && (entry.stage === "taskrun" || typeof entry.task === "number")) continue;
+		if (retiredEntry(entries, index, epoch)) continue;
 		switch (entry.stage) {
 			case "taskrun":
 				if (entry.id === unit.id) kept.push({ ...entry, stage: "verify", task: unit.id });
