@@ -1,4 +1,4 @@
-# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ 0feadca -->
+# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ a2d9426 -->
 
 [README](../README.zh-TW.md) 背後的完整行為。skill 告訴 agent 怎麼工作；下面六個 pi extension 則盯著工作進行，說出還缺什麼，所以請找到需要的那一節，其餘可以略過。
 
