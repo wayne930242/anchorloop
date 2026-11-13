@@ -1239,10 +1239,17 @@ export function resolveRef(ref: string, cwd: string, entries: Entry[]): string {
 	return "missing";
 }
 
-/** The latest `task` entry of each task id, in id order. */
+/**
+ * The latest `task` entry of each task id, in id order. The todos are those of the session that holds the book: an `adopt` entry
+ * retires every task recorded before it, since those ids name the old session's todo list, which the new session does not have.
+ * The new session's todos (carried in by the adopt, or created after it) then reuse those ids, and a child binds by ticket to its units.
+ */
 export function latestTasks(entries: Entry[]): Entry[] {
 	const byId = new Map<number, Entry>();
-	for (const entry of entries) if (entry.stage === "task" && typeof entry.id === "number") byId.set(entry.id, entry);
+	for (const entry of entries) {
+		if (entry.stage === "adopt") byId.clear();
+		else if (entry.stage === "task" && typeof entry.id === "number") byId.set(entry.id, entry);
+	}
 	return [...byId.values()].sort((a, b) => (a.id as number) - (b.id as number));
 }
 

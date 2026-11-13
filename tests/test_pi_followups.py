@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from tests import test_pi_coordinator as coordinator
-from tests.pi_harness import SETTLE, bash_call, bash_result, run, stage, todo_create, todo_state, todo_update, tool_result
+from tests.pi_harness import SETTLE, bash_call, bash_result, run, stage, todo_create, todo_state, todo_update, tool_call, tool_result
 from tests.test_pi_book import BookCase, edit, text_of
 from tests.test_pi_coordinator import CoordinatorCase, done_loop, spawn
 
@@ -98,6 +98,53 @@ class TestAdoptedTasks(HandoffCase):
         self.replay([mine, stage(stage="kind", resume=first), mine], session="sess-2")
         entries = self.book(next(self.books.rglob("sess-2.yml")))[1]
         self.assertEqual(len([entry for entry in entries if entry["stage"] == "task" and entry["subject"] == "MP-2002 import"]), 1)
+
+
+class TestResumeOrders(HandoffCase):
+    """R3-F002: whichever order the new session resumes in, its todos are the adopted book's, and a child binds to its unit by ticket."""
+
+    CHILD = {"PI_SUBAGENT_ID": "kid", "PI_SUBAGENT_NAME": "mp1001-worker"}
+
+    def old_session(self) -> str:
+        self.git_repo()
+        old = [todo_create("MP-7001 a", 1, "in_progress", observe=["a"]), todo_create("MP-7002 b", 2, "in_progress", observe=["b"]),
+               todo_create("MP-1001 old export", 3, "in_progress", observe=["c"])]
+        self.replay([stage(stage="kind", kind="inline", intent="old", anchor="make loop"), *old, stage(stage="friction", tried="a", found="b")])
+        return self.book_id()
+
+    def new_todos(self, **first_meta) -> list[dict]:
+        return [todo_create("MP-1001 export", 1, "in_progress", anchor="pytest -q tests/test_export.py", observe=["export works"], **first_meta),
+                todo_create("MP-1002 other", 2, "in_progress", anchor="make two", observe=["other works"])]
+
+    def child_anchor_after(self, steps: list[dict]) -> list[str]:
+        self.as_session("sess-2")
+        self.replay([*steps, spawn("kid", "mp1001-worker", cwd=str(self.cwd))], session="sess-2")
+        self.replay([tool_call("write", "src/app.py"), edit()], env=self.CHILD)
+        child = next(path for path in self.book_files() if "agents" in path.parts)
+        return [entry["check"] for entry in self.book(child)[1] if entry["stage"] == "anchor"]
+
+    def adopted_subjects(self) -> list[str]:
+        entries = self.book(next(self.books.rglob("sess-2.yml")))[1]
+        after = entries[max(i for i, entry in enumerate(entries) if entry["stage"] == "adopt") :]
+        return [entry["subject"] for entry in after if entry["stage"] == "task"]
+
+    def test_kind_resume_first_records_the_new_todos_and_the_child_binds_to_the_new_unit(self):
+        first = self.old_session()
+        anchors = self.child_anchor_after([stage(stage="kind", resume=first), *self.new_todos()])
+        self.assertEqual(self.adopted_subjects(), ["MP-1001 export", "MP-1002 other"])
+        self.assertEqual(anchors, ["pytest -q tests/test_export.py"])
+
+    def test_a_resume_in_the_first_todo_records_the_new_todos_and_the_child_binds_to_the_new_unit(self):
+        first = self.old_session()
+        anchors = self.child_anchor_after(self.new_todos(resume=first))
+        self.assertEqual(self.adopted_subjects(), ["MP-1001 export", "MP-1002 other"])
+        self.assertEqual(anchors, ["pytest -q tests/test_export.py"])
+
+    def test_todos_before_kind_resume_bind_the_child_although_the_old_session_held_the_same_ticket_open(self):
+        first = self.old_session()
+        anchors = self.child_anchor_after([*self.new_todos(), stage(stage="kind", resume=first)])
+        self.assertEqual(self.adopted_subjects(), ["MP-1001 export", "MP-1002 other"])
+        self.assertEqual(anchors, ["pytest -q tests/test_export.py"], "the old session's open MP-1001 todo still competed for the child")
 
 
 class TestPushForms(CoordinatorCase):
