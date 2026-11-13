@@ -241,14 +241,15 @@ class TestDeliveryGap(CoordinatorCase):
         self.assertEqual(self.settle_calls(None), 1)
 
     def test_a_dispatch_with_accept_stays_out_while_the_parent_reruns_its_check(self):
-        # R3-F003: the host reruns the check after the child exits, up to its timeout (default 600 s), before it delivers the result.
+        # R3-F003: the host reruns the check after the child exits, up to its timeout (default 600 s), before it delivers the result;
+        # issue #18: the child's own run of the check may come after its last session write, so the grace holds two timeouts.
         self.assertEqual(self.settle_calls(120, {"run": "pytest -q"}), 0, "a child whose check the host is still rerunning counted as gone")
         self.tearDown()
         self.setUp()
-        self.assertEqual(self.settle_calls(120, {"run": "pytest -q", "timeoutSec": 60}), 1, "the grace ignored the check's own timeout")
+        self.assertEqual(self.settle_calls(160, {"run": "pytest -q", "timeoutSec": 60}), 1, "the grace ignored the check's own timeout")
         self.tearDown()
         self.setUp()
-        self.assertEqual(self.settle_calls(700, {"run": "pytest -q"}), 1, "the grace outlived the default check timeout")
+        self.assertEqual(self.settle_calls(1300, {"run": "pytest -q"}), 1, "the grace outlived two default check timeouts")
 
 
 if __name__ == "__main__":

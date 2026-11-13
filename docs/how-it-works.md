@@ -252,7 +252,7 @@ A push is found through global options with quoted values (`git -c 'credential.h
 
 ## Handoff
 
-A new session can take over a loop by the book's id, and what the units proved and what the notice asked carry over.
+A new session can take over a loop by the book's id, and what the loop proved and what the notice asked carry over.
 
 <!-- Diagram: adoptBook in pi/support/book.ts, the resume handling in pi/book.ts. -->
 
@@ -266,7 +266,7 @@ sequenceDiagram
   B->>F: kind with resume: id, before any evidence
   F-->>B: the book moves to B's path
   F-->>A: marker at A's path: moved, to B
-  B->>B: continues, units' evidence carried over
+  B->>B: continues, loop evidence carried over
   A->>A: next call: told B resumed it
 ```
 
@@ -275,7 +275,7 @@ sequenceDiagram
 
 A handoff names the open book by the id on the `book:` line of `read`.
 The new session adopts it with `resume: <book id>` on its first `kind`, or with the first todo's `metadata.resume`.
-What its units proved and what the notice asked carry over; its todos are the new session's, created before or after `resume`, and the old session's todos are retired, so a child reading the adopted book binds by ticket to the new session's unit.
+What the loop proved and what the notice asked carry over; its todos are the new session's, created before or after `resume`, and the old session's todos are retired with the runs, verifies, landings, and reviews recorded for them, so a new todo that reuses an old id earns its own evidence, as after a `todo clear`. A child reading the adopted book binds by ticket to the new session's unit, and a child the old session started that no new unit binds keeps the anchor of the unit it was dispatched for.
 
 An unknown, closed, subagent's, or other project's id is refused with the reason.
 A session on the same ticket that passes no id keeps its own book.
@@ -362,7 +362,7 @@ A `full` rating after a clean review that follows the last change is not a conce
 
 A run that called `MonitorCreate`, `LoopCreate`, or `goal_wait`, or a `subagent` tool whose child the book has not linked yet, is waiting and is not judged.
 While a child the loop started has no result and its host does not report it gone, the loop is neither judged nor continued.
-A child that finished exits before its result is delivered, so a gone child whose session file was written within the last 30 seconds still counts as out. A dispatch with `accept` waits while the host reruns its check, so its grace grows by the check's `timeoutSec` (600 seconds by default).
+A child that finished exits before its result is delivered, so a gone child whose session file was written within the last 30 seconds still counts as out. A dispatch with `accept` waits while the child runs its check and the host reruns it, so its grace grows by twice the check's `timeoutSec` (600 seconds by default).
 
 With two or more units the quiet is per unit.
 The notice judges, speaks, and continues for the first unit that waits on the coordinator: started, not done, nothing of its own out, and its step not asked since that unit's last evidence.

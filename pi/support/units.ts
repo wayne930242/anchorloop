@@ -25,6 +25,9 @@ import {
 	latestTasks,
 	ownBases,
 	real,
+	taskOfEntry,
+	todoEpoch,
+	todoListEnd,
 	validFollowup,
 } from "./book.ts";
 import { type Link, liveness } from "./host.ts";
@@ -148,14 +151,26 @@ export function unitsOf(entries: Entry[], todos: Task[]): Units {
 	return { units: units.sort((a, b) => a.id - b.id), bound, trees };
 }
 
-/** The anchor a linked child inherits: the anchor of the unit it is bound to in a loop of two or more units, else its parent's loop anchor command. */
+/** The unit `child` is bound to among the todos of `entries`, in a loop of two or more units. */
+function boundUnit(entries: Entry[], child: string): Unit | undefined {
+	const found = unitsOf(entries, tasksFromEntries(entries));
+	return found.units.length >= 2 ? unitById(found, found.bound.get(child) ?? -1) : undefined;
+}
+
+/**
+ * The anchor a linked child inherits: the anchor of the unit it is bound to in a loop of two or more units, else its parent's loop
+ * anchor command. A child linked under an earlier todo list (its parent's book was adopted, or its todos cleared, while it worked)
+ * that no unit of the current list binds keeps the unit it was dispatched for: the todos of the list its link was recorded under.
+ */
 export function childAnchor(id: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
 	for (const book of findParentBooks(id, env)) {
-		const found = unitsOf(book.entries, tasksFromEntries(book.entries));
-		const unit = found.units.length >= 2 ? unitById(found, found.bound.get(id) ?? -1) : undefined;
+		const { entries } = book;
+		let unit = boundUnit(entries, id);
+		const linked = entries.findLastIndex((entry) => entry.stage === "link" && entry.child === id);
+		if (!unit && linked >= 0 && linked < todoEpoch(entries)) unit = boundUnit(entries.slice(0, todoListEnd(entries, linked)), id);
 		if (unit?.anchor) return unit.anchor;
-		const anchor = anchorCommand(book.entries);
-		if (anchor && anchorIsCommand(book.entries)) return anchor;
+		const anchor = anchorCommand(entries);
+		if (anchor && anchorIsCommand(entries)) return anchor;
 	}
 	return undefined;
 }
@@ -173,15 +188,16 @@ export type Dispatch = { child: string; index: number; /** The unit the dispatch
  * How long after its last write to its session a gone child still counts as out: 1 s poll + 0.5 s sidecar wait + 15 s handoff
  * git (pi-herdr-agents maestro/adapters/pi/pi-harness-adapter.ts:584, completion.ts:129-136, maestro/runtime/worktree-operations.ts:46),
  * rounded up. A child killed in the middle of work counts for the same time, then stops. A dispatch with `accept` waits longer: the
- * host reruns the check after the child exits and delivers the result after it (maestro/runtime/pi-run-session.ts:746), so its link's
- * `acceptSec`, the check's timeout, is added.
+ * child runs the check itself before it settles, possibly after its last write to the session, and the host reruns it after the child
+ * exits and delivers the result after that (maestro/runtime/pi-run-session.ts:746), so twice its link's `acceptSec`, the check's
+ * timeout, is added.
  */
 export const DELIVERY_GRACE_MS = 30_000;
 
 /** True when the child's session file was written within the delivery grace: a result that has not arrived yet is still on its way. */
 function deliveryPending(sessionFile: unknown, acceptSec: unknown): boolean {
 	if (typeof sessionFile !== "string") return false;
-	const grace = DELIVERY_GRACE_MS + (typeof acceptSec === "number" && acceptSec > 0 ? acceptSec * 1000 : 0);
+	const grace = DELIVERY_GRACE_MS + (typeof acceptSec === "number" && acceptSec > 0 ? 2 * acceptSec * 1000 : 0);
 	try {
 		return Date.now() - statSync(sessionFile).mtimeMs < grace;
 	} catch {
@@ -211,7 +227,7 @@ export function outDispatches(entries: Entry[], found?: Units): Dispatch[] {
 		// Only a `link` carries a check: a follow-up `send` goes to a persistent child, which takes no `accept`.
 		const acceptSec = dispatch.stage === "link" ? dispatch.acceptSec : undefined;
 		if (liveness({ ...(link ?? {}), child, ...(typeof sessionFile === "string" ? { sessionFile } : {}) } as Link) === "gone" && !deliveryPending(sessionFile, acceptSec)) continue;
-		const task = typeof dispatch.task === "number" ? dispatch.task : found?.bound.get(child);
+		const task = taskOfEntry(entries, index) ?? found?.bound.get(child);
 		out.push({ child, index, ...(task !== undefined ? { task } : {}) });
 	}
 	return out;
@@ -228,6 +244,8 @@ export function childrenOf(entries: Entry[], found: Units, unit: Unit): string[]
 /**
  * The book's entries as `unit` sees them: everything nobody owns, the links, results, landings, adopted runs and reviews of its children,
  * and its own task-anchor runs as verify entries; the unit's kind, anchor and observe list come last, so they win over the loop's.
+ * An entry recorded for a todo of an earlier todo list (before an `adopt` or a `todo clear`) belongs to no unit: the unit that now
+ * holds that id is another todo, which earns its own evidence.
  */
 export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[] {
 	const mine = (child: unknown): boolean => typeof child !== "string" || !found.bound.has(child) || found.bound.get(child) === unit.id;
@@ -236,7 +254,10 @@ export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[]
 	const touches = (repo: unknown): boolean =>
 		typeof repo !== "string" || ownTrees.length === 0 || ownTrees.includes(repo) || ![...found.trees.values()].some((trees) => trees.includes(repo));
 	const kept: Entry[] = [];
-	for (const entry of entries) {
+	const epoch = todoEpoch(entries);
+	for (const [index, entry] of entries.entries()) {
+		// A task-tied entry of an earlier todo list is evidence for a todo that is gone.
+		if (index <= epoch && (entry.stage === "taskrun" || typeof entry.task === "number")) continue;
 		switch (entry.stage) {
 			case "taskrun":
 				if (entry.id === unit.id) kept.push({ ...entry, stage: "verify", task: unit.id });

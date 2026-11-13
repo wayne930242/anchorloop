@@ -54,6 +54,7 @@ import {
 	summarizeArtifact,
 	taskLines,
 	taskDetails,
+	taskOfEntry,
 	type Sweep,
 	sweep,
 	touchRepo,
@@ -452,6 +453,11 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function recordTasks(book: Book, details: unknown, input: { action?: unknown; id?: unknown }, cwd: string): void {
+		// A clear empties the list and restarts its ids at 1: the ids recorded so far name todos that are gone.
+		if (input.action === "clear") {
+			book.entries.push(appendEntry(book.path, "reset", {}));
+			return;
+		}
 		const tasks = taskDetails(details) ?? [];
 		const known = new Set(latestTasks(book.entries).map((entry) => entry.id));
 		const touched = input.action === "create" ? tasks.filter((task) => !known.has(task.id)) : tasks.filter((task) => task.id === Number(input.id));
@@ -982,7 +988,8 @@ export default function (pi: ExtensionAPI) {
 				if (!run) continue;
 				const ran = run.run.ts;
 				const stale = findChildBooks(child).some(({ book: own }) => own.entries.some((entry) => entry.stage === "edit" && entry.ts > ran));
-				if (stale || book.entries.some((entry) => entry.stage === "verify" && entry.child === child && entry.task === unit.id && entry.ran === ran)) continue;
+				const taken = book.entries.some((entry, index) => entry.stage === "verify" && entry.child === child && taskOfEntry(book.entries, index) === unit.id && entry.ran === ran);
+				if (stale || taken) continue;
 				const last = `adopted from ${run.name}${run.run.last ? `: ${String(run.run.last)}` : ""}`.slice(0, 200);
 				const at = run.run.treeAt && typeof run.run.treeAt === "object" ? { treeAt: run.run.treeAt } : {};
 				book.entries.push(appendEntry(book.path, "verify", { command: unit.anchor.slice(0, 200), exit: 0, last, adopted: run.name, child, task: unit.id, ran, ...at }));
@@ -1206,14 +1213,19 @@ export default function (pi: ExtensionAPI) {
 		const failed = result.failed;
 		const child = link?.child;
 		let dispatch: Entry | undefined;
+		let sent: number | undefined;
 		for (let i = book.entries.length - 1; i >= 0 && !dispatch; i--) {
 			const entry = book.entries[i];
-			if ((entry.stage === "link" || entry.stage === "send") && entry.child === child && child !== undefined) dispatch = entry;
+			if ((entry.stage === "link" || entry.stage === "send") && entry.child === child && child !== undefined) {
+				dispatch = entry;
+				// A `send` names the unit it went for, while that todo is still of the current list.
+				if (entry.stage === "send") sent = taskOfEntry(book.entries, i);
+			}
 		}
 		const todos = todosOf(ctx);
 		const found = unitsOf(book.entries, todos);
-		const brief = dispatch?.stage === "send" && typeof dispatch.task === "number" ? undefined : result.task;
-		const task = dispatch?.stage === "send" && typeof dispatch.task === "number" ? dispatch.task : found.units.length >= 2 ? unitOfDispatch(found, todos, typeof child === "string" ? child : undefined, brief ?? "") : undefined;
+		const brief = sent !== undefined ? undefined : result.task;
+		const task = sent !== undefined ? sent : found.units.length >= 2 ? unitOfDispatch(found, todos, typeof child === "string" ? child : undefined, brief ?? "") : undefined;
 		const trees = dispatch?.treeAt ? { treeAt: dispatch.treeAt } : dispatch ? {} : treeAtField(reviewedRepos(book, ctx.cwd));
 		const counts = parseBlocking(text);
 		let blocking: boolean | null = null;

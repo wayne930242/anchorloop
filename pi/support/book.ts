@@ -214,12 +214,13 @@ export function movedTo(book: Book): { session: string; id: string; ts: string }
 }
 
 /** The entries a loop records as it opens, before any evidence: a session whose loop holds only these may still resume another book. */
-const OPENING_STAGES: ReadonlySet<string> = new Set(["kind", "anchor", "observe", "base", "task"]);
+const OPENING_STAGES: ReadonlySet<string> = new Set(["kind", "anchor", "observe", "base", "task", "reset"]);
 
 /**
  * Adopts the open book another main session of this project handed off, by the id its handoff names (`read` shows it): the book
- * moves to this session's path with this session's file in its header, so what its units proved and what the notice asked carry
- * over, and an `adopt` entry names where it came from. The old path keeps a closed marker naming this session, so the session that
+ * moves to this session's path with this session's file in its header, so what the loop proved and what the notice asked carry
+ * over, and an `adopt` entry names where it came from: it starts a new todo list, so what was recorded for the old session's todos
+ * stays with them (`taskOfEntry`). The old path keeps a closed marker naming this session, so the session that
  * left the book is told on its next call instead of losing it silently. An id that is unknown, closed, a subagent's, another
  * project's, or asked for while this session's own loop already holds evidence is refused with the reason. The `task` entries this
  * session recorded before resuming are appended to the adopted book, so a child reading it finds those todos' unit metadata.
@@ -232,7 +233,8 @@ export function adoptBook(who: Who, id: string, env: NodeJS.ProcessEnv = process
 	let carried: Entry[] = [];
 	if (own && !isClosed(own)) {
 		if (own.header.id === id) return { book: own };
-		carried = own.entries.filter((entry) => entry.stage === "task");
+		const epoch = todoEpoch(own.entries);
+		carried = own.entries.filter((entry, index) => entry.stage === "task" && index > epoch);
 		if (own.entries.some((entry) => !OPENING_STAGES.has(entry.stage))) {
 			return { refused: `this session's own loop ${String(own.header.id)} already holds evidence; \`resume\` goes on the first \`kind\` or todo, before the loop records anything` };
 		}
@@ -503,7 +505,7 @@ export function currentIntent(entries: Entry[]): string | undefined {
 	return found?.intent as string | undefined;
 }
 
-const NOT_STAGES = new Set(["base", "link", "send", "push", "adopt", "notice", "result", "watch", "observe", "close", "task", "taskrun", "verification", "skip", "back", "friction", "reflect", "goldfish"]);
+const NOT_STAGES = new Set(["base", "link", "send", "push", "adopt", "reset", "notice", "result", "watch", "observe", "close", "task", "taskrun", "verification", "skip", "back", "friction", "reflect", "goldfish"]);
 
 /** A landing that counts: git confirmed a watched branch in the ref. A declared sha no watched branch explains is recorded but is neither the act nor a point to observe from. */
 export const countsAsLanding = (entry: Entry): boolean => entry.stage === "land" && entry.verified !== false && entry.rule !== "declared";
@@ -1325,14 +1327,42 @@ export function resolveRef(ref: string, cwd: string, entries: Entry[]): string {
 }
 
 /**
- * The latest `task` entry of each task id, in id order. The todos are those of the session that holds the book: an `adopt` entry
- * retires every task recorded before it, since those ids name the old session's todo list, which the new session does not have.
- * The new session's todos (carried in by the adopt, or created after it) then reuse those ids, and a child binds by ticket to its units.
+ * The stages that start a new todo list: an `adopt` brings in the book of a session whose todo list the new session does not have,
+ * and a `reset` records a `todo clear`, after which ids restart at 1. A todo id names a todo of the list it was recorded under.
+ */
+const TODO_LISTS: ReadonlySet<string> = new Set(["adopt", "reset"]);
+
+/** The index of the entry that started the current todo list, or -1 when the book holds one list only. */
+export function todoEpoch(entries: Entry[]): number {
+	for (let i = entries.length - 1; i >= 0; i--) if (TODO_LISTS.has(entries[i].stage)) return i;
+	return -1;
+}
+
+/** The index of the first entry after `index` that started a new todo list, or the book's length: the end of the list `index` was recorded under. */
+export function todoListEnd(entries: Entry[], index: number): number {
+	for (let i = index + 1; i < entries.length; i++) if (TODO_LISTS.has(entries[i].stage)) return i;
+	return entries.length;
+}
+
+/**
+ * The todo id an entry names (a `taskrun`'s `id`, else its `task`), when it was recorded under the current todo list. An entry
+ * recorded under an earlier list names a todo that is gone, whose id a todo of the current list may reuse: it names no todo.
+ */
+export function taskOfEntry(entries: Entry[], index: number, epoch: number = todoEpoch(entries)): number | undefined {
+	const entry = entries[index];
+	const id = entry.stage === "taskrun" ? entry.id : entry.task;
+	return typeof id === "number" && index > epoch ? id : undefined;
+}
+
+/**
+ * The latest `task` entry of each task id, in id order. The todos are those of the current todo list: an `adopt` or `reset` entry
+ * retires every task recorded before it, since those ids name an earlier list. The todos of the current list (carried in by the
+ * adopt, or created after it or after the clear) then reuse those ids, and a child binds by ticket to its units.
  */
 export function latestTasks(entries: Entry[]): Entry[] {
 	const byId = new Map<number, Entry>();
 	for (const entry of entries) {
-		if (entry.stage === "adopt") byId.clear();
+		if (TODO_LISTS.has(entry.stage)) byId.clear();
 		else if (entry.stage === "task" && typeof entry.id === "number") byId.set(entry.id, entry);
 	}
 	return [...byId.values()].sort((a, b) => (a.id as number) - (b.id as number));
@@ -1344,7 +1374,11 @@ export const TASK_LEGEND = "#id status subject — anchor (last exit) — ref �
 export function taskLines(entries: Entry[], todos: Task[], cwd: string): string[] {
 	const live = new Map(todos.map((task) => [task.id, task]));
 	const exits = new Map<number, Entry>();
-	for (const entry of entries) if (entry.stage === "taskrun" && typeof entry.id === "number") exits.set(entry.id, entry);
+	const epoch = todoEpoch(entries);
+	entries.forEach((entry, index) => {
+		const id = entry.stage === "taskrun" ? taskOfEntry(entries, index, epoch) : undefined;
+		if (id !== undefined) exits.set(id, entry);
+	});
 	return latestTasks(entries)
 		.filter((entry) => live.has(entry.id as number))
 		.map((entry) => {

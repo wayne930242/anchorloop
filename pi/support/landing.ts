@@ -18,6 +18,8 @@ import {
 	passingRunOf,
 	repoRootOf,
 	resultOf,
+	taskOfEntry,
+	todoEpoch,
 } from "./book.ts";
 import type { Worktree } from "./host.ts";
 import type { NamedRef } from "./pushes.ts";
@@ -272,9 +274,12 @@ type Pushed = { repo: string; ref: string; head: string; base: string; task?: nu
 /** The latest push of each branch this session pushed (`push` entries), the car it sends to an integrator. */
 function pushedBranches(entries: Entry[]): Pushed[] {
 	const latest = new Map<string, Pushed>();
-	for (const entry of entries) {
+	const epoch = todoEpoch(entries);
+	for (const [index, entry] of entries.entries()) {
 		if (entry.stage !== "push" || typeof entry.repo !== "string" || typeof entry.ref !== "string" || typeof entry.head !== "string" || typeof entry.base !== "string") continue;
-		latest.set(`${entry.repo}\0${entry.ref}`, { repo: entry.repo, ref: entry.ref, head: entry.head, base: entry.base, ...(typeof entry.task === "number" ? { task: entry.task } : {}) });
+		// A push for a todo of an earlier todo list is bound to no unit: that id now names another todo.
+		const task = taskOfEntry(entries, index, epoch);
+		latest.set(`${entry.repo}\0${entry.ref}`, { repo: entry.repo, ref: entry.ref, head: entry.head, base: entry.base, ...(task !== undefined ? { task } : {}) });
 	}
 	return [...latest.values()];
 }
