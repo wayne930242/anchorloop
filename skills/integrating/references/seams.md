@@ -2,6 +2,8 @@
 
 `integrating` and `deploying` run the same procedure under any host. They leave seven places open, called seams, where a host or a project decides who, where, or how. Each seam below says what its mechanism must do; an unbound seam takes its default.
 
+A host can check the procedure it binds by the `merge-train-contract` value in the two skills' frontmatter `metadata`: it lists the contract versions these skills implement. The version rises only when a host written for the earlier one would go wrong; a skill that still serves older hosts lists both, as `"1 2"`.
+
 ## Binding
 
 The session's instructions and the project's instructions each hold at most one block. Each line binds one seam to a mechanism; a seam the block leaves out keeps its default:

@@ -1,6 +1,8 @@
 ---
 name: deploying
 description: Use when shipping a build to a target such as a test environment, staging, production, a server, or a cluster, when running the deploy stage of a merge train, syncing files to a host (rsync, Ansible), rolling back a failed deploy, or checking that a target runs the version just shipped.
+metadata:
+  merge-train-contract: "1"
 ---
 
 # Deploying

@@ -1,6 +1,8 @@
 ---
 name: integrating
 description: Use when reviewed work is ready to enter a shared integration branch in a project that batches reviewed branches into a merge train, such as batching branches into a merge train, assembling and gating a batch, merging a car to develop or main, handling a red integration branch, or taking an urgent or fix-forward car.
+metadata:
+  merge-train-contract: "1"
 ---
 
 # Integrating

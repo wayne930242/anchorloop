@@ -10,7 +10,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 
 // ---- constants (hooks/validators/constants.py) ----
 
-const SKILL_ALLOWED_FIELDS = new Set(["name", "description"]);
+const SKILL_ALLOWED_FIELDS = new Set(["name", "description", "metadata"]);
 const SKILL_MAX_RECOMMENDED_LINES = 300;
 
 const DEFENSIVE_PATTERNS = [

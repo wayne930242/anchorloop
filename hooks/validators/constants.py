@@ -1,7 +1,7 @@
 """Constants for skill, rule, and durable spec validation."""
 
 # Allowed fields in SKILL.md YAML frontmatter
-SKILL_ALLOWED_FIELDS = frozenset({"name", "description"})
+SKILL_ALLOWED_FIELDS = frozenset({"name", "description", "metadata"})
 
 # Maximum recommended lines for a self-contained SKILL.md before progressive disclosure (official standard: 300 lines)
 SKILL_MAX_RECOMMENDED_LINES = 300

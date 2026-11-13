@@ -72,6 +72,24 @@ version: 1.0.0
         warnings = check_skill_md(skill_file)
         self.assertTrue(any("extra frontmatter fields" in w for w in warnings))
 
+    def test_metadata_frontmatter_field_allowed(self):
+        skill_dir = self.base_path / "my-skill"
+        skill_dir.mkdir()
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text(
+            """---
+name: my-skill
+description: Use when executing streamlined tasks.
+metadata:
+  merge-train-contract: "1"
+---
+# Content
+""",
+            encoding="utf-8",
+        )
+        warnings = check_skill_md(skill_file)
+        self.assertFalse(any("extra frontmatter fields" in w for w in warnings), warnings)
+
     def test_broken_markdown_links(self):
         skill_dir = self.base_path / "my-skill"
         skill_dir.mkdir()

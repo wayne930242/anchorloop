@@ -33,6 +33,7 @@ FIXTURES: dict[str, str | bytes] = {
     "skill-ok/SKILL.md": SKILL_OK.format(name="ok", body="Plain body."),
     "skill-frontmatter/SKILL.md": "# no frontmatter\n",
     "skill-extra/SKILL.md": "---\nname: x\nextra: 1\nauthor: me\ndescription: does things\n---\nbody\n",
+    "skill-metadata/SKILL.md": "---\nname: m\ndescription: Use when m.\nmetadata:\n  merge-train-contract: \"1\"\n---\nbody\n",
     "skill-yaml/SKILL.md": "---\nname: x\ndescription: Use when a: b is true\n---\nbody\n",
     "skill-noname/SKILL.md": "---\ndescription: Use when x.\n---\nbody\n",
     "skill-emphasis/SKILL.md": SKILL_OK.format(
