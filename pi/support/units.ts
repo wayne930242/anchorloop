@@ -172,16 +172,18 @@ export type Dispatch = { child: string; index: number; /** The unit the dispatch
 /**
  * How long after its last write to its session a gone child still counts as out: 1 s poll + 0.5 s sidecar wait + 15 s handoff
  * git (pi-herdr-agents maestro/adapters/pi/pi-harness-adapter.ts:584, completion.ts:129-136, maestro/runtime/worktree-operations.ts:46),
- * rounded up. A child killed in the middle of work counts for the same time, then stops. Not covered: a dispatch with `accept`,
- * whose result waits for the parent's re-run of the check (up to its timeout, maestro/runtime/pi-run-session.ts:746); issue #17.
+ * rounded up. A child killed in the middle of work counts for the same time, then stops. A dispatch with `accept` waits longer: the
+ * host reruns the check after the child exits and delivers the result after it (maestro/runtime/pi-run-session.ts:746), so its link's
+ * `acceptSec`, the check's timeout, is added.
  */
 export const DELIVERY_GRACE_MS = 30_000;
 
 /** True when the child's session file was written within the delivery grace: a result that has not arrived yet is still on its way. */
-function deliveryPending(sessionFile: unknown): boolean {
+function deliveryPending(sessionFile: unknown, acceptSec: unknown): boolean {
 	if (typeof sessionFile !== "string") return false;
+	const grace = DELIVERY_GRACE_MS + (typeof acceptSec === "number" && acceptSec > 0 ? acceptSec * 1000 : 0);
 	try {
-		return Date.now() - statSync(sessionFile).mtimeMs < DELIVERY_GRACE_MS;
+		return Date.now() - statSync(sessionFile).mtimeMs < grace;
 	} catch {
 		return false;
 	}
@@ -206,7 +208,9 @@ export function outDispatches(entries: Entry[], found?: Units): Dispatch[] {
 		if (entries.slice(index + 1).some((entry) => entry.stage === "result" && entry.child === child)) continue;
 		const link = entries.find((entry) => entry.stage === "link" && entry.child === child);
 		const sessionFile = typeof dispatch.sessionFile === "string" ? dispatch.sessionFile : link?.sessionFile;
-		if (liveness({ ...(link ?? {}), child, ...(typeof sessionFile === "string" ? { sessionFile } : {}) } as Link) === "gone" && !deliveryPending(sessionFile)) continue;
+		// Only a `link` carries a check: a follow-up `send` goes to a persistent child, which takes no `accept`.
+		const acceptSec = dispatch.stage === "link" ? dispatch.acceptSec : undefined;
+		if (liveness({ ...(link ?? {}), child, ...(typeof sessionFile === "string" ? { sessionFile } : {}) } as Link) === "gone" && !deliveryPending(sessionFile, acceptSec)) continue;
 		const task = typeof dispatch.task === "number" ? dispatch.task : found?.bound.get(child);
 		out.push({ child, index, ...(task !== undefined ? { task } : {}) });
 	}

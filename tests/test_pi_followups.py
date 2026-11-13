@@ -217,14 +217,17 @@ class TestDeliveryGap(CoordinatorCase):
     process_record = coordinator.TestOrphans.process_record
     dead_pid = coordinator.TestOrphans.dead_pid
 
-    def settle_calls(self, age: float | None) -> int:
+    def settle_calls(self, age: float | None, accept: dict | None = None) -> int:
         self.shared_repo()
         session = self.process_record(self.dead_pid())
         if age is not None:
             Path(session).write_text("{}\n")
             os.utime(session, (time.time() - age, time.time() - age))
         (self.cwd / "app.py").write_text("print(2)\n")
-        out = self.replay([*done_loop(self), spawn("kid", "w1", session, cwd=str(self.cwd)), edit("app.py"), bash_result("pytest -q", 0, "1 passed"), SETTLE],
+        link = spawn("kid", "w1", session, cwd=str(self.cwd))
+        if accept is not None:
+            link["payload"]["input"]["accept"] = accept
+        out = self.replay([*done_loop(self), link, edit("app.py"), bash_result("pytest -q", 0, "1 passed"), SETTLE],
                           extensions=("book.ts", "second-thought.ts"), classify=coordinator.TestTreeReads.JEV)
         return len(out["classifyCalls"])
 
@@ -236,6 +239,16 @@ class TestDeliveryGap(CoordinatorCase):
 
     def test_a_gone_child_with_no_session_file_does_not(self):
         self.assertEqual(self.settle_calls(None), 1)
+
+    def test_a_dispatch_with_accept_stays_out_while_the_parent_reruns_its_check(self):
+        # R3-F003: the host reruns the check after the child exits, up to its timeout (default 600 s), before it delivers the result.
+        self.assertEqual(self.settle_calls(120, {"run": "pytest -q"}), 0, "a child whose check the host is still rerunning counted as gone")
+        self.tearDown()
+        self.setUp()
+        self.assertEqual(self.settle_calls(120, {"run": "pytest -q", "timeoutSec": 60}), 1, "the grace ignored the check's own timeout")
+        self.tearDown()
+        self.setUp()
+        self.assertEqual(self.settle_calls(700, {"run": "pytest -q"}), 1, "the grace outlived the default check timeout")
 
 
 if __name__ == "__main__":

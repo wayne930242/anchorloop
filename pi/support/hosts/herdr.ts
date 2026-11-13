@@ -46,6 +46,18 @@ function startedAt(pid: number): string | undefined {
 	return undefined;
 }
 
+// pi-herdr-agents maestro/core/accept.ts: ACCEPT_DEFAULT_TIMEOUT_SEC and ACCEPT_MAX_TIMEOUT_SEC.
+const ACCEPT_DEFAULT_SEC = 600;
+const ACCEPT_MAX_SEC = 3600;
+
+/** The check timeout of a dispatch's `accept`, defaulted and bounded as the host does; nothing when the dispatch has no check. */
+function acceptOf(value: unknown): { acceptSec?: number } {
+	const accept = record(value);
+	if (!accept || !text(accept.run)) return {};
+	const given = accept.timeoutSec;
+	return { acceptSec: typeof given === "number" && Number.isInteger(given) && given >= 1 && given <= ACCEPT_MAX_SEC ? given : ACCEPT_DEFAULT_SEC };
+}
+
 export const herdr: Host = {
 	name: "herdr",
 	isChild: (env) => Boolean(env.PI_SUBAGENT_ID),
@@ -66,6 +78,7 @@ export const herdr: Host = {
 			...(text(started.sessionFile) ? { sessionFile: text(started.sessionFile) } : {}),
 			...(text(record(input)?.cwd) ? { cwd: text(record(input)?.cwd) } : {}),
 			...(worktree ? { worktree } : {}),
+			...acceptOf(record(input)?.accept),
 		};
 	},
 	dispatchFrom(toolName, input, details): Dispatch | undefined {

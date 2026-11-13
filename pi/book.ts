@@ -514,6 +514,7 @@ export default function (pi: ExtensionAPI) {
 				...(tickets.length ? { tickets } : {}),
 				cwd: source,
 				...(link.worktree ? { worktree: link.worktree } : {}),
+				...(link.acceptSec !== undefined ? { acceptSec: link.acceptSec } : {}),
 				...(ref ? { ref, ...(tip ? { refSha: tip } : {}) } : {}),
 				// A reviewer's verdict is of the code as it was when it was dispatched: the trees it was given.
 				...(REVIEWERS.has(String(link.agent ?? "")) ? treeAtField(reviewedRepos(book, cwd)) : {}),
