@@ -22,13 +22,17 @@ A_ANCHOR = "pytest tests/export"
 ONE = {"subject": "MP-1001 export", "status": "in_progress", "metadata": {"anchor": A_ANCHOR, "observe": ["export page loads"]}}
 NEW_ONE = {"subject": "MP-9001 import", "status": "in_progress", "metadata": {"anchor": "pytest tests/import", "observe": ["import page loads"]}}
 NEW_TWO = {"subject": "MP-9002 report", "status": "in_progress", "metadata": {"anchor": "pytest tests/report", "observe": ["report page loads"]}}
+B_ANCHOR = "pytest tests/view"
+TWO_SEEN = {"subject": "MP-1002 view", "status": "in_progress", "metadata": {"anchor": B_ANCHOR, "observe": ["view page loads"]}}
+TWO_AGAIN = {"subject": "MP-1002 view again", "status": "in_progress", "metadata": {"anchor": B_ANCHOR, "observe": ["view page loads"]}}
 AGAIN = {"subject": "MP-1001 export again", "status": "in_progress", "metadata": {"anchor": A_ANCHOR, "observe": ["export page loads"]}}
 PUSH = "git checkout -qb agent/mp-1001 && git commit -qam fix && git push -q origin agent/mp-1001"
 FETCH = "git fetch -q origin"
 
 
 class TestRetiredCar(multitask.MultitaskCase):
-    """R18-F001: the car pushed for a todo of an earlier list lands for no unit of the current list."""
+    """R18-F001: the car pushed for a todo of an earlier list lands for no unit of the current list, until the recreated unit of its
+    ticket declares it (R3-F002: that unit and no other)."""
 
     def push_car(self) -> None:
         self.shared_repo()
@@ -68,6 +72,62 @@ class TestRetiredCar(multitask.MultitaskCase):
         after = self.unit("MP-1001", CLEAR, *self.creates(AGAIN, TWO), stage(stage="landed", sha=sha, ref="origin/main", task=1),
                           bash_result(A_ANCHOR, 0, "ok"), stage(stage="verify", note="export page loads", checkpoint=1, task=1), tasks=(AGAIN, TWO))
         self.assertNotIn("(after it lands)", after, f"the recreated MP-1001 could not declare its car {sha[:12]}: {after}")
+
+    def push(self, ticket: str, name: str) -> list[dict]:
+        """The steps that push `name` as the car `agent/<ticket>`, cut from main."""
+        branch = f"agent/{ticket}"
+        command = f"git checkout -q main && git checkout -qb {branch} && git add {name} && git commit -qm fix && git push -q origin {branch}"
+        return [bash_call(command), run("git", "checkout", "-q", "main"), run("git", "checkout", "-qb", branch), run("sh", "-c", f"echo x > {name}"), run("git", "add", name),
+                run("git", "commit", "-qm", "fix"), run("git", "push", "-q", "origin", branch), bash_result(command, 0, "")]
+
+    def merge_cars(self, *tickets: str) -> str:
+        train = self.root / "train"
+        subprocess.run(["git", "clone", "-q", str(self.root / "remote.git"), str(train)], check=True, capture_output=True)
+        for args in (["config", "user.email", "t@example.com"], ["config", "user.name", "t"], *(["merge", "-q", "--no-ff", "-m", "train", f"origin/agent/{ticket}"] for ticket in tickets), ["push", "-q", "origin", "main"]):
+            self.sh(*args, where=train)
+        return self.sh("rev-parse", "HEAD", where=train)
+
+    def taken(self) -> dict[str, list]:
+        """Each car's landings by the unit they were recorded for (None: for no unit)."""
+        found: dict[str, list] = {}
+        for entry in self.entries("land"):
+            if entry.get("verified") and entry.get("pushed"):
+                found.setdefault(entry["pushed"], []).append(entry.get("task"))
+        return found
+
+    def test_each_recreated_unit_declares_its_own_car_and_only_that(self):
+        self.shared_repo()
+        old, new = (ONE, TWO_SEEN), (AGAIN, TWO_AGAIN)
+        # The linked worker makes the session watch origin/main, as in `push_car`.
+        self.replay([*self.creates(*old), spawn("k2", "w2"), *self.push("mp-1001", "one.py"), *self.push("mp-1002", "two.py")], branch=self.branch(*old))
+        self.assertEqual([entry.get("task") for entry in self.entries("push")], [1, 2], "each car was not pushed for its own unit")
+        self.replay([CLEAR, *self.creates(*new)], branch=self.branch(*new))
+        sha = self.merge_cars("mp-1001", "mp-1002")
+        out = self.replay([*self.fetch(), stage(stage="landed", sha=sha, ref="origin/main", task=1)], branch=self.branch(*new))
+        self.assertEqual(self.taken(), {"origin/agent/mp-1001": [None, 1], "origin/agent/mp-1002": [None]}, f"MP-1001's declaration took a car that is not its own: {text_of(out['results'][-1])}")
+        out = self.replay([stage(stage="landed", sha=sha, ref="origin/main", task=2), bash_result(B_ANCHOR, 0, "ok"), stage(stage="verify", note="view page loads", checkpoint=1, task=2),
+                           stage(stage="landed", sha=sha, ref="origin/main", task=2), stage(stage="read")], branch=self.branch(*new))
+        self.assertEqual(self.taken(), {"origin/agent/mp-1001": [None, 1], "origin/agent/mp-1002": [None, 2]})
+        read = text_of(out["results"][-1])
+        after = next(line for line in read.splitlines() if line.startswith("MP-1002"))
+        self.assertNotIn("(after it lands)", after, f"the recreated MP-1002 could not declare its own car: {after}")
+        # A car recorded for no unit and then for its own unit is one landing to the reader.
+        for text in (read, text_of(out["results"][-2])):
+            self.assertEqual([text.count(f"origin/agent/{ticket} ") for ticket in ("mp-1001", "mp-1002")], [1, 1], text)
+
+    def test_a_unit_of_another_ticket_cannot_declare_the_retired_car(self):
+        self.push_car()
+        new = (NEW_ONE, NEW_TWO)
+        self.replay([CLEAR, *self.creates(*new)], branch=self.branch(*new))
+        sha = self.merge_train()
+        steps = [*self.fetch(), stage(stage="landed", sha=sha, ref="origin/main", task=2), bash_result("pytest tests/report", 0, "ok"),
+                 stage(stage="verify", note="report page loads", checkpoint=1, task=2), stage(stage="read")]
+        out = self.replay(steps, branch=self.branch(*new))
+        self.assertEqual(self.taken(), {"origin/agent/mp-1001": [None]}, "MP-9002 took the car of MP-1001")
+        declared = text_of(out["results"][next(i for i, step in enumerate(steps) if step.get("params", {}).get("stage") == "landed")])
+        self.assertIn("names another ticket", declared, "the reply does not say why the car was left")
+        after = next(line for line in text_of(out["results"][-1]).splitlines() if line.startswith("MP-9002"))
+        self.assertIn("(after it lands)", after, f"MP-9002's observation was taken against MP-1001's car: {after}")
 
 
 class TestRetryAcrossLists(followups_18.TestReusedTodoIds):

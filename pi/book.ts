@@ -83,7 +83,7 @@ import { linkOfResult, priorSpawns } from "./support/links.ts";
 import { orphanLines } from "./support/orphans.ts";
 import { REVIEWLESS, SEQUENCES, describe, incompleteBefore, outsideWork, reachLine, reachOf, unansweredReach } from "./support/phases.ts";
 import { type Snapshot, snapshot } from "./support/snapshot.ts";
-import { childAnchor, childrenOf, computeLoop, ticketKeys, todoForTickets, unitById, unitLine, unitOfDispatch, unitsOf, unitWidgetLine } from "./support/units.ts";
+import { childAnchor, childrenOf, computeLoop, taskTickets, ticketKeys, todoForTickets, unitById, unitLine, unitOfDispatch, unitsOf, unitWidgetLine } from "./support/units.ts";
 
 export const SESSION_ENTRY = "anchorloop-loop";
 const STAGES = ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "back", "landed", "close", "read"] as const;
@@ -787,10 +787,12 @@ export default function (pi: ExtensionAPI) {
 		if (stage === "landed") {
 			// The ref may have moved since the last event; the state check records that landing first.
 			checkLandings(book);
-			const found = unitsOf(book.entries, todosOf(ctx));
+			const todos = todosOf(ctx);
+			const found = unitsOf(book.entries, todos);
 			const unit = params.task === undefined ? undefined : unitById(found, params.task);
 			if (params.task !== undefined && !unit) throw new Error(`task ${String(params.task)} is not a unit of this loop`);
-			return reply(declareLanded(book, { sha: params.sha, ref: params.ref, note: params.note, ...(unit ? { children: childrenOf(book.entries, found, unit), task: unit.id } : {}) }).text);
+			const todo = unit ? todos.find((task) => task.id === unit.id) : undefined;
+			return reply(declareLanded(book, { sha: params.sha, ref: params.ref, note: params.note, ...(unit ? { children: childrenOf(book.entries, found, unit), task: unit.id, tickets: todo ? taskTickets(todo) : [] } : {}) }).text);
 		}
 		if (stage === "close") {
 			if (!params.verdict) throw new Error("close needs a verdict: landed, blocked, or abandoned");

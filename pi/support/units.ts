@@ -67,7 +67,7 @@ function ofTask(task: Task): Unit {
 const hasUnitMetadata = (unit: Unit): boolean => unit.observe.length > 0 || unit.kind !== undefined || unit.lands !== undefined || unit.agents.length > 0;
 
 /** The tickets a todo names: in its subject, and its `followup` when that is a ticket id. */
-function taskTickets(task: Task): string[] {
+export function taskTickets(task: Task): string[] {
 	const followup = task.metadata?.followup;
 	return ticketKeys(`${task.subject} ${validFollowup(followup) ? String(followup) : ""}`);
 }

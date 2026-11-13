@@ -1,4 +1,4 @@
-# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ 1e0ac7d1 -->
+# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ 0feadca -->
 
 [README](../README.zh-TW.md) 背後的完整行為。skill 告訴 agent 怎麼工作；下面六個 pi extension 則盯著工作進行，說出還缺什麼，所以請找到需要的那一節，其餘可以略過。
 
@@ -246,6 +246,7 @@ unit 的檢查只比對自己的 tree，所以一個 unit 的修改不會讓另�
 
 列了 observation 的 loop，即使沒有關聯子代理，也監看自己 repo 的整合 ref。
 這個 session 自己 push 的分支（git 顯示 remote-tracking ref 是被它自己的 push 移動的）是一節車廂，併入後算給分支名稱裡票號所指的 unit。
+為較早的 todo 清單（`todo clear` 或 `resume` 之前）的 todo 所 push 的車廂，併入後不算給任何 unit；為同一票號重建的 unit 要以 `anchorloop_stage landed` 帶上自己的 `task` 才能認領，其他票號的 unit 認領不了，而不帶 `task` 的 `landed` 只會回 `already recorded`。
 偵測 push 時，`git` 與 `push` 之間可以有帶引號值的全域選項（`git -c 'credential.helper=!glab auth git-credential' push`、`-C "a b"`、`--git-dir /x`），`git` 也可以是帶路徑的形式；指令中以 refspec 目的地點名的分支（`git push origin agent/mp-x`、`HEAD:refs/heads/x`、`src:dst`），即使 checkout 在另一個分支上，也是這個 session 的車廂；`--dry-run`、`-n`、`git stash push`，以及指令沒有點名的分支則不是。
 
 </details>

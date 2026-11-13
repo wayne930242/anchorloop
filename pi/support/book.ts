@@ -1025,13 +1025,26 @@ export function repoOf(path: string): { repo: string; head: string } | undefined
 	return repo && head ? { repo: real(repo), head } : undefined;
 }
 
-/** The root of the git repo containing `path`, or undefined outside a repo. */
+/**
+ * The root of the git repo containing `path`, or undefined outside a repo. It is read from the directory layout (`gitRootAbove`), which
+ * gives git's answer for a working tree, a linked worktree, a submodule, and a path inside `.git`, reached by real or symlinked path.
+ * It differs from `git rev-parse --show-toplevel` in these layouts, where it names the directory that holds `.git` (or, for the last
+ * one, none) and git answers otherwise:
+ * - a `.git` file whose gitdir is gone, or is a bare repo (the bare-repo-plus-worktrees layout) for a path outside every worktree: git has no root;
+ * - a bare repo nested in a working tree: git has no root inside it;
+ * - `core.worktree` set: git reports the configured tree;
+ * - a repo git refuses for its ownership (`safe.directory`): git has no root;
+ * - a mount point between the path and the repo: git stops there;
+ * - a path inside `.git/modules/<name>`: git reports the submodule's tree, and this reports none.
+ * A caller that needs git's exact answer, or the repo's HEAD, asks `repoOf`.
+ */
 export function repoRootOf(path: string): string | undefined {
 	const roots = eventTrees?.books.roots;
 	// Git answers for the nearest existing directory, so that is the key: sibling paths under a missing directory share one spawn.
 	const dir = existingDir(dirname(resolve(path)));
 	if (roots?.has(dir)) return roots.get(dir);
-	const found = gitRootAbove(dir);
+	// Git answers from the directory's real path: a path through a symlink into another repo's subdirectory belongs to that repo.
+	const found = gitRootAbove(real(dir));
 	const repo = found === "ask" ? git(dir, ["rev-parse", "--show-toplevel"]) : found;
 	const root = repo ? real(repo) : undefined;
 	roots?.set(dir, root);
@@ -1039,9 +1052,10 @@ export function repoRootOf(path: string): string | undefined {
 }
 
 /**
- * The working tree root above `dir`, found without spawning git: the nearest ancestor holding a `.git` directory (with a
+ * The working tree root above `dir` (a real path), found without spawning git: the nearest ancestor holding a `.git` directory (with a
  * `HEAD`) or a `.git` file naming its gitdir (a linked worktree or submodule), undefined when none does or when `dir` is
- * inside a git dir. `"ask"` when the environment redirects git (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_CEILING_DIRECTORIES`), so only git can answer.
+ * inside a git dir. The gitdir a `.git` file names and the repo's config are not read (`repoRootOf` lists what that leaves out).
+ * `"ask"` when the environment redirects git (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_CEILING_DIRECTORIES`), so only git can answer.
  */
 function gitRootAbove(dir: string): string | undefined | "ask" {
 	if (process.env.GIT_DIR || process.env.GIT_WORK_TREE || process.env.GIT_CEILING_DIRECTORIES) return "ask";

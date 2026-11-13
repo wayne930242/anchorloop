@@ -149,7 +149,8 @@ console.log(JSON.stringify(out));
         self.assertLess(got["deleted"], got["appended"])
         self.assertEqual(got["children"], 0)
 
-    def test_g_the_root_found_without_git_is_the_root_git_reports(self):
+    def test_g_the_root_found_without_git_is_gits_root_for_trees_worktrees_and_symlinked_paths(self):
+        """The layouts a session works in; `repoRootOf`'s docstring lists the layouts where the answer differs from git's."""
         base = Path(self.temp_dir.name) / "roots"
         plain = base / "plain" / "sub"
         plain.mkdir(parents=True)
@@ -162,7 +163,14 @@ console.log(JSON.stringify(out));
         tree = base / "tree"
         subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "--detach", str(tree)], check=True)
         (tree / "deep").mkdir()
-        paths = [plain / "_", repo / "_", repo / "a" / "b" / "_", repo / "gone" / "x" / "_", tree / "_", tree / "deep" / "_", repo / ".git" / "_", base / "_"]
+        # R3-F003: a path through a symlink into another repo's subdirectory belongs to that repo, from inside a repo and from outside one.
+        other = base / "other"
+        (other / "src").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(other)], check=True)
+        (repo / "vendor").symlink_to(other / "src")
+        (plain / "link").symlink_to(other / "src")
+        paths = [plain / "_", repo / "_", repo / "a" / "b" / "_", repo / "gone" / "x" / "_", tree / "_", tree / "deep" / "_", repo / ".git" / "_", base / "_",
+                 repo / "vendor" / "_", plain / "link" / "_", repo / "vendor" / "gone" / "_"]
         script = """
 import { registerHooks } from "node:module";
 registerHooks({ resolve: (s, c, next) => s === "@earendil-works/pi-coding-agent" ? { url: "data:text/javascript," + encodeURIComponent("export function parseSkillBlock(){return null}"), shortCircuit: true } : next(s, c) });
@@ -177,4 +185,5 @@ console.log(JSON.stringify(process.argv.slice(2).map((p) => book.repoRootOf(p) ?
                 near = near.parent
             asked = subprocess.run(["git", "-C", str(near), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
             theirs = str(Path(asked.stdout.strip()).resolve()) if asked.returncode == 0 else None
-            self.assertEqual(ours, theirs, path)
+            with self.subTest(path=str(path.relative_to(base))):
+                self.assertEqual(ours, theirs, path)

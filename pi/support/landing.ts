@@ -24,6 +24,7 @@ import {
 } from "./book.ts";
 import type { Worktree } from "./host.ts";
 import type { NamedRef } from "./pushes.ts";
+import { ticketKeys } from "./units.ts";
 
 /** The commit a ref resolves to in `repo`, or undefined when the ref or repo is unknown. */
 export function refSha(repo: string, ref: string): string | undefined {
@@ -331,9 +332,14 @@ function childPassingRun(book: Book, child: string): { name: string; run: Entry 
 
 /** The landings recorded so far, newest last, for `read`. */
 export function landLines(entries: Entry[]): string[] {
-	return entries
-		.filter((entry) => entry.stage === "land" && entry.verified !== false)
-		.map((entry) => `landed ${String(entry.label ?? entry.child ?? "this session")} in ${String(entry.ref)} (${String(entry.rule)}; ${entry.exact === true ? "the tree its check ran on" : "not the tree its check ran on"}; ${entry.self === true ? "landed by this session" : "landed elsewhere"})`);
+	// A retired car that its recreated unit declared is recorded twice (for no unit, then for that unit) and read once.
+	return [
+		...new Set(
+			entries
+				.filter((entry) => entry.stage === "land" && entry.verified !== false)
+				.map((entry) => `landed ${String(entry.label ?? entry.child ?? "this session")} in ${String(entry.ref)} (${String(entry.rule)}; ${entry.exact === true ? "the tree its check ran on" : "not the tree its check ran on"}; ${entry.self === true ? "landed by this session" : "landed elsewhere"})`),
+		),
+	];
 }
 
 /** One `partial k/n` line for each linked worker whose change is in the ref only in part, read from git now. */
@@ -423,8 +429,9 @@ export type Declared = { ok: boolean; text: string };
 /**
  * An owner's landed notice. It counts only when git agrees: `sha`, when given, is in `ref`, and each branch not yet landed is proven
  * landed by the rules. A notice git cannot confirm is recorded `verified: false` and says to fetch the ref and declare again.
+ * `task` names the unit the notice is for and `tickets` the ticket ids that unit's todo holds.
  */
-export function declareLanded(book: Book, params: { sha?: string; ref?: string; note?: string; children?: string[]; task?: number }): Declared {
+export function declareLanded(book: Book, params: { sha?: string; ref?: string; note?: string; children?: string[]; task?: number; tickets?: string[] }): Declared {
 	const watches = watched(book.entries);
 	const wanted = params.ref ? watches.filter((watch) => watch.ref === params.ref) : watches;
 	const ref = params.ref ?? wanted[0]?.ref;
@@ -445,6 +452,7 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 	// A landing of a retired todo's car does not keep a unit of the current list from declaring the same car its own.
 	const done = landedKeys(book.entries.filter((_, index) => params.task === undefined || !retiredEntry(book.entries, index)));
 	const lines: string[] = [];
+	const left: string[] = [];
 	for (const watch of wanted) {
 		const watchTip = refSha(watch.dir, watch.ref) ?? tip;
 		const watchTree = git(watch.dir, ["rev-parse", `${watchTip}^{tree}`]);
@@ -453,6 +461,12 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 			if (params.children && candidate.child !== undefined && !params.children.includes(candidate.child)) continue;
 			// A branch this session pushed lands for the unit it was pushed for; one bound to no unit lands for whichever unit is named.
 			if (params.task !== undefined && candidate.pushed !== undefined && candidate.task !== undefined && candidate.task !== params.task) continue;
+			// A car pushed for a retired todo lands only for the recreated unit of its ticket: the unit named holds a ticket its ref names.
+			const named = candidate.retired && params.task !== undefined ? ticketKeys(candidate.pushed ?? "") : [];
+			if (named.length > 0 && !named.some((key) => params.tickets?.includes(key))) {
+				left.push(candidate.label);
+				continue;
+			}
 			const found = standing(candidate.repo, candidate.ref, candidate.head, candidate.base);
 			if (!found.rule) {
 				lines.push(`${candidate.label}: ${found.total > 0 ? `${found.upstream}/${found.total} of its commits are in ${candidate.ref}` : "nothing to land"}`);
@@ -461,7 +475,7 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 			const run = candidate.child ? childPassingRun(book, candidate.child) : undefined;
 			const checked = new Set(Array.isArray(run?.run.trees) ? (run?.run.trees as unknown[]).map(String) : []);
 			const exact = candidate.child ? watchTree !== undefined && checked.has(watchTree) : candidate.pushed !== undefined && watchTree !== undefined && git(candidate.repo, ["rev-parse", `${candidate.head}^{tree}`]) === watchTree;
-			// A car pushed for a retired todo lands for the unit the declaration names, else for no unit.
+			// A car pushed for a retired todo lands for the unit the declaration names (the unit of its ticket, checked above), else for no unit.
 			const task = candidate.task ?? (candidate.pushed !== undefined ? params.task : undefined);
 			const retired = candidate.retired === true && task === undefined;
 			book.entries.push(
@@ -487,7 +501,8 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 	}
 	const prior = book.entries.filter((entry) => entry.stage === "land" && entry.verified !== false && entry.ref === ref);
 	if (lines.length === 0 && prior.length > 0 && (!params.sha || prior.some((entry) => entry.sha === tip || entry.declaredSha === params.sha || entry.sha === params.sha))) {
-		return { ok: true, text: `already recorded: ${prior.map((entry) => `${String(entry.label ?? "landing")} (${String(entry.rule)})`).join("; ")} in ${ref}` };
+		const other = left.length ? `; ${left.join(", ")} ${left.length === 1 ? "is a car" : "are cars"} of an earlier todo list whose ref names another ticket, so ${left.length === 1 ? "it lands" : "they land"} only for the unit of that ticket` : "";
+		return { ok: true, text: `already recorded: ${[...new Set(prior.map((entry) => `${String(entry.label ?? "landing")} (${String(entry.rule)})`))].join("; ")} in ${ref}${other}` };
 	}
 	if (lines.length === 0 || !lines.some((line) => line.includes("landed in"))) {
 		if (params.sha) {

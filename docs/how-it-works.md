@@ -246,6 +246,7 @@ When a watched ref moves, a worker's branch counts as landed by ancestry, equal 
 
 A loop that lists an observation watches its own repo's integration ref even with no linked child.
 A branch this session pushed (git shows the remote-tracking ref moved by its own push) is a car whose landing counts for the unit its name names by ticket.
+A car pushed for a todo of an earlier todo list (before a `todo clear` or a `resume`) lands for no unit; the unit recreated for its ticket takes it with `anchorloop_stage landed` and its `task`, a unit of another ticket cannot, and `landed` without `task` answers `already recorded`.
 A push is found through global options with quoted values (`git -c 'credential.helper=!glab auth git-credential' push`, `-C "a b"`, `--git-dir /x`) or a path to `git`, and a branch the command names as a refspec destination (`git push origin agent/mp-x`, `HEAD:refs/heads/x`, `src:dst`) is this session's car even from a checkout on another branch; `--dry-run`, `-n`, `git stash push`, and a branch the command does not name are not.
 
 </details>
