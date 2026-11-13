@@ -275,7 +275,7 @@ sequenceDiagram
 
 A handoff names the open book by the id on the `book:` line of `read`.
 The new session adopts it with `resume: <book id>` on its first `kind`, or with the first todo's `metadata.resume`.
-What its units proved and what the notice asked carry over, and so do the todos the new session created before `resume`, which a child reading the adopted book finds with their unit metadata.
+What its units proved and what the notice asked carry over; its todos are the new session's, created before or after `resume`, and the old session's todos are retired, so a child reading the adopted book binds by ticket to the new session's unit.
 
 An unknown, closed, subagent's, or other project's id is refused with the reason.
 A session on the same ticket that passes no id keeps its own book.
@@ -362,7 +362,7 @@ A `full` rating after a clean review that follows the last change is not a conce
 
 A run that called `MonitorCreate`, `LoopCreate`, or `goal_wait`, or a `subagent` tool whose child the book has not linked yet, is waiting and is not judged.
 While a child the loop started has no result and its host does not report it gone, the loop is neither judged nor continued.
-A child that finished exits before its result is delivered, so a gone child whose session file was written within the last 30 seconds still counts as out.
+A child that finished exits before its result is delivered, so a gone child whose session file was written within the last 30 seconds still counts as out. A dispatch with `accept` waits while the host reruns its check, so its grace grows by the check's `timeoutSec` (600 seconds by default).
 
 With two or more units the quiet is per unit.
 The notice judges, speaks, and continues for the first unit that waits on the coordinator: started, not done, nothing of its own out, and its step not asked since that unit's last evidence.
