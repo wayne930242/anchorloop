@@ -7,7 +7,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { currentKind, guarded, openLoop, replayTodos } from "./support/book.ts";
+import { currentKind, guarded, openLoop, replayTodos, withTrees } from "./support/book.ts";
 import { JumpMemory, computePhases, exempt, incompleteBefore, jumpLine } from "./support/phases.ts";
 
 export default function (pi: ExtensionAPI) {
@@ -23,7 +23,7 @@ export default function (pi: ExtensionAPI) {
 			if (typeof filePath !== "string") return;
 			const book = openLoop(ctx);
 			if (!book || exempt(filePath, ctx.cwd) || currentKind(book.entries) === "quick") return;
-			const phases = computePhases(book, { cwd: ctx.cwd, todos: replayTodos(ctx.sessionManager.getBranch()) });
+			const phases = withTrees(() => computePhases(book, { cwd: ctx.cwd, todos: replayTodos(ctx.sessionManager.getBranch()) }));
 			const missing = incompleteBefore(phases, "act");
 			if (jumps.fresh(String(book.header.id), "act", missing.map((status) => status.name))) pending.set(event.toolCallId, jumpLine("act", missing));
 		}),

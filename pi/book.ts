@@ -693,9 +693,9 @@ export default function (pi: ExtensionAPI) {
 		// Jev judges the loop as it stood at close; the book is gone by the time the result is judged.
 		const snap = kind === "quick" ? undefined : snapshot(book, ctx);
 		pi.appendEntry(SESSION_ENTRY, summary);
-		for (const id of childIds(book.entries)) {
-			for (const { book: child } of findChildBooks(id)) deleteBook(child.path);
-		}
+		// Collect first: each delete drops the event's child-book index, so deleting inside the loop would re-index per link.
+		const children = withTrees(() => childIds(book.entries).flatMap((id) => findChildBooks(id)));
+		for (const { book: child } of children) deleteBook(child.path);
 		deleteBook(book.path);
 		return { text: `${text} Clear the todo list.`, snapshot: snap };
 	}
@@ -873,8 +873,10 @@ export default function (pi: ExtensionAPI) {
 		guarded((_event, ctx) => {
 			const [summary, ...lines] = sweepLines(sweep(process.env, ctx.cwd));
 			const open = openLoop(ctx);
-			if (open) checkLandings(open);
-			if (open) lines.push(...orphanLines(open.entries).map((line) => `child ${line}`));
+			if (open) withTrees(() => {
+				checkLandings(open);
+				lines.push(...orphanLines(open.entries).map((line) => `child ${line}`));
+			});
 			if (summary !== undefined || lines.length > 0) ctx.ui.notify([`anchorloop${summary ? `: ${summary}` : ""}`, ...lines].join("\n"), "info");
 			showStatus(ctx);
 		}),
@@ -1263,7 +1265,7 @@ function headAndTail(text: string): string {
 
 /** Jev judges whether a returned subagent was a fresh-context read of the spec; the spec path in its brief is only a pre-filter. */
 	async function detectFreshRead(ctx: ExtensionContext, book: Book, details: { name?: unknown; task?: unknown; resultContent?: unknown }): Promise<void> {
-		const phases = phasesOf(book, ctx);
+		const phases = withTrees(() => phasesOf(book, ctx));
 		const read = phases.statuses.find((status) => status.name === "read");
 		if (read?.state !== "missing" || !read.note.startsWith("a fresh-context")) return;
 		const folder = specFolder(book.entries, todosOf(ctx), ctx.cwd);
@@ -1308,8 +1310,10 @@ function headAndTail(text: string): string {
 				...(handoff?.changedFiles ? { changedFiles: handoff.changedFiles.slice(0, 50) } : {}),
 			}));
 			if (!subagent) {
-				checkLandings(book);
-				adoptRuns(book, ctx);
+				withTrees(() => {
+					checkLandings(book);
+					adoptRuns(book, ctx);
+				});
 			}
 			if (REVIEWERS.has(result.agent)) await recordReview(ctx, book, result, link);
 			else await detectFreshRead(ctx, book, result);

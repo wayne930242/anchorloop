@@ -17,6 +17,7 @@ export const KINDS = ["quick", "inline", "reviewed", "durable"] as const;
 export const REVIEWERS: ReadonlySet<string> = new Set(["reviewer", "adversarial-reviewer"]);
 export type Kind = (typeof KINDS)[number];
 
+/** Entries arrays are append-only: nothing replaces, removes or edits an entry in place. The event memos (friction by array length) rely on it. */
 export type Entry = { ts: string; stage: string; [key: string]: unknown };
 export type Book = { path: string; header: Record<string, unknown>; entries: Entry[] };
 
@@ -856,9 +857,11 @@ type EventBooks = {
 	indexes: Map<string, Map<string, ChildFiles[]>>;
 	children: Map<string, ChildBook[]>;
 	friction: WeakMap<Entry[], Map<string, { length: number; items: FrictionItem[] }>>;
+	/** Repo roots by path: a path's repo does not change within one event. */
+	roots: Map<string, string | undefined>;
 };
 
-const noBooks = (): EventBooks => ({ indexes: new Map(), children: new Map(), friction: new WeakMap() });
+const noBooks = (): EventBooks => ({ indexes: new Map(), children: new Map(), friction: new WeakMap(), roots: new Map() });
 
 // The working trees and child books of the event `withTrees` runs: each repo's tree is built once however many readings ask for it.
 let eventTrees: { cache: TreeCache; build: boolean; books: EventBooks } | undefined;
@@ -1018,8 +1021,14 @@ export function repoOf(path: string): { repo: string; head: string } | undefined
 
 /** The root of the git repo containing `path`, or undefined outside a repo. */
 export function repoRootOf(path: string): string | undefined {
-	const repo = git(existingDir(dirname(resolve(path))), ["rev-parse", "--show-toplevel"]);
-	return repo ? real(repo) : undefined;
+	const roots = eventTrees?.books.roots;
+	// Git answers for the nearest existing directory, so that is the key: sibling paths under a missing directory share one spawn.
+	const dir = existingDir(dirname(resolve(path)));
+	if (roots?.has(dir)) return roots.get(dir);
+	const repo = git(dir, ["rev-parse", "--show-toplevel"]);
+	const root = repo ? real(repo) : undefined;
+	roots?.set(dir, root);
+	return root;
 }
 
 export type Base = { repo: string; head: string; /** The linked child whose repo this is, when a link recorded the base. */ child?: string };
