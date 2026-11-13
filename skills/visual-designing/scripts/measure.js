@@ -12,7 +12,16 @@
   // skip placed copies so an id names the original, or the placed instance through resolve().
   const byId = (id) => [...svg.querySelectorAll("[id]")].find((e) => e.id === id && !(e.parentElement && e.parentElement.closest("[data-use]")));
 
-  // Place each <use> as a <g> holding a clone of its target (a symbol's children), so every instance is measured.
+  // Place each <use> as a <g> holding a clone of its target, so every instance is measured. A <symbol> becomes a nested <svg>
+  // with the symbol's attributes (viewBox, preserveAspectRatio, inherited style) and the <use>'s size, as the browser renders it.
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const placeSymbol = (symbol, u) => {
+    const inner = document.createElementNS(SVG_NS, "svg");
+    for (const a of symbol.getAttributeNames()) inner.setAttribute(a, symbol.getAttribute(a));
+    for (const a of ["width", "height"]) inner.setAttribute(a, u.getAttribute(a) || symbol.getAttribute(a) || "100%");
+    inner.append(...symbol.childNodes);
+    return inner;
+  };
   for (let round = 0; round < 20; round++) {
     const uses = [...svg.querySelectorAll("use")].filter((u) => !u.closest(NOT_DRAWN));
     if (!uses.length) break;
@@ -25,14 +34,15 @@
         for (const el of [clone, ...clone.querySelectorAll("[id]")]) {
           if (el.hasAttribute("id")) el.setAttribute("data-oid", el.getAttribute("id"));
         }
-        if (src.localName === "symbol") g.append(...clone.childNodes);
-        else g.append(clone);
+        g.append(src.localName === "symbol" ? placeSymbol(clone, u) : clone);
       }
       const x = u.getAttribute("x") || 0, y = u.getAttribute("y") || 0;
       g.setAttribute("transform", `${u.getAttribute("transform") || ""} translate(${x} ${y})`);
       for (const a of u.getAttributeNames()) {
         if (a === "id" || a.startsWith("data-")) g.setAttribute(a, u.getAttribute(a));
       }
+      // A nested placed copy is found by data-in through its data-oid, as its parts are.
+      if (u.hasAttribute("id")) g.setAttribute("data-oid", u.getAttribute("id"));
       g.setAttribute("data-use", id);
       for (const a of ["class", "style", "fill", "stroke", "visibility", "opacity"]) {
         if (u.hasAttribute(a)) g.setAttribute(a, u.getAttribute(a));
@@ -63,13 +73,15 @@
     const t = el.textContent.replace(/\s+/g, " ").trim();
     return `"${t.length > 28 ? t.slice(0, 27) + "…" : t}"`;
   };
-  // data-in="id": the nearest placed instance that holds the id (walking out through nested <use> wrappers),
-  // else the original element.
+  // data-in="id": the nearest placed instance that holds the id (walking out through nested <use> wrappers; within one,
+  // its own part first, then the parts placed inside it, shallowest first), else the original element.
+  const wrapperOf = (e) => e.parentElement && e.parentElement.closest("[data-use]");
+  const depth = (e, w) => { let n = 0; for (let p = wrapperOf(e); p && p !== w; p = wrapperOf(p)) n++; return n; };
   const resolve = (el, id) => {
-    for (let w = el.closest("[data-use]"); w; w = w.parentElement && w.parentElement.closest("[data-use]")) {
+    for (let w = el.closest("[data-use]"); w; w = wrapperOf(w)) {
       if (w.getAttribute("data-oid") === id || w.id === id) return w;
-      const hit = [...w.querySelectorAll("[data-oid]")].find((e) => e.getAttribute("data-oid") === id && (e.parentElement && e.parentElement.closest("[data-use]")) === w);
-      if (hit) return hit;
+      const hits = [...w.querySelectorAll("[data-oid]")].filter((e) => e.getAttribute("data-oid") === id);
+      if (hits.length) return hits.map((e) => [depth(e, w), e]).sort((a, b) => a[0] - b[0])[0][1];
     }
     return byId(id);
   };

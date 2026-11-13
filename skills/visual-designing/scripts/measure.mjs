@@ -9,6 +9,7 @@ import { join, resolve, basename } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const USAGE = "usage: node measure.mjs [--min-target 44] [--tol 0.5] [--timeout 60] frame.svg ...";
+const MAX_TIMEOUT_SEC = 2147483;
 const fail = (msg) => { console.error(`${msg}\n${USAGE}`); process.exit(2); };
 
 const args = process.argv.slice(2);
@@ -24,7 +25,11 @@ const numberAfter = (i, flag) => {
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--min-target") opts.minTarget = numberAfter(i++, "--min-target");
   else if (args[i] === "--tol") opts.tol = numberAfter(i++, "--tol");
-  else if (args[i] === "--timeout") timeoutSec = numberAfter(i++, "--timeout");
+  else if (args[i] === "--timeout") {
+    timeoutSec = numberAfter(i++, "--timeout");
+    // Node's timers hold at most 2^31-1 ms; a longer delay fires after 1 ms.
+    if (timeoutSec === 0 || timeoutSec > MAX_TIMEOUT_SEC) fail(`--timeout needs seconds above 0 and at most ${MAX_TIMEOUT_SEC}, got "${args[i]}"`);
+  }
   else if (args[i].startsWith("--")) fail(`unknown option ${args[i]}`);
   else files.push(args[i]);
 }
@@ -40,7 +45,7 @@ const session = `measure-${process.pid}`;
 const base = ["--config", configPath, "--session", session, "--headed", "false", "--idle-timeout", "30s"];
 const ab = (cmdArgs, input) => new Promise((res, rej) => {
   const child = execFile("agent-browser", [...base, ...cmdArgs],
-    { encoding: "utf8", env, timeout: timeoutSec * 1000, killSignal: "SIGKILL", maxBuffer: 64 * 1024 * 1024 },
+    { encoding: "utf8", env, timeout: Math.ceil(timeoutSec * 1000), killSignal: "SIGKILL", maxBuffer: 64 * 1024 * 1024 },
     (err, stdout, stderr) => { if (err) { err.stderr = stderr || err.stderr; rej(err); } else res(stdout); });
   if (input !== undefined) child.stdin.end(input); else child.stdin.end();
 });
