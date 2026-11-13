@@ -137,6 +137,7 @@ function openForAppend(path: string, create: boolean): number {
 }
 
 function appendBytes(path: string, text: string, create = false): void {
+	if (basename(dirname(path)) === "agents") childBooksChanged();
 	const fd = openForAppend(path, create);
 	try {
 		const bytes = Buffer.from(text);
@@ -287,6 +288,7 @@ const ASIDE = /^(.+)\.closed-(\d+)$/;
 
 /** Renames a closed book to the next free `<id>.closed-<n>.yml`, which main reads with the child's later loops. */
 function setAside(path: string): void {
+	childBooksChanged();
 	const stem = basename(path, ".yml");
 	let n = 1;
 	while (existsSync(join(dirname(path), `${stem}.closed-${n}.yml`))) n++;
@@ -329,11 +331,13 @@ export function parentAnchor(id: string, env: NodeJS.ProcessEnv = process.env): 
 
 export type ChildBook = { book: Book; tag: string };
 
-/** The books of the child `id` among all projects: its earlier closed loops (`~1`, `~2`) in order, then the current one (no tag). */
-export function findChildBooks(id: string, env: NodeJS.ProcessEnv = process.env): ChildBook[] {
-	const root = booksRoot(env);
-	if (!existsSync(root)) return [];
-	const found: ChildBook[] = [];
+/** The child book files of one project's `agents/` dir for one child: its set-aside loops by number, and whether its current book is there. */
+type ChildFiles = { agents: string; asides: { n: number; tag: string; file: string }[]; current: boolean };
+
+/** Every project's child book files under `root`, by child file id, in project order: one listing of the root and of each `agents/` dir. */
+function indexChildBooks(root: string): Map<string, ChildFiles[]> {
+	const index = new Map<string, ChildFiles[]>();
+	if (!existsSync(root)) return index;
 	for (const project of readdirSync(root)) {
 		const agents = join(root, project, "agents");
 		let files: string[];
@@ -342,17 +346,50 @@ export function findChildBooks(id: string, env: NodeJS.ProcessEnv = process.env)
 		} catch {
 			continue;
 		}
-		const aside = files
-			.map((file) => ASIDE.exec(basename(file, ".yml")))
-			.filter((match): match is RegExpExecArray => match !== null && match[1] === safe(id))
-			.sort((a, b) => Number(a[2]) - Number(b[2]));
-		for (const match of aside) {
-			const book = parseBook(join(agents, `${match[0]}.yml`));
-			if (book) found.push({ book, tag: `~${match[2]}` });
+		const here = new Map<string, ChildFiles>();
+		const of = (key: string): ChildFiles => {
+			let found = here.get(key);
+			if (!found) {
+				found = { agents, asides: [], current: false };
+				here.set(key, found);
+				const list = index.get(key);
+				if (list) list.push(found);
+				else index.set(key, [found]);
+			}
+			return found;
+		};
+		for (const file of files) {
+			const stem = basename(file, ".yml");
+			const match = ASIDE.exec(stem);
+			if (match) of(match[1]).asides.push({ n: Number(match[2]), tag: `~${match[2]}`, file: `${match[0]}.yml` });
+			if (file === `${stem}.yml`) of(stem).current = true;
 		}
-		const book = parseBook(join(agents, `${safe(id)}.yml`));
+	}
+	return index;
+}
+
+/** The books of the child `id` among all projects: its earlier closed loops (`~1`, `~2`) in order, then the current one (no tag). */
+export function findChildBooks(id: string, env: NodeJS.ProcessEnv = process.env): ChildBook[] {
+	const root = booksRoot(env);
+	const books = eventTrees?.books;
+	const key = `${root}\0${safe(id)}`;
+	const cached = books?.children.get(key);
+	if (cached) return cached;
+	let index = books?.indexes.get(root);
+	if (!index) {
+		index = indexChildBooks(root);
+		books?.indexes.set(root, index);
+	}
+	const found: ChildBook[] = [];
+	for (const { agents, asides, current } of index.get(safe(id)) ?? []) {
+		for (const aside of [...asides].sort((a, b) => a.n - b.n)) {
+			const book = parseBook(join(agents, aside.file));
+			if (book) found.push({ book, tag: aside.tag });
+		}
+		const book = current ? parseBook(join(agents, `${safe(id)}.yml`)) : undefined;
 		if (book) found.push({ book, tag: "" });
 	}
+	books?.children.set(key, found);
 	return found;
 }
 
@@ -373,6 +410,7 @@ function tidy(dir: string): void {
 }
 
 export function deleteBook(path: string): void {
+	childBooksChanged();
 	try {
 		unlinkSync(path);
 	} catch {
@@ -700,8 +738,25 @@ function item(owner: string, ref: string, entry: Entry, reflect: Entry | undefin
 	};
 }
 
-/** Every friction entry of the book and of its linked children, each with the reflect that covers it, if any. */
+/**
+ * Every friction entry of the book and of its linked children, each with the reflect that covers it, if any. Inside `withTrees` the
+ * list is computed once per entries array and books root while the array keeps its length and no child book changes.
+ */
 export function allFriction(entries: Entry[], env: NodeJS.ProcessEnv = process.env): FrictionItem[] {
+	const books = eventTrees?.books;
+	const root = booksRoot(env);
+	const memo = books?.friction.get(entries)?.get(root);
+	if (memo && memo.length === entries.length) return memo.items;
+	const items = frictionItems(entries, env);
+	if (books) {
+		const byRoot = books.friction.get(entries) ?? new Map();
+		byRoot.set(root, { length: entries.length, items });
+		books.friction.set(entries, byRoot);
+	}
+	return items;
+}
+
+function frictionItems(entries: Entry[], env: NodeJS.ProcessEnv): FrictionItem[] {
 	const items = frictionOf(entries).map((entry) => item("main", String(entry.id), entry, coveringReflect(entries, [String(entry.id)])));
 	for (const id of childIds(entries)) {
 		const link = entries.find((entry) => entry.stage === "link" && entry.child === id);
@@ -793,17 +848,38 @@ export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): strin
 	}
 }
 
-// The working trees of the event `withTrees` runs: each repo's tree is built once however many readings ask for it.
-let eventTrees: { cache: TreeCache; build: boolean } | undefined;
+/**
+ * The child books one event has read: the index of each books root, each child's books, and each book's friction list. A book
+ * this process writes, deletes, or sets aside under an `agents/` dir clears them; a main session's own appends do not.
+ */
+type EventBooks = {
+	indexes: Map<string, Map<string, ChildFiles[]>>;
+	children: Map<string, ChildBook[]>;
+	friction: WeakMap<Entry[], Map<string, { length: number; items: FrictionItem[] }>>;
+};
+
+const noBooks = (): EventBooks => ({ indexes: new Map(), children: new Map(), friction: new WeakMap() });
+
+// The working trees and child books of the event `withTrees` runs: each repo's tree is built once however many readings ask for it.
+let eventTrees: { cache: TreeCache; build: boolean; books: EventBooks } | undefined;
+
+function childBooksChanged(): void {
+	if (!eventTrees) return;
+	const { books } = eventTrees;
+	books.indexes.clear();
+	books.children.clear();
+	books.friction = new WeakMap();
+}
 
 /**
  * Runs `fn` as one event's reading of the working state: every `workingTree` call in it shares one tree per repo, built at most
  * once. With `build: false` (the footer) nothing more is built: a tree this event has not read is unknown, which a recorded tree
- * counts as unchanged. A nested call joins the outer event's trees. `fn` must not await.
+ * counts as unchanged. The event also lists the books root once for every child book it reads (`findChildBooks`) and computes
+ * a book's friction once (`allFriction`). A nested call joins the outer event's trees and books. `fn` must not await.
  */
 export function withTrees<T>(fn: () => T, options: { build?: boolean } = {}): T {
 	const outer = eventTrees;
-	eventTrees = { cache: outer?.cache ?? new Map(), build: (outer?.build ?? true) && (options.build ?? true) };
+	eventTrees = { cache: outer?.cache ?? new Map(), build: (outer?.build ?? true) && (options.build ?? true), books: outer?.books ?? noBooks() };
 	try {
 		return fn();
 	} finally {

@@ -186,7 +186,8 @@ export function reachLine(reach: Reach, kind: string | undefined): string {
 
 // --- evidence ------------------------------------------------------------------------------------
 
-type Ctx = Inputs & { seq: readonly string[]; folder?: string; lastAct: number };
+/** `entries` holds the children's acts merged in; `own` is the book's entries alone, which `allFriction` reads the same. */
+type Ctx = Inputs & { own: Entry[]; seq: readonly string[]; folder?: string; lastAct: number };
 
 const done = (name: string, note = ""): Status => ({ name, state: "done", note });
 const missing = (name: string, note: string): Status => ({ name, state: "missing", note });
@@ -337,7 +338,7 @@ function evaluate(name: string, ctx: Ctx): Status {
 			return missing(name, stalled ? "two consecutive review rounds still blocking: hand the trend to the user" : round.blocking === true ? "blocking review findings are open" : "the review verdict is unknown");
 		}
 		case "reflect": {
-			const items = allFriction(entries, ctx.env);
+			const items = allFriction(ctx.own, ctx.env);
 			if (items.length === 0) return { name, state: "skipped", note: "no friction", auto: true };
 			const open = items.filter((item) => !item.reflected).length;
 			return open === 0 ? done(name) : missing(name, `${open} friction entr${open === 1 ? "y" : "ies"} without a reflect`);
@@ -352,7 +353,7 @@ export function computePhases(book: Pick<Book, "entries">, inputs: Omit<Inputs, 
 	const kind = currentKind(book.entries);
 	const seq = SEQUENCES[kind ?? "inline"];
 	const entries = withChildActs(book.entries);
-	const ctx: Ctx = { ...inputs, entries, seq, folder: specFolder(entries, inputs.todos, inputs.cwd), lastAct: lastActIndex(entries) };
+	const ctx: Ctx = { ...inputs, entries, own: book.entries, seq, folder: specFolder(entries, inputs.todos, inputs.cwd), lastAct: lastActIndex(entries) };
 	const statuses = seq.filter((name) => name !== "close").map((name) => evaluate(name, ctx));
 	let prefix = 0;
 	while (prefix < statuses.length && statuses[prefix].state !== "missing") prefix++;
