@@ -1,4 +1,4 @@
-# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ 89b453e1 -->
+# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ 1e0ac7d1 -->
 
 [README](../README.zh-TW.md) 背後的完整行為。skill 告訴 agent 怎麼工作；下面六個 pi extension 則盯著工作進行，說出還缺什麼，所以請找到需要的那一節，其餘可以略過。
 
@@ -252,7 +252,7 @@ unit 的檢查只比對自己的 tree，所以一個 unit 的修改不會讓另�
 
 ## 交接
 
-新 session 可以用 book 的 id 接手 loop，各 unit 已證明的事與提醒問過的事都會延續。
+新 session 可以用 book 的 id 接手 loop，loop 已證明的事與提醒問過的事都會延續。
 
 <!-- 圖：pi/support/book.ts 的 adoptBook，以及 pi/book.ts 處理 resume 的部分。 -->
 
@@ -266,7 +266,7 @@ sequenceDiagram
   B->>F: kind 帶 resume: id，在記錄任何證據之前
   F-->>B: book 搬到 B 的路徑
   F-->>A: A 的路徑上留下標記<br/>moved，to B
-  B->>B: 繼續，unit 的證據延續
+  B->>B: 繼續，loop 的證據延續
   A->>A: 下一次呼叫：被告知 B 已接手
 ```
 
@@ -275,7 +275,7 @@ sequenceDiagram
 
 交接時以 `read` 的 `book:` 行寫明未關 book 的 id。
 新 session 在第一次 `kind` 帶 `resume: <book id>`，或在第一個 todo 的 `metadata.resume` 接手那本 book。
-各 unit 已證明的事與提醒問過的事都會延續；book 的 todo 從此是新 session 的，不論建在 `resume` 之前或之後，舊 session 的 todo 則退場，所以讀取接手後 book 的子代理會依票號綁到新 session 的 unit。
+loop 已證明的事與提醒問過的事都會延續；book 的 todo 從此是新 session 的，不論建在 `resume` 之前或之後，舊 session 的 todo 則連同為它們記錄的執行、verify、落地與審查一起退場，所以沿用舊 id 的新 todo 要自己掙得證據，與 `todo clear` 之後相同。讀取接手後 book 的子代理會依票號綁到新 session 的 unit，而舊 session 派出、沒有新 unit 綁到的子代理，保留它派工時那個 unit 的 anchor。
 
 不存在、已關、屬於 subagent 或其他專案的 id 會被拒絕並說明原因。
 同一張票上沒帶 id 的另一個 session 保有自己的 book。
@@ -362,7 +362,7 @@ Jev 的判斷也在比對鍵裡，所以在新證據上轉成 `back` 或 `ask-us
 
 呼叫過 `MonitorCreate`、`LoopCreate`、`goal_wait`，或呼叫了 `subagent` 類工具而 book 還沒關聯到子代理的執行在等待中，不被判斷。
 loop 派出的子代理還沒回報、且它的 host 沒有回報它已消失時，loop 既不被判斷也不會多跑一輪。
-子代理完成時會先結束行程、結果才送達，所以已消失但 session 檔在最近 30 秒內寫過的子代理仍算在外。帶 `accept` 的派工要等 host 重跑它的檢查，寬限再加上檢查的 `timeoutSec`（預設 600 秒）。
+子代理完成時會先結束行程、結果才送達，所以已消失但 session 檔在最近 30 秒內寫過的子代理仍算在外。帶 `accept` 的派工要等子代理自己跑完檢查、host 再重跑一次，寬限再加上兩倍的檢查 `timeoutSec`（預設 600 秒）。
 
 有兩個以上 unit 時，改為逐 unit 安靜。
 提醒為第一個等著協調者的 unit 判斷、發言並決定是否多跑一輪：已開始、未完成、自己沒有派出在外的子代理，而且自該 unit 最後一筆證據以來還沒問過它這一步。
