@@ -61,6 +61,11 @@ subagent 的 book 放在 `agents/`；subagent 自己 close 時，book 留給主 
 `session_start` 會清掉 session 已不存在或 7 天沒有更新的 book。
 提示只用一行列出數量（本專案未關的 book、刪掉的過期 book），再列最新三本與其餘所在的目錄。
 
+每天一次（books 目錄旁的 `books-sweep.stamp` 記著上次執行的時間），`session_start` 也會清專案目錄：worktree 被移除後，只要還活著的主 session 連著裡面的子 book，它的專案目錄就會留下來。
+專案目錄只在下列條件全部成立時才移除：它的 book 記下的每個 `cwd` 路徑都已不存在、裡面沒有任何開啟中的 loop（沒有 close 的 book）或尚未回報的派工、裡面 7 天沒有任何寫入（book 算過期的年齡），而且它不是這個 session 自己的專案。
+每次移除都會在目錄被刪掉之前，記進 books 目錄旁的 `books-sweep.log`，提示也會加上移除的數量。
+已結案的子 book 即使還有活著的主 session 連著，也會隨它的目錄一起刪掉，所以那個主 session 之後讀不到該子代理的 friction 與 edit。
+
 `close` 回覆 `closed (landed). Clear the todo list.`，只多列沒有完成的階段和還沒 reflect 的 friction。
 它不會因為階段或 friction 而拒絕。
 只在還有 pending 或 in-progress 的 todo 沒有 `metadata.followup` 時拒絕：票號、`memory` 或 `drop — <reason>`。
