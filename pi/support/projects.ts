@@ -57,16 +57,17 @@ const fileId = (id: string): string => id.replace(/[^A-Za-z0-9._-]/g, "_");
  * The file ids of every child that an unclosed book anywhere under the root links: one pass over the root per sweep. A living main
  * still reads those children's books (friction, edits), so the dir holding one stays. A book that cannot be read links nothing here.
  */
-function linkedByOpenBooks(root: string): Set<string> {
+function linkedByOpenBooks(root: string, listing: Map<string, { path: string; mtimeMs: number }[]>): Set<string> {
 	const linked = new Set<string>();
 	for (const project of readdirSync(root)) {
-		let files: { path: string }[];
+		let files: { path: string; mtimeMs: number }[];
 		try {
-			files = filesUnder(join(root, project)).filter((file) => file.path.endsWith(".yml"));
+			files = filesUnder(join(root, project));
 		} catch {
 			continue;
 		}
-		for (const file of files) {
+		listing.set(project, files);
+		for (const file of files.filter((file) => file.path.endsWith(".yml"))) {
 			const book = parseBook(file.path);
 			if (!book || isClosed(book)) continue;
 			for (const entry of book.entries) if (entry.stage === "link" && typeof entry.child === "string") linked.add(fileId(entry.child));
@@ -80,9 +81,9 @@ const childOfFile = (path: string): string | undefined =>
 	basename(dirname(path)) === "agents" ? basename(path, ".yml").replace(/\.closed-\d+$/, "") : undefined;
 
 /** What removing `dir` would remove, or undefined when any condition for removing it fails. */
-function removable(dir: string, now: number, linked: ReadonlySet<string>): Omit<RemovedProject, "project"> | undefined {
+function removable(dir: string, now: number, linked: ReadonlySet<string>, listed?: { path: string; mtimeMs: number }[]): Omit<RemovedProject, "project"> | undefined {
 	if (!lstatSync(dir).isDirectory()) return undefined;
-	const files = filesUnder(dir);
+	const files = listed ?? filesUnder(dir);
 	if (files.length === 0) return undefined;
 	const newest = Math.max(...files.map((file) => file.mtimeMs));
 	// A write later than now (a clock set back) counts as recent.
@@ -121,13 +122,14 @@ export function sweepProjectDirs(env: NodeJS.ProcessEnv = process.env, current?:
 	}
 	writeFileSync(stamp, `${new Date(now).toISOString()}\n`);
 	result.ran = true;
-	const linked = linkedByOpenBooks(root);
+	const listing = new Map<string, { path: string; mtimeMs: number }[]>();
+	const linked = linkedByOpenBooks(root, listing);
 	for (const project of readdirSync(root)) {
 		if (project === current) continue;
 		const dir = join(root, project);
 		let found: Omit<RemovedProject, "project"> | undefined;
 		try {
-			found = removable(dir, now, linked);
+			found = removable(dir, now, linked, listing.get(project));
 		} catch {
 			// The dir vanished or cannot be read (another session tidied it, or permissions): it stays, and the rest of the root still counts.
 			continue;
