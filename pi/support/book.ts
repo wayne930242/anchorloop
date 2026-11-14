@@ -27,7 +27,8 @@ export type Who = {
 	sessionManager: { getSessionId?(): string; getSessionFile?(): string | undefined; getBranch(): unknown[] };
 };
 
-const STALE_BOOK_MS = 7 * 24 * 60 * 60 * 1000;
+/** A book not written for this long is stale: the sweep deletes it, and a project dir idle this long may be swept (`projects.ts`). */
+export const STALE_BOOK_MS = 7 * 24 * 60 * 60 * 1000;
 const STALE_UNSAVED_MS = 24 * 60 * 60 * 1000;
 
 export function booksRoot(env: NodeJS.ProcessEnv = process.env): string {
@@ -872,7 +873,7 @@ const noBooks = (): EventBooks => ({ indexes: new Map(), children: new Map(), fr
 // The working trees and child books of the event `withTrees` runs: each repo's tree is built once however many readings ask for it.
 let eventTrees: { cache: TreeCache; build: boolean; books: EventBooks } | undefined;
 
-function childBooksChanged(): void {
+export function childBooksChanged(): void {
 	if (!eventTrees) return;
 	const { books } = eventTrees;
 	books.indexes.clear();

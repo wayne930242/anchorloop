@@ -23,6 +23,7 @@ import {
 	artifactKind,
 	bases,
 	real,
+	projectSlug,
 	childId,
 	childIds,
 	childLines,
@@ -78,6 +79,7 @@ import {
 import { type Link, dispatchFrom, isChild, linkFrom, resultFrom } from "./support/host.ts";
 import { classify } from "./support/jev.ts";
 import { PUSH, pushRefspecs } from "./support/pushes.ts";
+import { sweepProjectDirs } from "./support/projects.ts";
 import { checkLandings, declareLanded, integrationRef, landLines, linkNotes, partialLines, pushedSince, refSha, remoteTips, watchesRefs, watchTips } from "./support/landing.ts";
 import { linkOfResult, priorSpawns } from "./support/links.ts";
 import { orphanLines } from "./support/orphans.ts";
@@ -141,10 +143,11 @@ function clip(text: string, limit = 120): string {
 const SHOWN_BOOKS = 3;
 
 /** The session_start summary: counts on one line, then the newest open books of this project and where the rest are. */
-function sweepLines(swept: Sweep): string[] {
+function sweepLines(swept: Sweep, projects = 0): string[] {
 	const counts = [
 		...(swept.open.length ? [`${swept.open.length} open loop book${swept.open.length === 1 ? "" : "s"} in this project`] : []),
 		...(swept.deleted.length ? [`${swept.deleted.length} stale deleted`] : []),
+		...(projects ? [`${projects} stale project dir${projects === 1 ? "" : "s"} removed`] : []),
 	];
 	if (counts.length === 0) return [];
 	const newest = [...swept.open].sort((a, b) => b.mtimeMs - a.mtimeMs);
@@ -879,7 +882,19 @@ export default function (pi: ExtensionAPI) {
 	pi.on(
 		"session_start",
 		guarded((_event, ctx) => {
-			const [summary, ...lines] = sweepLines(sweep(process.env, ctx.cwd));
+			const swept = sweep(process.env, ctx.cwd);
+			// The daily sweep of project dirs whose checkout is gone; a failure is shown, not hidden, and does not stop the start-up.
+			let projects = { removed: 0, log: "" };
+			let failed: string | undefined;
+			try {
+				const found = sweepProjectDirs(process.env, projectSlug(ctx.cwd));
+				projects = { removed: found.removed.length, log: found.log };
+			} catch (error) {
+				failed = `project dir sweep failed: ${error instanceof Error ? error.message : String(error)}`;
+			}
+			const [summary, ...lines] = sweepLines(swept, projects.removed);
+			if (projects.removed) lines.push(`  removed project dirs are listed in ${projects.log}`);
+			if (failed) lines.push(failed);
 			const open = openLoop(ctx);
 			if (open) withTrees(() => {
 				checkLandings(open);
