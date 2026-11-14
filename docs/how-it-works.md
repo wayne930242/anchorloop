@@ -62,9 +62,10 @@ Subagent books live under `agents/`; a child that closes keeps its book for the 
 Its notice gives one line of counts (open books of this project, stale books deleted), the three newest open books, and the directory holding the rest.
 
 Once a day (the stamp `books-sweep.stamp` beside the books directory holds the last run), `session_start` also sweeps project directories: a worktree that is removed leaves its project directory behind while a living main session still links the child books in it.
-A project directory is removed only when every path its books record as `cwd` is gone, no book in it is an open loop (a book not closed) or has a dispatch still out, nothing in it was written for 7 days (the age at which a book counts as stale), and it is not the session's own project.
+A project directory is removed only when every path its books record as `cwd` is gone, no book in it is an open loop (a book not closed) or has a dispatch still out, nothing in it was written for 7 days (the age at which a book counts as stale), no unclosed book anywhere under the books directory links a child whose book is in it, and it is not the session's own project.
 Each removal is logged to `books-sweep.log` beside the books directory before the directory goes, and the notice adds the count.
-A closed child book that a living main session still links goes with its directory, so that main session no longer reads that child's friction or edits.
+A closed child book stays while an unclosed main session's book links it; once that main book closes, its directory can go on a later day.
+The links are indexed once per sweep.
 
 `close` answers `closed (landed). Clear the todo list.`, adding only the phases not shown complete and the unreflected friction.
 It never refuses over phases or friction.

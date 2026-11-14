@@ -5,7 +5,7 @@
  */
 
 import { appendFileSync, existsSync, lstatSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { STALE_BOOK_MS, booksRoot, childBooksChanged, isClosed, parseBook } from "./book.ts";
 import { outDispatches } from "./units.ts";
 
@@ -50,14 +50,45 @@ function filesUnder(dir: string): { path: string; mtimeMs: number }[] {
 	return found;
 }
 
+/** Mirrors the file-name form of a child id in `book.ts`. */
+const fileId = (id: string): string => id.replace(/[^A-Za-z0-9._-]/g, "_");
+
+/**
+ * The file ids of every child that an unclosed book anywhere under the root links: one pass over the root per sweep. A living main
+ * still reads those children's books (friction, edits), so the dir holding one stays. A book that cannot be read links nothing here.
+ */
+function linkedByOpenBooks(root: string): Set<string> {
+	const linked = new Set<string>();
+	for (const project of readdirSync(root)) {
+		let files: { path: string }[];
+		try {
+			files = filesUnder(join(root, project)).filter((file) => file.path.endsWith(".yml"));
+		} catch {
+			continue;
+		}
+		for (const file of files) {
+			const book = parseBook(file.path);
+			if (!book || isClosed(book)) continue;
+			for (const entry of book.entries) if (entry.stage === "link" && typeof entry.child === "string") linked.add(fileId(entry.child));
+		}
+	}
+	return linked;
+}
+
+/** The child id a book file in an `agents/` dir holds: its name without `.yml` and without a set-aside `.closed-<n>` suffix. */
+const childOfFile = (path: string): string | undefined =>
+	basename(dirname(path)) === "agents" ? basename(path, ".yml").replace(/\.closed-\d+$/, "") : undefined;
+
 /** What removing `dir` would remove, or undefined when any condition for removing it fails. */
-function removable(dir: string, now: number): Omit<RemovedProject, "project"> | undefined {
+function removable(dir: string, now: number, linked: ReadonlySet<string>): Omit<RemovedProject, "project"> | undefined {
 	if (!lstatSync(dir).isDirectory()) return undefined;
 	const files = filesUnder(dir);
 	if (files.length === 0) return undefined;
 	const newest = Math.max(...files.map((file) => file.mtimeMs));
 	// A write later than now (a clock set back) counts as recent.
 	if (now - newest < PROJECT_IDLE_MS) return undefined;
+	// An unclosed book elsewhere links a child whose book is here: that main still reads it.
+	if (files.some((file) => { const id = childOfFile(file.path); return id !== undefined && linked.has(id); })) return undefined;
 	const books = files.filter((file) => file.path.endsWith(".yml")).map((file) => parseBook(file.path));
 	// A book that cannot be read says nothing about its loop or its path, so the dir stays.
 	if (books.length === 0 || books.some((book) => book === undefined)) return undefined;
@@ -73,7 +104,7 @@ function removable(dir: string, now: number): Omit<RemovedProject, "project"> | 
 /**
  * Removes the project dirs of removed checkouts under the books root, at most once a day. A dir goes only when every path its books
  * record as their cwd is gone, no book under it is an open loop (one that is not closed) or has a dispatch still out, nothing under
- * it was written for `PROJECT_IDLE_MS`, and it is not `current`, the calling session's own project. Each removal is logged to
+ * it was written for `PROJECT_IDLE_MS`, no unclosed book anywhere under the root links a child whose book is in it, and it is not `current`, the calling session's own project. Each removal is logged to
  * `books-sweep.log` beside the root before the dir is removed. The day's run is claimed by touching the stamp first, so sessions
  * starting together sweep once; a stamp that cannot be written is an error, not a sweep with no throttle.
  */
@@ -90,12 +121,13 @@ export function sweepProjectDirs(env: NodeJS.ProcessEnv = process.env, current?:
 	}
 	writeFileSync(stamp, `${new Date(now).toISOString()}\n`);
 	result.ran = true;
+	const linked = linkedByOpenBooks(root);
 	for (const project of readdirSync(root)) {
 		if (project === current) continue;
 		const dir = join(root, project);
 		let found: Omit<RemovedProject, "project"> | undefined;
 		try {
-			found = removable(dir, now);
+			found = removable(dir, now, linked);
 		} catch {
 			// The dir vanished or cannot be read (another session tidied it, or permissions): it stays, and the rest of the root still counts.
 			continue;

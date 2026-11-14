@@ -39,9 +39,9 @@ class SweepCase(BookCase):
         old(path, days)
         return dir
 
-    def parent(self, *kids: str) -> None:
+    def parent(self, *kids: str, closed: bool = True) -> None:
         """A living main session of a project that exists, linking `kids`: the book sweep keeps a linked child book however old it is."""
-        book = self.write_book(self.books / "parent-project" / "parent.yml", str(self.cwd), OPEN, *[{"stage": "link", "child": kid} for kid in kids], session=str(self.session_file))
+        book = self.write_book(self.books / "parent-project" / "parent.yml", str(self.cwd), OPEN, *[{"stage": "link", "child": kid} for kid in kids], *([CLOSED] if closed else []), session=str(self.session_file))
         os.utime(book, None)
 
     def stamp(self) -> Path:
@@ -74,6 +74,25 @@ class TestProjectSweep(SweepCase):
         self.assertIn(self.gone(), self.log())
         (notice,) = out["notices"]
         self.assertIn("1 stale project dir removed", notice["message"])
+
+    def test_a_dir_whose_child_book_an_unclosed_main_links_is_kept(self):
+        # The main lives elsewhere and still reads this child's friction and edits, so its dir stays though it is old and its path is gone.
+        self.parent("kid", closed=False)
+        dir = self.project("linked-one", self.gone(), OPEN, CLOSED, child=True, name="kid", days=30)
+        self.start()
+        self.assertTrue((dir / "agents" / "kid.yml").exists())
+        self.assertEqual(self.log(), "")
+
+    def test_the_dir_goes_once_the_linking_main_is_closed(self):
+        self.parent("kid", closed=False)
+        dir = self.project("linked-two", self.gone(), OPEN, CLOSED, child=True, name="kid", days=30)
+        self.start()
+        self.assertTrue(dir.exists())
+        self.parent("kid", closed=True)
+        old(self.stamp(), 2)
+        self.start()
+        self.assertFalse(dir.exists())
+        self.assertIn("linked-two", self.log())
 
     def test_a_dir_whose_source_path_still_exists_is_kept(self):
         live = self.cwd.parent / "live-checkout"
