@@ -1,4 +1,4 @@
-# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ cf4f752 -->
+# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ a522c27 -->
 
 [README](../README.zh-TW.md) 背後的完整行為。skill 告訴 agent 怎麼工作；下面六個 pi extension 則盯著工作進行，說出還缺什麼，所以請找到需要的那一節，其餘可以略過。
 
@@ -62,9 +62,10 @@ subagent 的 book 放在 `agents/`；subagent 自己 close 時，book 留給主 
 提示只用一行列出數量（本專案未關的 book、刪掉的過期 book），再列最新三本與其餘所在的目錄。
 
 每天一次（books 目錄旁的 `books-sweep.stamp` 記著上次執行的時間），`session_start` 也會清專案目錄：worktree 被移除後，只要還活著的主 session 連著裡面的子 book，它的專案目錄就會留下來。
-專案目錄只在下列條件全部成立時才移除：它的 book 記下的每個 `cwd` 路徑都已不存在、裡面沒有任何開啟中的 loop（沒有 close 的 book）或尚未回報的派工、裡面 7 天沒有任何寫入（book 算過期的年齡），而且它不是這個 session 自己的專案。
+專案目錄只在下列條件全部成立時才移除：它的 book 記下的每個 `cwd` 路徑都已不存在、裡面沒有任何開啟中的 loop（沒有 close 的 book）或尚未回報的派工、裡面 7 天沒有任何寫入（book 算過期的年齡）、books 目錄下沒有任何未結案的 book 連著裡面某個子代理的 book，而且它不是這個 session 自己的專案。
 每次移除都會在目錄被刪掉之前，記進 books 目錄旁的 `books-sweep.log`，提示也會加上移除的數量。
-已結案的子 book 即使還有活著的主 session 連著，也會隨它的目錄一起刪掉，所以那個主 session 之後讀不到該子代理的 friction 與 edit。
+已結案的子 book 只要有未結案的主 session book 連著就會留下；那本主 book 結案後，它的目錄可在之後某天被移除。
+連結每次清理只建一次索引。
 
 `close` 回覆 `closed (landed). Clear the todo list.`，只多列沒有完成的階段和還沒 reflect 的 friction。
 它不會因為階段或 friction 而拒絕。
