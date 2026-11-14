@@ -115,6 +115,21 @@ class TestRetiredCar(multitask.MultitaskCase):
         for text in (read, text_of(out["results"][-2])):
             self.assertEqual([text.count(f"origin/agent/{ticket} ") for ticket in ("mp-1001", "mp-1002")], [1, 1], text)
 
+    def test_a_retired_car_this_session_landed_itself_and_its_recreated_unit_declared_is_read_once(self):
+        """R4-F001: the landing recorded for no unit (self) and the declaration for its unit (elsewhere) are one landing to `read`, as the first says it."""
+        self.push_car()
+        new = (AGAIN, TWO_AGAIN)
+        self.replay([CLEAR, *self.creates(*new)], branch=self.branch(*new))
+        merge = "git checkout -q main && git merge -q --no-ff -m train agent/mp-1001 && git push -q origin main"
+        self.replay([bash_call(merge), run("git", "checkout", "-q", "main"), run("git", "merge", "-q", "--no-ff", "-m", "train", "agent/mp-1001"),
+                     run("git", "push", "-q", "origin", "main"), bash_result(merge, 0, "")], branch=self.branch(*new))
+        out = self.replay([stage(stage="landed", sha=self.sh("rev-parse", "origin/main"), ref="origin/main", task=1), stage(stage="read")], branch=self.branch(*new))
+        mine = [(entry.get("task"), entry.get("self")) for entry in self.entries("land") if entry.get("verified") and entry.get("pushed")]
+        self.assertEqual(mine, [(None, True), (1, False)], f"the session's own landing and its unit's declaration were not both recorded: {mine}")
+        lines = [line for line in text_of(out["results"][-1]).splitlines() if "origin/agent/mp-1001 " in line]
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn("landed by this session", lines[0])
+
     def test_a_unit_of_another_ticket_cannot_declare_the_retired_car(self):
         self.push_car()
         new = (NEW_ONE, NEW_TWO)

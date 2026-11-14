@@ -332,14 +332,21 @@ function childPassingRun(book: Book, child: string): { name: string; run: Entry 
 
 /** The landings recorded so far, newest last, for `read`. */
 export function landLines(entries: Entry[]): string[] {
-	// A retired car that its recreated unit declared is recorded twice (for no unit, then for that unit) and read once.
-	return [
-		...new Set(
-			entries
-				.filter((entry) => entry.stage === "land" && entry.verified !== false)
-				.map((entry) => `landed ${String(entry.label ?? entry.child ?? "this session")} in ${String(entry.ref)} (${String(entry.rule)}; ${entry.exact === true ? "the tree its check ran on" : "not the tree its check ran on"}; ${entry.self === true ? "landed by this session" : "landed elsewhere"})`),
-		),
-	];
+	// A retired car that its recreated unit declared is recorded twice (for no unit, then for that unit) and read once. The two records
+	// can differ in `self` (this session landed it, then the declaration found it landed), so one landing is the same branch and head
+	// in the same ref, and the first record's line stands.
+	const seen = new Set<string>();
+	const lines: string[] = [];
+	for (const entry of entries) {
+		if (entry.stage !== "land" || entry.verified === false) continue;
+		const line = `landed ${String(entry.label ?? entry.child ?? "this session")} in ${String(entry.ref)} (${String(entry.rule)}; ${entry.exact === true ? "the tree its check ran on" : "not the tree its check ran on"}; ${entry.self === true ? "landed by this session" : "landed elsewhere"})`;
+		const landing = typeof entry.head === "string" ? `${String(entry.ref)}\0${String(entry.child ?? "")}\0${String(entry.pushed ?? "")}\0${entry.head}` : line;
+		if (seen.has(line) || seen.has(landing)) continue;
+		seen.add(line);
+		seen.add(landing);
+		lines.push(line);
+	}
+	return lines;
 }
 
 /** One `partial k/n` line for each linked worker whose change is in the ref only in part, read from git now. */
