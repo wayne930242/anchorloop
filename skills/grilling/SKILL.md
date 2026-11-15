@@ -3,7 +3,7 @@ name: grilling
 description: Use when resolving user-owned decisions or ambiguous architectural tradeoffs, when a decision artifact has open rows, or when the user asks to be grilled on an idea.
 ---
 
-Interview the user relentlessly until you reach a shared understanding. Map the subject as a **design tree**: every decision branches into the decisions that depend on it.
+Interview the user until you reach a shared understanding. Map the subject as a **design tree**: every decision branches into the decisions that depend on it.
 
 When a caller hands over a decision artifact, first write every consequential question into it with the answer already supported by the request or source facts, its basis, and its status; when no row is `open`, return it without interviewing.
 

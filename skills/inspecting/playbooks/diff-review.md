@@ -25,14 +25,8 @@ Keep the axes separate even when evaluated in one session.
 ### Standards
 
 Find each documented-standard violation and cite its source. Tool-enforced style
-is left to the tool. Use these smell heuristics only as judgment calls, with
-project precedent taking priority:
-
-- mysterious names and primitive domain concepts
-- duplicated logic or recurring conditionals
-- data clumps and feature envy
-- shotgun surgery or divergent responsibilities
-- speculative abstractions, pass-through middle layers, and message chains
+is left to the tool. Raise a design smell only as a judgment call, with project
+precedent taking priority.
 
 ### Spec
 

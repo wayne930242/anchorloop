@@ -30,12 +30,7 @@ Include only dimensions relevant to the request: correctness, edge cases, archit
 
 ### Phase 2: Verify
 
-For each scoped item:
-
-1. Identify the evidence that would prove or disprove it.
-2. Gather that evidence directly. Invoke `investigating` only when the item requires substantial research or cross-source verification.
-3. Record a verdict: pass, fail, needs attention, or insufficient evidence.
-4. Grade the evidence as `investigating` defines. For a change judged safe, name the one fact its safety rests on and take it to `executed`.
+Give each scoped item a verdict (pass, fail, needs attention, or insufficient evidence) and the evidence that proves it, graded as `investigating` defines; invoke `investigating` only when the item requires substantial research or cross-source verification. For a change judged safe, name the one fact its safety rests on and take it to `executed`.
 
 ### Phase 3: Report
 

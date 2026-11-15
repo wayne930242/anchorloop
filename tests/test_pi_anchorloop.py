@@ -323,7 +323,7 @@ class TestSecondThought(ExtensionCase):
         out = self.settle_after(answers("ask-user"), self.open_todos({"subject": "port the cache", "status": "pending"}))
         self.assertNotIn("continue", out["results"][-1])
         text = self.content(out)
-        self.assertIn("open: #1 port the cache — ask the user about them with ask_user_question", text)
+        self.assertIn("open: #1 port the cache — ask the user about them before ending the turn", text)
         self.assertIn("concerns: needs the user's decision", text)
         self.assertNotIn("continue each", text)
 

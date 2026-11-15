@@ -5,7 +5,7 @@ description: Use when creating, editing, or auditing agent skills and instructio
 
 # Solid Loop
 
-Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md). The anchor is `uv run python hooks/validate_all.py .` or the project's own validator, clean, every edited section passing the no-op test, and, when the change answers a recorded failure, a fresh-context rerun of that task in which the failure no longer occurs, or `rerun: n/a — <reason>` when no safe slice exists (see [author-skill](playbooks/author-skill.md)).
+Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md). The anchor is the validator, clean: the project's own validator command where it has one (in the anchorloop repository, `uv run python hooks/validate_all.py .`), else no finding appended by the `validate-tool-use` extension to the last `write` or `edit` of each edited `SKILL.md`, instruction file, or rule file; every edited section passing the no-op test; and, when the change answers a recorded failure, a fresh-context rerun of that task in which the failure no longer occurs, or `rerun: n/a — <reason>` when no safe slice exists (see [author-skill](playbooks/author-skill.md)).
 
 The root virtue is **predictability**: each instruction sends the next run straight to the work, with no detour and no unneeded read.
 
@@ -28,7 +28,7 @@ Pair each added sentence with a merge or deletion in the same file, so the file 
 - **Description as hook**: Write the situation in the user's own words that should send them here, assertively, because models under-trigger.
 - **Completion criteria**: Make each criterion checkable, and demanding enough to drive thorough legwork.
 - **Explain why**: Put the consequence beside the rule, and reserve capitals and absolutes for the one rule that causes real damage, stated once.
-- **Name the shortcut**: List the excuses the model will reach for as excuse → reality pairs, and turn adjectives into self-test questions.
+- **Name the shortcut**: Turn adjectives into self-test questions; an excuse → reality pair is written only beside an earned red line, from the excuse a run was observed to make.
 - **No-op test**: Evaluate each sentence in isolation and delete the ones that do not change behavior relative to the model's default.
 - **Single source of truth**: Give each operational contract one canonical home.
 - **Positive steering**: State the target behavior, because a prohibition names the unwanted pattern and makes it more likely; a prohibition or discipline skill keeps a negation only as an earned red line.

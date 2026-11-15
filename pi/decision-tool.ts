@@ -59,12 +59,12 @@ export default function (pi: ExtensionAPI) {
 		parameters: {
 			type: "object",
 			properties: {
-				log: { type: "string" },
-				start: { type: "string" },
-				decision: { type: "string" },
-				why: { type: "string" },
-				evidence: { type: "string", description: "commit, file:line, or path" },
-				result: { type: "string" },
+				log: { type: "string", description: "scratch/decisions-<task-slug>.tsv, relative to the working directory; another path is refused" },
+				start: { type: "string", description: "your run id; writes a `start` row and ignores the other cells" },
+				decision: { type: "string", description: "the fork, pivot, or blocker; required unless `start`" },
+				why: { type: "string", description: "required unless `start`" },
+				evidence: { type: "string", description: "commit, file:line, or path; required unless `start`" },
+				result: { type: "string", description: "what followed, such as the check reading or `default applied; alternative = <x>`; required unless `start`" },
 			},
 			required: ["log"],
 			additionalProperties: false,

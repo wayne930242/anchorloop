@@ -127,7 +127,7 @@ export function concerns(verdict: Verdict, found: string[]): string[] {
 function todoCall(verdict: Verdict, snap: Snapshot): string {
 	const list = `open: ${listTodos(snap.unsettled)}`;
 	return verdict.move === "ask-user"
-		? `${list} — ask the user about them with ask_user_question before ending the turn`
+		? `${list} — ask the user about them before ending the turn`
 		: `${list} — continue each, complete it, or set metadata.followup (a ticket id, \`memory\`, or \`drop — <reason>\`)`;
 }
 
