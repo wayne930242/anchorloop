@@ -294,7 +294,7 @@ An edit made before the loop has an anchor is the cheapest moment to say so, so 
 Inside an open loop, `pi/anchor-gate.ts` appends one warning line to the edit's tool result, where the agent reads it.
 It speaks when `write` or `edit` starts the `act` phase while an earlier phase of the loop kind is incomplete.
 That is no anchor (`anchor` on the `kind` call, a `Reality anchor:` line, or a skip).
-In a `durable` loop it is also a missing decision, spec, fresh read, approval, or design, read from the `docs/specs/<folder>/` files, found from the book, the intent, or a todo `ref`.
+In a `durable` loop it is also a missing decision, spec, fresh read, approval, or design, read from the files of the spec folder, found from the book, the intent, or a todo `ref`: a `docs/specs/<folder>` that exists, or any folder inside the project that holds `decision.md` or `spec.md`. When none is found, the missing text says so and names the path-like words of the intent that were not accepted, with the reason.
 
 It warns again only when a new phase goes missing, and the call still goes through.
 Outside a loop and in `quick` loops it stays silent.

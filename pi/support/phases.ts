@@ -30,7 +30,7 @@ import {
 	reviewStands,
 	runStands,
 	type Scope,
-	specFolder,
+	specFolderOf,
 	withChildActs,
 } from "./book.ts";
 
@@ -187,7 +187,7 @@ export function reachLine(reach: Reach, kind: string | undefined): string {
 // --- evidence ------------------------------------------------------------------------------------
 
 /** `entries` holds the children's acts merged in; `own` is the book's entries alone, which `allFriction` reads the same. */
-type Ctx = Inputs & { own: Entry[]; seq: readonly string[]; folder?: string; lastAct: number };
+type Ctx = Inputs & { own: Entry[]; seq: readonly string[]; folder?: string; rejected: { word: string; why: string }[]; lastAct: number };
 
 const done = (name: string, note = ""): Status => ({ name, state: "done", note });
 const missing = (name: string, note: string): Status => ({ name, state: "missing", note });
@@ -261,6 +261,11 @@ function openObservation(entries: Entry[], from: number): string | undefined {
 	return undefined;
 }
 
+/** The path-like words the loop named that no spec folder was taken from, with why, at most three. */
+function notAccepted(rejected: { word: string; why: string }[]): string {
+	return rejected.length === 0 ? "" : `; not accepted: ${rejected.slice(0, 3).map((item) => `${item.word} (${item.why})`).join(", ")}`;
+}
+
 function evaluate(name: string, ctx: Ctx): Status {
 	const { entries } = ctx;
 	const from = floor(entries, ctx.seq, name);
@@ -269,7 +274,7 @@ function evaluate(name: string, ctx: Ctx): Status {
 	switch (name) {
 		case "decide": {
 			const decision = artifact(ctx, "decision", from);
-			return total(decision?.counts) > 0 ? done(name) : missing(name, ctx.folder ? `${ctx.folder}/decision.md with decision rows (Status grounded, confirmed, or open)` : "decision.md with decision rows with Status grounded, confirmed, or open (no spec folder: name it in `intent` by calling `kind` again)");
+			return total(decision?.counts) > 0 ? done(name) : missing(name, ctx.folder ? `${ctx.folder}/decision.md with decision rows (Status grounded, confirmed, or open)` : `decision.md with decision rows with Status grounded, confirmed, or open (no spec folder: name a folder under docs/specs/<name>, or any folder holding decision.md or spec.md, in \`intent\` by calling \`kind\` again${notAccepted(ctx.rejected)})`);
 		}
 		case "grill": {
 			const decision = artifact(ctx, "decision", from);
@@ -353,7 +358,8 @@ export function computePhases(book: Pick<Book, "entries">, inputs: Omit<Inputs, 
 	const kind = currentKind(book.entries);
 	const seq = SEQUENCES[kind ?? "inline"];
 	const entries = withChildActs(book.entries);
-	const ctx: Ctx = { ...inputs, entries, own: book.entries, seq, folder: specFolder(entries, inputs.todos, inputs.cwd), lastAct: lastActIndex(entries) };
+	const named = specFolderOf(entries, inputs.todos, inputs.cwd);
+	const ctx: Ctx = { ...inputs, entries, own: book.entries, seq, folder: named.folder, rejected: named.rejected, lastAct: lastActIndex(entries) };
 	const statuses = seq.filter((name) => name !== "close").map((name) => evaluate(name, ctx));
 	let prefix = 0;
 	while (prefix < statuses.length && statuses[prefix].state !== "missing") prefix++;

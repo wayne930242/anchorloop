@@ -294,7 +294,7 @@ loop 已證明的事與提醒問過的事都會延續；book 的 todo 從此是�
 只在開啟的 loop 內，`pi/anchor-gate.ts` 把一行警告附在該次編輯的 tool result 後面，agent 在那裡讀到它。
 `write` 或 `edit` 開始 `act` 階段、而這種 loop 前面的階段還沒完成時才發出。
 這包括沒有 anchor（`kind` 呼叫的 `anchor`、`Reality anchor:` 這一行，或已跳過）。
-`durable` loop 則還包括缺決策、spec、全新 context 的閱讀、核准或設計，從 `docs/specs/<folder>/` 的檔案判斷，資料夾由 book、intent 或 todo 的 `ref` 找出。
+`durable` loop 則還包括缺決策、spec、全新 context 的閱讀、核准或設計，從 spec 資料夾的檔案判斷，資料夾由 book、intent 或 todo 的 `ref` 找出：存在的 `docs/specs/<folder>`，或專案內任何放有 `decision.md` 或 `spec.md` 的資料夾。找不到時，缺少項目的文字會說明規則，並列出 intent 中未被接受的路徑樣貌字詞與原因。
 
 只有新缺了一個階段時才會再警告，呼叫仍會放行。
 沒有 loop 或是 `quick` loop 時保持安靜。
