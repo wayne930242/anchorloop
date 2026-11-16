@@ -9,13 +9,13 @@ Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md) with one of the
 
 ## Classify
 
-Before the first production edit, classify the change by what it reaches, not by how settled the approach feels:
+Before the first production edit, classify the change by which of the four review categories it touches, not by how settled the approach feels:
 
 - **Inline:** the change touches no shared contract, authorization or permission data, migration, or security. Its reach sizes the anchor, not the kind: a changed export anchors on its callers' tests, and a behavior users see (config keys, output, notices, command flags) on a check of that output. Name in the reply any behavior the requirement leaves open. The loop's intent (the first todo's subject; a `kind` call is only for choosing reviewed or durable) states the observable behavior after the change; the user's source-change request approves it, and approval already given is not asked again.
 - **Reviewed:** the change touches a shared contract, authorization or permission data, a migration, or security, without a decision the user owns. Before the first edit, follow [reviewed](references/reviewed.md) for its premises and review. It needs no spec and no further approval.
 - **Durable:** the work needs a persistent design record because of material ambiguity, a trade-off the user owns, cross-component coordination, migration risk, or a user-requested spec. Read [MINI-SDD.md](MINI-SDD.md) and create or resume its folder; work items stay in `todo`; Spec waits for the user's approval before any production edit.
 
-Re-classify when the reach changes: the user adds scope, an anchor run reports the diff's reach, or the change turns out smaller. Call `kind` with a `reason` naming the kind that now fits, or why the current one still fits. Verified work carries over; an upgrade adds only the new kind's phases, the premises and review for Reviewed, and for Durable the record from decide on, with the code so far as prototype evidence.
+Re-classify when what the change touches changes: the user adds scope, an anchor run reports a reach that touches one of the four categories, or the change turns out smaller. Call `kind` with a `reason` naming the kind that now fits, or why the current one still fits. Verified work carries over; an upgrade adds only the new kind's phases, the premises and review for Reviewed, and for Durable the record from decide on, with the code so far as prototype evidence.
 
 ## Anchor
 

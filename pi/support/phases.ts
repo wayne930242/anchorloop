@@ -96,10 +96,10 @@ export function exempt(filePath: string, cwd: string): boolean {
 
 // --- reach -----------------------------------------------------------------------------------------
 
-/** What a change reaches, measured from its diff: the count an unreviewed loop is re-classified at, not the author's confidence. */
+/** What a change reaches, measured from its diff: past these counts an unreviewed loop is asked to confirm its kind (reviewed only for the four review categories), not the author's confidence. */
 export type Reach = { source: string[]; modules: string[]; behavior: string[]; crossed: string[] };
 
-/** The kinds that never run a review; a change past the reach thresholds asks them to re-classify. */
+/** The kinds that never run a review; a change past the reach thresholds asks them to confirm their kind. */
 export const REVIEWLESS: ReadonlySet<string> = new Set(["quick", "inline"]);
 const REACH_FILES = 3;
 const REACH_MODULES = 2;
