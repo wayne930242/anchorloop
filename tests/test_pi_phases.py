@@ -38,7 +38,7 @@ class TestSequences(PhaseCase):
         durable = self.line(self.open_loop("durable"), session="s-durable")
         self.assertEqual(quick, "quick · phase start → act (missing: a change to the code)")
         self.assertTrue(inline.startswith("inline · phase start → anchor (missing: a `Reality anchor:` line"), inline)
-        self.assertEqual(durable, "durable · phase start → decide (missing: decision.md with decision rows with Status grounded, confirmed, or open (no spec folder: name it in `intent` by calling `kind` again))")
+        self.assertEqual(durable, "durable · phase start → decide (missing: decision.md with decision rows with Status grounded, confirmed, or open (no spec folder: name a folder under docs/specs/<name>, or any folder holding decision.md or spec.md, in `intent` by calling `kind` again))")
 
     def test_an_inline_loop_walks_anchor_act_verify_and_regresses_when_the_code_changes_again(self):
         steps = self.open_loop(anchor="pytest -q")
@@ -132,6 +132,41 @@ class TestDurable(PhaseCase):
             self.artifact(name, text)
         line = self.line(self.open_loop("durable", intent=f"implement {DIR}", anchor="pytest -q"))
         self.assertEqual(line, "durable · phase anchor ✓ → act (missing: a change to the code)")
+
+    def test_a_folder_outside_docs_specs_that_holds_a_decision_is_the_spec_folder(self):
+        folder = self.cwd / "scratch" / "doc-system"
+        folder.mkdir(parents=True)
+        (folder / "decision.md").write_text(DONE_ROWS)
+        intent = "doc system, spec folder scratch/doc-system (decision.md, w1-plan.md, w7-plan.md)"
+        line = self.line(self.open_loop("durable", intent=intent, anchor="pytest -q"))
+        self.assertEqual(line, "durable · phase grill ✓ → spec (missing: spec.md with Status: proposed)")
+
+    def test_an_absolute_folder_inside_the_cwd_is_found_and_one_outside_is_not(self):
+        folder = self.cwd / "notes" / "x"
+        folder.mkdir(parents=True)
+        (folder / "spec.md").write_text(spec_text("proposed"))
+        (folder / "decision.md").write_text(DONE_ROWS)
+        line = self.line(self.open_loop("durable", intent=f"build {folder}", anchor="pytest -q"), session="s-abs")
+        self.assertIn("phase spec ✓ → read", line)
+        outside = self.cwd.parent / "outside-spec"
+        outside.mkdir(exist_ok=True)
+        (outside / "decision.md").write_text(DONE_ROWS)
+        line = self.line(self.open_loop("durable", intent=f"build {outside}"), session="s-out")
+        self.assertIn("phase start → decide (missing:", line)
+
+    def test_a_folder_without_decision_or_spec_is_ignored_and_the_missing_text_says_why(self):
+        (self.cwd / "scratch" / "empty").mkdir(parents=True)
+        (self.cwd / "scratch" / "empty" / "notes.md").write_text("x\n")
+        line = self.line(self.open_loop("durable", intent="use scratch/empty and scratch/gone and and/or"))
+        self.assertIn("phase start → decide (missing:", line)
+        self.assertIn("any folder holding decision.md or spec.md", line)
+        self.assertIn("not accepted: scratch/empty (no decision.md or spec.md), scratch/gone (no such folder)", line)
+        self.assertNotIn("and/or", line)
+
+    def test_docs_specs_is_found_by_the_folder_alone_without_a_decision_in_it(self):
+        (self.cwd / DIR).mkdir(parents=True)
+        line = self.line(self.open_loop("durable", intent=f"build {DIR}"))
+        self.assertIn(f"phase start → decide (missing: {DIR}/decision.md with decision rows", line)
 
     def test_a_pickup_loop_names_the_spec_in_a_todo_ref(self):
         for name, text in (("decision.md", DONE_ROWS), ("spec.md", spec_text("approved", True))):

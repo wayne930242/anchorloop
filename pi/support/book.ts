@@ -9,7 +9,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { closeSync, constants, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, writeSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { childId as hostChildId, childName, childSession } from "./host.ts";
 
 export const KINDS = ["quick", "inline", "reviewed", "durable"] as const;
@@ -1223,8 +1223,8 @@ function previous(entries: Entry[], stage: string, path: string): Entry | undefi
 }
 
 /** The entry fields summarising `text` of an artifact, compared with the book's last entry for the same file. */
-export function summarizeArtifact(entries: Entry[], path: string, text: string): { stage: string; fields: Record<string, unknown> } | undefined {
-	const kind = artifactKind(path);
+export function summarizeArtifact(entries: Entry[], path: string, text: string, as?: ReturnType<typeof artifactKind>): { stage: string; fields: Record<string, unknown> } | undefined {
+	const kind = as ?? artifactKind(path);
 	if (!kind) return undefined;
 	const before = previous(entries, kind, path);
 	const fields: Record<string, unknown> = { auto: true, path };
@@ -1281,21 +1281,87 @@ export function approachFilled(text: string): boolean {
 }
 
 const SPEC_FOLDER = /docs\/specs\/[^\s/#"'`)\]]+/;
+const DECISION_FILES = ["decision.md", "spec.md"];
+const WORD_BREAK = /[\s"'`()[\]{}<>,;]+/;
 
-/** The spec folder of the loop: the one a recorded artifact lives in, else one named by the intent or a todo, if it exists. */
-export function specFolder(entries: Entry[], todos: Task[], cwd: string): string | undefined {
-	const artifact = [...entries].reverse().find((entry) => typeof entry.path === "string" && artifactKind(entry.path));
-	if (artifact) return dirname(artifact.path as string);
-	const texts = [
+const isDir = (path: string): boolean => {
+	try {
+		return statSync(path).isDirectory();
+	} catch {
+		return false;
+	}
+};
+
+const holdsDecision = (path: string): boolean => DECISION_FILES.some((name) => existsSync(join(path, name)));
+
+/** The folder a path-like word of a text names, relative to the cwd (a file names its folder), or why the word names none. */
+function folderOfWord(word: string, cwd: string): { folder: string } | { why: string } | undefined {
+	const token = word.split("#")[0].replace(/[.:]+$/, "");
+	if (!token || token.includes("://") || !token.includes("/")) return undefined;
+	const absolute = resolve(cwd, token);
+	const roots = [cwd, realpathOr(cwd)];
+	const inside = roots.map((root) => relative(root, absolute)).find((rel) => rel !== "" && !rel.startsWith("..") && !isAbsolute(rel));
+	if (inside === undefined) return undefined;
+	const isFile = !isDir(absolute) && existsSync(absolute);
+	const folder = isFile ? dirname(inside) : isDir(absolute) ? inside : undefined;
+	if (folder === undefined) {
+		const pathLike = token.startsWith("/") || token.startsWith("./") || isDir(resolve(cwd, token.split("/")[0]));
+		return pathLike ? { why: "no such folder" } : undefined;
+	}
+	if (folder === "." || folder === "") return undefined;
+	if (holdsDecision(resolve(cwd, folder))) return { folder };
+	return isFile ? undefined : { why: "no decision.md or spec.md" };
+}
+
+const realpathOr = (path: string): string => {
+	try {
+		return realpathSync(path);
+	} catch {
+		return path;
+	}
+};
+
+/** The texts that can name the loop's spec folder, in search order: the intent, task subjects and refs, todo subjects, refs, and anchors. */
+function folderTexts(entries: Entry[], todos: Task[]): string[] {
+	return [
 		currentIntent(entries) ?? "",
 		...entries.filter((entry) => entry.stage === "task").flatMap((entry) => [String(entry.subject ?? ""), ...((entry.refs ?? []) as { ref: string }[]).map((item) => item.ref)]),
 		...todos.flatMap((task) => [task.subject, ...refsOf(task.metadata), String(task.metadata?.anchor ?? "")]),
 	];
-	for (const text of texts) {
-		const found = SPEC_FOLDER.exec(text)?.[0];
-		if (found && existsSync(resolve(cwd, found))) return found;
+}
+
+/** The folder a text names: a `docs/specs/<name>` that exists, else any existing folder holding decision.md or spec.md; the words it named that were not accepted come along. */
+function folderIn(text: string, cwd: string): { folder?: string; rejected: { word: string; why: string }[] } {
+	const spec = SPEC_FOLDER.exec(text)?.[0];
+	if (spec && existsSync(resolve(cwd, spec))) return { folder: spec, rejected: [] };
+	const rejected: { word: string; why: string }[] = [];
+	for (const word of text.split(WORD_BREAK)) {
+		const found = folderOfWord(word, cwd);
+		if (!found) continue;
+		if ("folder" in found) return { folder: found.folder.split(sep).join("/"), rejected };
+		rejected.push({ word: word.split("#")[0].replace(/[.:]+$/, ""), why: found.why });
 	}
-	return undefined;
+	return { rejected };
+}
+
+/** The spec folder of the loop: the one a recorded artifact lives in, else one named by the intent, a task, or a todo that exists and holds a decision or spec. */
+export function specFolder(entries: Entry[], todos: Task[], cwd: string): string | undefined {
+	return specFolderOf(entries, todos, cwd).folder;
+}
+
+/** `specFolder` with the path-like words of the loop's texts that were not accepted as one, and why, for the decide gate to say. */
+export function specFolderOf(entries: Entry[], todos: Task[], cwd: string): { folder?: string; rejected: { word: string; why: string }[] } {
+	const artifact = [...entries].reverse().find((entry) => typeof entry.path === "string" && artifactKind(entry.path));
+	if (artifact) return { folder: dirname(artifact.path as string), rejected: [] };
+	const rejected: { word: string; why: string }[] = [];
+	const texts = folderTexts(entries, todos);
+	for (const [index, text] of texts.entries()) {
+		const found = folderIn(text, cwd);
+		if (found.folder) return { folder: found.folder, rejected: [] };
+		// Only the intent is reported: the words of task refs and anchors name files that were never meant as the spec folder.
+		if (index === 0) for (const item of found.rejected) if (!rejected.some((seen) => seen.word === item.word)) rejected.push(item);
+	}
+	return { rejected };
 }
 
 /** The artifact `name` in `folder` as a summary entry read from disk, for a loop that did not write it. */
@@ -1303,7 +1369,7 @@ export function artifactOnDisk(folder: string, name: string, cwd: string): Entry
 	const path = join(folder, `${name}.md`);
 	try {
 		const text = readFileSync(resolve(cwd, path), "utf-8");
-		const summary = summarizeArtifact([], path, text);
+		const summary = summarizeArtifact([], path, text, name as ReturnType<typeof artifactKind>);
 		return summary ? { ts: "", stage: summary.stage, ...summary.fields } : undefined;
 	} catch {
 		return undefined;
