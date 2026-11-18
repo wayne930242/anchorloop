@@ -5,6 +5,8 @@ that unit's own list, and `kind observe: []` changed nothing, so an item that wa
 reporting it as missing.
 """
 
+import json
+
 from tests.pi_harness import bash_call, bash_result, run, stage, todo_state, tool_call
 from tests.test_model_multitask import MultitaskCase
 from tests.test_pi_book import edit, text_of
@@ -328,3 +330,48 @@ class TestEveryUnitListsItsOwnAndTheLoopListsOne(LoopObserveCase):
         closed = [{**task, "status": "completed"} for task in self.UNITS]
         out = self.replay([stage(stage="close", verdict="landed")], branch=[todo_state(*closed)])
         self.assertIn(OBSERVE, text_of(out["results"][0]))
+
+
+class TestABookWrittenBeforeEntriesNamedTheirSource(FirstTodoCase):
+    """An `observe` entry without a `source` key: the units match the loop's list by its text, as before, so earlier ticks keep counting."""
+
+    UNITS = (first_with(["A"]), {**TWO, "metadata": {**TWO["metadata"], "observe": ["B own"]}})
+
+    def strip_source(self) -> None:
+        path = self.book_files()[0]
+        lines, changed = [], False
+        for line in path.read_text().splitlines():
+            if line.startswith("- "):
+                entry = json.loads(line[2:])
+                if entry.get("stage") == "observe" and "source" in entry:
+                    del entry["source"]
+                    changed = True
+                line = f"- {json.dumps(entry)}"
+            lines.append(line)
+        self.assertTrue(changed)
+        path.write_text("\n".join(lines) + "\n")
+
+    def test_a_tick_of_no_task_still_counts_for_the_unit_whose_list_equals_the_loops(self):
+        self.start()
+        self.strip_source()
+        self.assertNotIn("error", self.step(stage="verify", note="A seen", checkpoint=1))
+        self.assertNotIn(MISSING, self.unit_line("MP-1001"))
+        self.assertIn(f"{MISSING} 1/1: B own", self.unit_line("MP-1002"))
+
+    def test_a_kind_call_marks_its_entry_so_it_is_not_taken_for_an_old_one(self):
+        self.shared_repo()
+        self.replay([*self.creates(*self.UNITS), stage(stage="kind", observe=["loop item"])], branch=self.branch(*self.UNITS))
+        observe = [entry for entry in self.book()[1] if entry["stage"] == "observe"]
+        self.assertEqual(observe[-1].get("source"), "kind")
+
+
+class TestATodoUpdateThatChangesTheFirstTodosList(FirstTodoCase):
+    """The loop's list stays what was recorded; a unit whose own list no longer equals it does not take a tick for the old text."""
+
+    UNITS = (first_with(["A"]), TWO)
+
+    def test_a_tick_of_no_task_does_not_close_the_unit_s_new_item(self):
+        self.start()
+        self.UNITS = (first_with(["B updated"]), TWO)
+        self.assertNotIn("error", self.step(stage="verify", note="A seen", checkpoint=1))
+        self.assertIn(f"{MISSING} 1/1: B updated", self.unit_line("MP-1001"))

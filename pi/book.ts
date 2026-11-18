@@ -848,7 +848,7 @@ export default function (pi: ExtensionAPI) {
 			if (params.observe?.length) {
 				const items = observeList(params.observe);
 				if (items.length === 0) throw new Error("`observe` lists no text: each item is a non-empty string");
-				appendEntry(book.path, "observe", { items });
+				appendEntry(book.path, "observe", { items, source: "kind" });
 			}
 			return reply(resumed ?? "ok");
 		}

@@ -683,15 +683,17 @@ export function observeList(value: unknown): string[] {
 }
 
 /**
- * The post-land observations the loop's anchor lists, from the latest `observe` entry, and the todo that entry was written from (the first
- * todo's metadata) when its todo list is the current one: that todo is the unit whose own list the loop's list is.
+ * The post-land observations the loop's anchor lists, from the latest `observe` entry, and where that entry came from: `source` is the id of
+ * the first todo whose metadata it was written from, when its todo list is the current one (that todo's unit has the list as its own);
+ * a `kind` call or an earlier todo list leaves it undefined. `legacy` marks an entry written before entries named their source, which
+ * the units match to the list by its text.
  */
-export function loopObserve(entries: Entry[]): { items: string[]; source?: number } {
+export function loopObserve(entries: Entry[]): { items: string[]; source?: number; legacy: boolean } {
 	const at = entries.findLastIndex((entry) => entry.stage === "observe" && Array.isArray(entry.items));
-	if (at < 0) return { items: [] };
+	if (at < 0) return { items: [], legacy: false };
 	const found = entries[at];
 	const source = typeof found.source === "number" && at > todoEpoch(entries) ? found.source : undefined;
-	return { items: (found.items as unknown[]).map(String), ...(source !== undefined ? { source } : {}) };
+	return { items: (found.items as unknown[]).map(String), ...(source !== undefined ? { source } : {}), legacy: !("source" in found) };
 }
 
 /** The post-land observations the loop's anchor lists, from the latest `observe` entry. */

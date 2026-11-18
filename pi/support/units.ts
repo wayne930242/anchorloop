@@ -67,10 +67,16 @@ function ofTask(task: Task): Unit {
 
 /**
  * True when a checkpoint tick or drop of no task counts for `unit`: a unit that lists no items inherits the loop's, and the unit whose
- * own metadata the loop's list was written from (the first todo's) has that list. Any other unit lists items of its own, whatever their text.
+ * own metadata the loop's list was written from (the first todo's) has that list, while its own list still equals it (a todo update
+ * that changed it makes the ticks numbered for the old text no longer the unit's). A book written before entries named their source
+ * matches by text: the unit whose list equals the loop's. Any other unit lists items of its own, whatever their text.
  */
 function sharesLoopItems(unit: Unit, entries: Entry[]): boolean {
-	return unit.observe.length === 0 || loopObserve(entries).source === unit.id;
+	if (unit.observe.length === 0) return true;
+	const loop = loopObserve(entries);
+	if (loop.source !== unit.id && !loop.legacy) return false;
+	const items = observeList(loop.items);
+	return unit.observe.length === items.length && unit.observe.every((item, i) => item === items[i]);
 }
 
 /** A task `anchor` alone is the todo's own check (a plain session may carry several); only coordination metadata makes a unit. */
