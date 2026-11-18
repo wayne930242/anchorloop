@@ -23,6 +23,7 @@ import {
 	findParentBooks,
 	isOpenTask,
 	latestTasks,
+	observeItems,
 	ownBases,
 	real,
 	retiredEntry,
@@ -264,6 +265,9 @@ export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[]
 		typeof repo !== "string" || ownTrees.length === 0 || ownTrees.includes(repo) || ![...found.trees.values()].some((trees) => trees.includes(repo));
 	const kept: Entry[] = [];
 	const epoch = todoEpoch(entries);
+	// A checkpoint tick of no task addresses the loop's own items: a unit that lists none, or lists exactly those, is the one it counts for.
+	const loopItems = observeItems(entries);
+	const sharesLoopItems = unit.observe.length === 0 || (unit.observe.length === loopItems.length && unit.observe.every((item, i) => item === loopItems[i]));
 	for (const [index, entry] of entries.entries()) {
 		// A task-tied entry of an earlier todo list is evidence for a todo that is gone.
 		if (retiredEntry(entries, index, epoch)) continue;
@@ -293,7 +297,7 @@ export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[]
 					if (entry.task === unit.id) kept.push(entry);
 				} else if (entry.child !== undefined) {
 					if (mine(entry.child)) kept.push(entry);
-				} else if (entry.checkpoint !== undefined ? unit.observe.length === 0 : unit.anchor === undefined) {
+				} else if (entry.checkpoint !== undefined ? sharesLoopItems : unit.anchor === undefined) {
 					kept.push(entry);
 				}
 				break;

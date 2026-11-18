@@ -247,14 +247,16 @@ function proposedSince(ctx: Ctx): number | undefined {
 }
 
 /**
- * The first observation the anchor lists that no passing `verify` with its checkpoint number follows the last landing, as `observe i/n: text`,
- * or undefined when all are closed. Before any landing every observation is open: it can be seen only on what landed.
+ * The first observation the anchor lists that no passing `verify` with its checkpoint number follows the last landing and that no `skip` dropped,
+ * as `observe i/n: text`, or undefined when all are closed. Before any landing every observation is open: it can be seen only on what landed.
  */
 function openObservation(entries: Entry[], from: number): string | undefined {
 	const items = observeItems(entries);
 	if (items.length === 0) return undefined;
 	const landed = lastWhere(entries, 0, countsAsLanding);
 	for (let i = 0; i < items.length; i++) {
+		// An item dropped with `skip` (phase `observe`, its number and text) is closed, landed or not.
+		if (entries.some((entry) => entry.stage === "skip" && entry.phase === "observe" && entry.checkpoint === i + 1 && entry.item === items[i])) continue;
 		const seen = landed < 0 ? -1 : lastWhere(entries, Math.max(from, landed + 1), (entry) => (entry.stage === "verify" || entry.stage === "check") && entry.checkpoint === i + 1);
 		if (seen < 0 || entries[seen].result === "fail") return `observe ${i + 1}/${items.length}: ${items[i]}${landed < 0 ? " (after it lands)" : ""}`;
 	}

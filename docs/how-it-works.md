@@ -168,6 +168,8 @@ A merge onto a base that moved, a parent edit or repo the child never saw, or a 
 
 An anchor is a run checkpoint plus `observe` checkpoints, which are written on the `kind` call or in todo metadata.
 Each `observe` checkpoint is closed by `verify` with its `checkpoint` number, after the last landing.
+In a book of any number of units, `verify` with `checkpoint` and no `task` ticks the loop's own item; with `task`, a unit that lists none takes the loop's numbers, and one that lists its own takes only those.
+`skip` with `phase: "observe"`, `checkpoint`, and `reason` drops an item; `kind` with `observe: []` is refused while items are listed, since it would drop nothing.
 A prose anchor is not quoted back as a command.
 
 </details>
@@ -226,7 +228,7 @@ A unit's checks compare only its trees, so one unit's change leaves another's ch
 
 With two or more units:
 
-- `verify` without `task` is refused, with the units listed.
+- `verify` without `task` is refused, with the units listed, unless it carries a `checkpoint`, which ticks the loop's own item.
 - `back` and `skip` with `task` reach only that unit and take that unit's kind.
 - A child inherits its unit's anchor, and its returned passing run of that anchor is recorded as its unit's verify.
 - Each `subagent_send` to a persistent reviewer is its own dispatch, and its verdict counts for the unit its brief names.

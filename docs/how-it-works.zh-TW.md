@@ -168,6 +168,8 @@ fast-forward 合入 worker 分支、或子代理直接在父 checkout 裡工作�
 
 anchor 是一個執行檢查點，加上 `observe` 檢查點，寫在 `kind` 或 todo metadata。
 每一項 `observe` 檢查點都要在最後一次併入之後，以 `verify` 加 `checkpoint` 編號結案。
+不論 book 有幾個 unit，不帶 `task` 的 `verify` 加 `checkpoint` 結的是 loop 自己的項目；帶 `task` 時，自己沒列項目的 unit 沿用 loop 的編號，自己有列的 unit 只認自己的。
+`skip` 加 `phase: "observe"`、`checkpoint` 與 `reason` 可以捨棄一項；列了項目時，`kind` 帶 `observe: []` 會被拒絕，因為它什麼也捨棄不了。
 純文字的 anchor 不會被當成指令引用。
 
 </details>
@@ -226,7 +228,7 @@ unit 的檢查只比對自己的 tree，所以一個 unit 的修改不會讓另�
 
 有兩個以上 unit 時：
 
-- 沒有 `task` 的 `verify` 會被拒絕，並列出各 unit。
+- 沒有 `task` 的 `verify` 會被拒絕，並列出各 unit，除非它帶 `checkpoint`，那結的是 loop 自己的項目。
 - 帶 `task` 的 `back` 與 `skip` 只影響那個 unit，並依那個 unit 的種類檢查。
 - 子代理繼承所屬 unit 的 anchor，它回報時通過的那個 anchor 執行會記為該 unit 的 verify。
 - 每次對常駐 reviewer 的 `subagent_send` 都是一次獨立派工，結論算給 brief 指名的 unit。
