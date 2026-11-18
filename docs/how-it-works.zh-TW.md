@@ -168,8 +168,11 @@ fast-forward 合入 worker 分支、或子代理直接在父 checkout 裡工作�
 
 anchor 是一個執行檢查點，加上 `observe` 檢查點，寫在 `kind` 或 todo metadata。
 每一項 `observe` 檢查點都要在最後一次併入之後，以 `verify` 加 `checkpoint` 編號結案。
-不論 book 有幾個 unit，不帶 `task` 的 `verify` 加 `checkpoint` 結的是 loop 自己的項目；帶 `task` 時，自己沒列項目的 unit 沿用 loop 的編號，自己有列的 unit 只認自己的。
-`skip` 加 `phase: "observe"`、`checkpoint` 與 `reason` 可以捨棄一項；列了項目時，`kind` 帶 `observe: []` 會被拒絕，因為它什麼也捨棄不了。
+loop 自己的清單是 `kind` 給的那份，或第一個 todo 的 `observe`；第一個 todo 的 unit 把它當成自己的清單。
+book 有數個 unit 時，不帶 `task` 的 `verify` 加 `checkpoint`，會替讀到 loop 項目的 unit 結案，也就是第一個 todo 的 unit 與每個沒列項目的 unit；帶 `task` 時，自己沒列項目的 unit 沿用 loop 的編號，自己有列的 unit 只認自己的。不到兩個 unit 的 loop 讀的是 loop 的清單，不管 `task` 寫什麼。
+每個 unit 都列了自己的項目時，loop 的項目仍然欠著：loop 那一行會點名它，直到它被結案或捨棄。
+結案只算到 unit 看得見的下一次併入為止：不帶 task 的併入會讓每個 unit 的項目重新打開，帶 task 的只重開那個 unit；`skip` 用在之後的併入也改變不了的項目。
+`skip` 加 `phase: "observe"`、`checkpoint` 與 `reason` 可以捨棄一項，並把理由以 `observe N (reason)` 留給 `read` 與收尾摘要；loop 列了項目，或 book 有數個 unit 而其中一個 unit 列了項目時，`kind` 帶 `observe: []` 會被拒絕，因為它什麼也捨棄不了。
 純文字的 anchor 不會被當成指令引用。
 
 </details>
