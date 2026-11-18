@@ -35,10 +35,12 @@ import {
 	frictionOf,
 	git,
 	guarded,
+	isClosed,
 	isOpenTask,
 	latestTasks,
 	observeItems,
 	observeList,
+	openBook,
 	openLoop,
 	ownBases,
 	repoOf,
@@ -70,8 +72,6 @@ import {
 	passingRunOf,
 	adoptBook,
 	movedTo,
-	parseBook,
-	bookPath,
 	resultOf,
 	type TreeCache,
 	withTrees,
@@ -434,8 +434,27 @@ export default function (pi: ExtensionAPI) {
 	const tipsBefore = new Map<string, Record<string, string>>();
 	// The remote-tracking tips of the loop's own repos before a bash call that may push, by call id: the branches it pushes are cars.
 	const remotesBefore = new Map<string, Map<string, Record<string, string>>>();
-	function todosOf(ctx: ExtensionContext) {
-		return replayTodos(ctx.sessionManager.getBranch());
+	let lastTodos: { leaf: string; session: string; tasks: ReturnType<typeof replayTodos> } | undefined;
+	function todosOf({ sessionManager: manager }: ExtensionContext) {
+		const leaf = manager.getLeafId?.();
+		if (!leaf || !manager.getEntry) return replayTodos(manager.getBranch());
+		const session = manager.getSessionId();
+		// Extend only the active branch. A fork or a new todo source needs a fresh projection.
+		if (lastTodos?.session === session) {
+			let id: string | null = leaf;
+			while (id && id !== lastTodos.leaf) {
+				const entry = manager.getEntry(id);
+				if (!entry || (entry.type === "custom" && entry.customType === "rpiv-todo-state") ||
+					(entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "todo")) break;
+				id = entry.parentId;
+			}
+			if (id === lastTodos.leaf) {
+				lastTodos.leaf = leaf;
+				return lastTodos.tasks;
+			}
+		}
+		lastTodos = { session, leaf, tasks: replayTodos(manager.getBranch()) };
+		return lastTodos.tasks;
 	}
 
 	function phasesOf(book: Book, ctx: ExtensionContext) {
@@ -662,17 +681,15 @@ export default function (pi: ExtensionAPI) {
 	 * The answer for a session whose book another session resumed: the marker at its path names that session. Read once, then removed,
 	 * so the next call opens a loop of its own; undefined when this session's book was not moved.
 	 */
-	function movedNotice(ctx: ExtensionContext): string | undefined {
-		const path = bookPath(ctx);
-		const marker = parseBook(path);
-		const moved = marker ? movedTo(marker) : undefined;
+	function movedNotice(marker: Book): string | undefined {
+		const moved = movedTo(marker);
 		if (!moved) return undefined;
-		deleteBook(path);
+		deleteBook(marker.path);
 		return `anchorloop: this session's loop book ${moved.id} was resumed by session ${moved.session} at ${moved.ts}, so nothing more is recorded here; continue the work in that session, or declare \`kind\` to open a new loop in this one.`;
 	}
 
 	function close(book: Book, ctx: ExtensionContext, verdict: string): { text: string; snapshot?: Snapshot } {
-		const todos = replayTodos(ctx.sessionManager.getBranch());
+		const todos = todosOf(ctx);
 		const undisposed = todos.filter((task) => isOpenTask(task) && !validFollowup(task.metadata?.followup));
 		if (undisposed.length > 0) {
 			throw new Error(
@@ -778,9 +795,10 @@ export default function (pi: ExtensionAPI) {
 		const params = raw as Params;
 		const { stage } = params;
 		if (!(STAGES as readonly string[]).includes(stage)) throw new Error(`unknown stage \`${String(stage)}\`; declare one of ${STAGES.join(", ")}`);
-		let book = openLoop(ctx);
-		if (!book) {
-			const moved = movedNotice(ctx);
+		let book = openBook(ctx);
+		if (book && isClosed(book)) {
+			const moved = movedNotice(book);
+			book = undefined;
 			if (moved) return reply(moved);
 		}
 		let resumed: string | undefined;
@@ -916,6 +934,8 @@ export default function (pi: ExtensionAPI) {
 	pi.on(
 		"session_start",
 		guarded((_event, ctx) => {
+			lastTodos = undefined;
+			lastWidget = null;
 			const [summary, ...lines] = sweepLines(sweep(process.env, ctx.cwd));
 			const open = openLoop(ctx);
 			if (open) withTrees(() => {
@@ -1142,11 +1162,20 @@ export default function (pi: ExtensionAPI) {
 		withTrees(() => statusLine(ctx), { build: false });
 	}
 
+	// null means this UI has not received a widget yet; undefined means it was cleared.
+	let lastWidget: string[] | undefined | null = null;
+	function renderWidget(ctx: ExtensionContext, lines: string[] | undefined): void {
+		if (lines === lastWidget || (lines && lastWidget && lines.length === lastWidget.length && lines.every((line, i) => line === lastWidget?.[i]))) return;
+		if (lines) ctx.ui.setWidget(WIDGET_KEY, lines, { placement: "belowEditor" });
+		else ctx.ui.setWidget(WIDGET_KEY, undefined);
+		lastWidget = lines;
+	}
+
 	function statusLine(ctx: ExtensionContext): void {
 		if (typeof ctx.ui?.setWidget !== "function") return;
 		const book = openLoop(ctx);
 		if (!book) {
-			ctx.ui.setWidget(WIDGET_KEY, undefined);
+			renderWidget(ctx, undefined);
 			return;
 		}
 		const looped = computeLoop(book, { cwd: ctx.cwd, todos: todosOf(ctx) });
@@ -1155,7 +1184,7 @@ export default function (pi: ExtensionAPI) {
 		const kind = phases.kind === "undeclared" ? "no kind" : phases.kind;
 		const at = `${phases.current}${phases.current === "start" ? "" : " ✓"} → ${phases.next}`;
 		const units = looped.rows.map(unitWidgetLine);
-		ctx.ui.setWidget(WIDGET_KEY, [`⚓ ${kind} · ${at}${open ? ` · ${open} friction` : ""}`, ...units], { placement: "belowEditor" });
+		renderWidget(ctx, [`⚓ ${kind} · ${at}${open ? ` · ${open} friction` : ""}`, ...units]);
 	}
 
 	/**
@@ -1163,16 +1192,17 @@ export default function (pi: ExtensionAPI) {
 	 * session resumed is told so on whatever tool result comes next, and that call records nothing in a loop that is no longer its own.
 	 */
 	function recordResult(event: ToolResultEvent, ctx: ExtensionContext) {
-		const moved = childId() === undefined && !openLoop(ctx) ? movedNotice(ctx) : undefined;
+		const own = openBook(ctx);
+		const moved = own && isClosed(own) && childId() === undefined ? movedNotice(own) : undefined;
 		if (moved) {
 			return { content: [...((event.content as unknown[]) ?? []), { type: "text", text: moved }], ...(event.structuredContent !== undefined ? { structuredContent: event.structuredContent } : {}) };
 		}
-		return recordOwnResult(event, ctx);
+		return recordOwnResult(event, ctx, own && !isClosed(own) ? own : undefined);
 	}
 
-	function recordOwnResult(event: ToolResultEvent, ctx: ExtensionContext) {
+	function recordOwnResult(event: ToolResultEvent, ctx: ExtensionContext, book: Book | undefined) {
 		if (event.toolName === "bash") {
-			const book = openLoop(ctx) ?? (childId() !== undefined ? openChildFromBash(ctx, event) : undefined);
+			if (!book && childId() !== undefined) book = openChildFromBash(ctx, event);
 			const notice = book ? recordBash(book, event, ctx.cwd) : undefined;
 			const before = tipsBefore.get(event.toolCallId);
 			tipsBefore.delete(event.toolCallId);
@@ -1186,7 +1216,7 @@ export default function (pi: ExtensionAPI) {
 		if (event.isError) return;
 		if (event.toolName === "todo") {
 			const input = event.input as { action?: unknown; id?: unknown };
-			let open = openLoop(ctx);
+			let open = book;
 			let said: string | undefined;
 			const resume = input.action === "create" ? (taskDetails(event.details) ?? []).map((task) => task.metadata?.resume).find((id): id is string => typeof id === "string" && id.trim() !== "") : undefined;
 			// A todo's `resume` adopts the book whether or not an opening `kind` came first; a refusal is said, never dropped.
@@ -1200,7 +1230,6 @@ export default function (pi: ExtensionAPI) {
 			recordTasks(open, event.details, input, ctx.cwd);
 			return said ? { content: [...((event.content as unknown[]) ?? []), { type: "text", text: said }] } : undefined;
 		}
-		const book = openLoop(ctx);
 		if (!book) return;
 		if (event.toolName === "subagent") {
 			const link = linkFrom(event.toolName, event.input, event.details);
@@ -1338,14 +1367,15 @@ function headAndTail(text: string): string {
 		"message_end",
 		guarded(async (event, ctx) => {
 			const message = event.message as { role?: string; content?: unknown; customType?: string; details?: unknown };
+			const stated = statedAnchor(message);
+			const result = resultFrom(message);
+			if (!stated && !result) return;
 			const book = openLoop(ctx);
 			if (!book) return;
-			const stated = statedAnchor(message);
 			if (stated && !book.entries.some((entry) => entry.stage === "anchor" && entry.check === stated)) {
 				appendEntry(book.path, "anchor", { check: stated, line: true });
 				showStatus(ctx);
 			}
-			const result = resultFrom(message);
 			if (!result) return;
 			// A subagent session reads only its own reviewers' results: their verdicts are its review rounds; the rest its parent judges.
 			if (subagent && !REVIEWERS.has(result.agent)) return;

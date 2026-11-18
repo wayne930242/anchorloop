@@ -1310,7 +1310,7 @@ const WORD_BREAK = /[\s"'`()[\]{}<>,;]+/;
 
 const isDir = (path: string): boolean => {
 	try {
-		return statSync(path).isDirectory();
+		return statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false;
 	} catch {
 		return false;
 	}
@@ -1326,8 +1326,9 @@ function folderOfWord(word: string, cwd: string): { folder: string } | { why: st
 	const roots = [cwd, realpathOr(cwd)];
 	const inside = roots.map((root) => relative(root, absolute)).find((rel) => rel !== "" && !rel.startsWith("..") && !isAbsolute(rel));
 	if (inside === undefined) return undefined;
-	const isFile = !isDir(absolute) && existsSync(absolute);
-	const folder = isFile ? dirname(inside) : isDir(absolute) ? inside : undefined;
+	const directory = isDir(absolute);
+	const isFile = !directory && existsSync(absolute);
+	const folder = isFile ? dirname(inside) : directory ? inside : undefined;
 	if (folder === undefined) {
 		const pathLike = token.startsWith("/") || token.startsWith("./") || isDir(resolve(cwd, token.split("/")[0]));
 		return pathLike ? { why: "no such folder" } : undefined;
@@ -1378,7 +1379,8 @@ export function specFolderOf(entries: Entry[], todos: Task[], cwd: string): { fo
 	const artifact = [...entries].reverse().find((entry) => typeof entry.path === "string" && artifactKind(entry.path));
 	if (artifact) return { folder: dirname(artifact.path as string), rejected: [] };
 	const rejected: { word: string; why: string }[] = [];
-	const texts = folderTexts(entries, todos);
+	// Task updates often repeat a subject or ref. Probe it once per evaluation, in first-seen order.
+	const texts = [...new Set(folderTexts(entries, todos))];
 	for (const [index, text] of texts.entries()) {
 		const found = folderIn(text, cwd);
 		if (found.folder) return { folder: found.folder, rejected: [] };

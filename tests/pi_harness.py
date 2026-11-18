@@ -32,7 +32,7 @@ const [extensionUrls, cwd, stepsJson, branchJson, classifyJson, sessionId, sessi
 const handlers = {};
 const tools = {};
 const branch = JSON.parse(branchJson);
-const out = { results: [], classifyCalls: [], questionSets: [], notices: [], appended: [], emitted: [], statuses: [], widgets: [] };
+const out = { results: [], branchReads: [], classifyCalls: [], questionSets: [], notices: [], appended: [], emitted: [], statuses: [], widgets: [] };
 const pi = {
   on: (event, fn) => { (handlers[event] ??= []).push(fn); },
   registerTool: (tool) => { tools[tool.name] = tool; },
@@ -50,7 +50,8 @@ const ctx = {
     setStatus: (key, text) => out.statuses.push({ step: out.results.length, key, text: text ?? null }),
     setWidget: (key, lines, options) => out.widgets.push({ step: out.results.length, key, lines: lines ?? null, placement: options?.placement ?? null }),
   },
-  sessionManager: { getBranch: () => branch, getSessionId: () => sessionId, getSessionFile: () => sessionFile || undefined },
+  sessionManager: { getBranch: () => { out.branchReads.push(out.results.length); return branch; }, getLeafId: () => branch.at(-1)?.id ?? null,
+    getEntry: id => branch.find(entry => entry.id === id), getSessionId: () => sessionId, getSessionFile: () => sessionFile || undefined },
   modelRegistry: {
     findOfType: (...args) => {
       out.findArgs = args;
@@ -85,6 +86,11 @@ for (const step of JSON.parse(stepsJson)) {
     } else if (step.exec) {
       // A command the agent's bash call would have run, executed between the call and its result.
       execFileSync(step.exec[0], step.exec.slice(1), { cwd: step.in ?? cwd, stdio: "ignore" });
+      out.results.push(null);
+    } else if (step.branchBackTo) {
+      const index = branch.findIndex(entry => entry.id === step.branchBackTo);
+      if (index < 0) throw new Error(`unknown branch entry ${step.branchBackTo}`);
+      branch.splice(index + 1);
       out.results.push(null);
     } else if (step.branchAdd) {
       branch.push(...step.branchAdd);

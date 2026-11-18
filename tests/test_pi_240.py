@@ -1,6 +1,6 @@
 """Anchor reruns record their own one-line friction, already reflected as resolved, and the widget below the editor shows the loop's kind and phase."""
 
-from tests.pi_harness import assistant, bash_result, stage, todo_create, todo_update, tool_result
+from tests.pi_harness import assistant, bash_result, stage, todo_create, todo_state, todo_update, tool_result
 from tests.test_pi_book import BookCase, edit, text_of
 
 PYTEST_FAIL = "\n".join([
@@ -171,6 +171,25 @@ class TestLoopWidget(BookCase):
         self.replay([*self.open_loop(anchor="pytest -q")])
         out = self.replay([{"event": "session_start", "payload": {}}])
         self.assertEqual(self.last_line(out), "⚓ inline · anchor ✓ → act")
+
+    def test_unchanged_widget_is_set_once_per_session_start(self) -> None:
+        read = tool_result("read", {"path": "src/app.py"})
+        out = self.replay([todo_create(), read, read, {"event": "session_start"}, read])
+        self.assertEqual([(w["step"], w["lines"]) for w in out["widgets"]],
+                         [(0, ["⚓ inline · start → anchor"]), (3, ["⚓ inline · start → anchor"])])
+
+    def test_todo_projection_follows_todo_results_custom_states_and_branch_switches(self) -> None:
+        task = {"id": 1, "subject": "build", "status": "pending"}
+        fallback = {"id": "a", "parentId": None, "type": "message", "message": {"role": "toolResult", "toolName": "todo", "details": {"tasks": [task]}}}
+        persisted = {**todo_state(), "id": "b", "parentId": "a"}
+        read = stage(stage="read")
+        out = self.replay([stage(stage="kind", kind="inline", intent="work"), {"branchAdd": [fallback]}, read,
+                           {"branchAdd": [persisted]}, read, {"branchAdd": [{**fallback, "id": "c", "parentId": "b"}]}, read,
+                           {"branchBackTo": "a"}, {"branchAdd": [{"type": "custom", "id": "d", "parentId": "a"}]}, read,
+                           {"branchAdd": [{"type": "custom", "id": "e", "parentId": "d"}]}, read])
+        for step, count in [(2, 1), (4, 0), (6, 0), (9, 1), (11, 1)]:
+            self.assertIn(f"open todos: {count};", text_of(out["results"][step]))
+        self.assertNotIn(11, out["branchReads"])
 
     def test_a_reality_anchor_line_updates_the_widget_without_a_tool_call(self):
         out = self.replay([todo_create(), assistant("Reality anchor: pytest -q")])
