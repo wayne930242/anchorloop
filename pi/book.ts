@@ -38,6 +38,7 @@ import {
 	isOpenTask,
 	latestTasks,
 	observeItems,
+	observeList,
 	openLoop,
 	ownBases,
 	repoOf,
@@ -83,7 +84,7 @@ import { linkOfResult, priorSpawns } from "./support/links.ts";
 import { orphanLines } from "./support/orphans.ts";
 import { REVIEWLESS, SEQUENCES, describe, incompleteBefore, outsideWork, reachLine, reachOf, unansweredReach } from "./support/phases.ts";
 import { type Snapshot, snapshot } from "./support/snapshot.ts";
-import { childAnchor, childrenOf, computeLoop, taskTickets, ticketKeys, todoForTickets, unitById, unitLine, unitOfDispatch, unitsOf, unitWidgetLine } from "./support/units.ts";
+import { type Unit, type Units, childAnchor, childrenOf, computeLoop, taskTickets, ticketKeys, todoForTickets, unitById, unitLine, unitOfDispatch, unitsOf, unitWidgetLine } from "./support/units.ts";
 
 export const SESSION_ENTRY = "anchorloop-loop";
 const STAGES = ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "back", "landed", "close", "read"] as const;
@@ -139,6 +140,25 @@ function clip(text: string, limit = 120): string {
 }
 
 const SHOWN_BOOKS = 3;
+
+/**
+ * The observation `number` of a checkpoint call names, or the refusal saying where numbers are. `unit` is the unit the call names in a loop
+ * of two or more units (a loop of fewer reads the loop's list, so the caller passes none): a unit that lists its own items takes its own
+ * numbers, a unit that lists none takes the loop's (it inherits them), and a call without `task` takes the loop's.
+ */
+function checkpointItem(book: Book, found: Units, unit: Unit | undefined, number: number): string {
+	const loop = observeItems(book.entries);
+	const items = unit && unit.observe.length > 0 ? unit.observe : loop;
+	if (Number.isInteger(number) && number >= 1 && number <= items.length) return items[number - 1];
+	const range = (count: number) => `1 to ${count}`;
+	const listing = unit || found.units.length < 2 ? undefined : found.units.find((item) => item.observe.length > 0);
+	let where: string;
+	if (unit && unit.observe.length > 0) where = `its own list is ${range(unit.observe.length)}${loop.length ? `; the loop lists ${range(loop.length)}: omit \`task\` for a loop-level item` : ""}`;
+	else if (items.length) where = unit ? `the loop's items, ${range(items.length)}, are the ones it takes` : range(items.length);
+	else if (listing) where = `none listed on the loop; todo #${listing.id} ${listing.label === `#${listing.id}` ? `"${clip(listing.subject, 60)}"` : listing.label} lists ${listing.observe.length}: give \`task: ${listing.id}\``;
+	else where = "none listed: give `observe` on the kind call";
+	throw new Error(`checkpoint ${String(number)} is not an observation of this ${unit ? `unit (${unit.label})` : "loop"} (${where})`);
+}
 
 /** The session_start summary: counts on one line, then the newest open books of this project and where the rest are. */
 function sweepLines(swept: Sweep): string[] {
@@ -471,7 +491,7 @@ export default function (pi: ExtensionAPI) {
 					subject: task.subject,
 					status: task.status,
 					...(typeof anchor === "string" ? { anchor } : {}),
-					...(Array.isArray(observe) ? { observe: observe.map(String) } : {}),
+					...(Array.isArray(observe) ? { observe: observeList(observe) } : {}),
 					...(typeof kind === "string" ? { kind } : {}),
 					...(typeof lands === "string" ? { lands } : {}),
 					...(Array.isArray(agents) ? { agents: agents.map(String) } : typeof agents === "string" ? { agents: [agents] } : {}),
@@ -625,8 +645,9 @@ export default function (pi: ExtensionAPI) {
 		if (typeof anchor === "string" && anchor.trim() && !anchorCommand(book.entries)) book.entries.push(appendEntry(book.path, "anchor", { check: anchor.trim() }));
 		const inherited = !anchorCommand(book.entries) ? parentAnchorNow() : undefined;
 		if (inherited) book.entries.push(appendEntry(book.path, "anchor", { check: inherited, parent: true }));
-		const observe = first?.metadata?.observe;
-		if (Array.isArray(observe) && observe.length > 0) book.entries.push(appendEntry(book.path, "observe", { items: observe.map((item) => clip(String(item), 200)).slice(0, 10) }));
+		// The entry names the todo it was written from: that todo's own list is the loop's list, and the units other than it do not read it by accident of equal text.
+		const observe = observeList(first?.metadata?.observe);
+		if (observe.length > 0) book.entries.push(appendEntry(book.path, "observe", { items: observe, ...(typeof first?.id === "number" ? { source: first.id } : {}) }));
 		return book;
 	}
 
@@ -665,7 +686,11 @@ export default function (pi: ExtensionAPI) {
 		const phases = looped.phases;
 		// A loop of several units is complete only when each is: every unit's missing phases are named with the unit.
 		const missing = looped.rows.length
-			? looped.rows.flatMap((row) => incompleteBefore(row.phases, "close").map((status) => ({ ...status, name: `${row.unit.label} ${status.name}` })))
+			? [
+					...looped.rows.flatMap((row) => incompleteBefore(row.phases, "close").map((status) => ({ ...status, name: `${row.unit.label} ${status.name}` }))),
+					// An item of the loop's own list that no unit reads is still the loop's to observe.
+					...(looped.loopOpen ? [{ name: "loop verify", state: "missing" as const, note: looped.loopOpen }] : []),
+				]
 			: incompleteBefore(phases, "close");
 		const diff = diffAgainstBases(book.entries);
 		const friction = allFriction(book.entries);
@@ -710,7 +735,7 @@ export default function (pi: ExtensionAPI) {
 		name: "anchorloop_stage",
 		label: "Loop stage",
 		description:
-			"Loop book; the first `todo` create opens an inline loop. stage: kind (kind, intent, anchor, observe: checks after landing; reason to change the kind or answer a reach notice; resume: a handoff's book id), verify (note; checkpoint: an observe item; else a check not run in bash), fresh-read, friction (tried, found, led_by), reflect (friction ids like `worker#2`, class, action), skip/back (phase, reason), landed (sha, ref, task: an owner's notice; checked in git), close (verdict; refuses while an open todo lacks metadata.followup), read. Edits, anchor runs, reviews, specs are read from evidence.",
+			"Loop book; the first `todo` create opens an inline loop. stage: kind (kind, intent, anchor, observe: checks after landing; reason to change the kind or answer a reach notice; resume: a handoff's book id), verify (note; checkpoint: an observe item, the loop's unless task; else a check not run in bash), fresh-read, friction (tried, found, led_by), reflect (friction ids, class, action), skip/back (phase, reason; skip observe + checkpoint drops an item), landed (sha, ref, task: an owner's notice; checked in git), close (verdict; refuses while an open todo lacks metadata.followup), read.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -802,6 +827,14 @@ export default function (pi: ExtensionAPI) {
 		if (stage === "kind") {
 			if (!params.kind && !params.intent && !params.anchor && !params.reason && !params.observe?.length && !resumed) throw new Error("kind needs `kind`, `intent`, `anchor`, `observe`, or `reason`");
 			if (!had && (!params.kind || !params.intent)) throw new Error("the first kind declaration needs `kind` and a one-line `intent`");
+			// An empty list would change nothing (the latest non-empty list stays), so it is refused while items are listed: dropping is `skip`, which keeps the numbers and records why.
+			if (params.observe?.length === 0) {
+				if (observeItems(book.entries).length > 0) throw new Error("`observe: []` drops nothing: drop a loop-level item with `skip`, `phase: \"observe\"`, its `checkpoint` number, and a `reason`");
+				// In a loop of several units the units' own lists are read, so an empty list drops nothing of theirs either.
+				const found = unitsOf(book.entries, todosOf(ctx));
+				const listing = found.units.length >= 2 ? found.units.find((item) => item.observe.length > 0) : undefined;
+				if (listing) throw new Error(`\`observe: []\` drops nothing: todo #${listing.id} ${listing.label} lists ${listing.observe.length}; drop one with \`skip\`, \`phase: "observe"\`, its \`checkpoint\` number, \`task: ${listing.id}\`, and a \`reason\``);
+			}
 			// The kind a todo create defaulted to is not a choice yet, so choosing another needs no reason.
 			const changed = had !== undefined && params.kind !== undefined && had !== params.kind;
 			if (changed && !params.reason && !kindIsDefault(book.entries)) throw new Error(`changing the kind from ${had} to ${params.kind} needs \`reason\`: the reach grew, the user added scope, a user-owned decision appeared, or the change turned out smaller`);
@@ -812,7 +845,11 @@ export default function (pi: ExtensionAPI) {
 				appendEntry(book.path, "kind", { kind: params.kind ?? had, ...(params.intent ? { intent: params.intent } : {}), ...answer });
 			}
 			if (params.anchor) appendEntry(book.path, "anchor", { check: params.anchor });
-			if (params.observe?.length) appendEntry(book.path, "observe", { items: params.observe.map((item) => clip(String(item), 200)).slice(0, 10) });
+			if (params.observe?.length) {
+				const items = observeList(params.observe);
+				if (items.length === 0) throw new Error("`observe` lists no text: each item is a non-empty string");
+				appendEntry(book.path, "observe", { items, source: "kind" });
+			}
 			return reply(resumed ?? "ok");
 		}
 		if (stage === "verify") {
@@ -823,19 +860,12 @@ export default function (pi: ExtensionAPI) {
 			const found = unitsOf(book.entries, todos);
 			const unit = params.task === undefined ? undefined : unitById(found, params.task);
 			if (params.task !== undefined && !unit) throw new Error(`task ${String(params.task)} is not a unit of this loop (a todo with observe, kind, lands, or agents metadata)`);
-			// With two or more units a verify counts for one of them only, so the tool asks which instead of recording one that counts for none.
-			if (!unit && found.units.length >= 2) throw new Error(`verify needs \`task\` in a loop of ${found.units.length} units: ${found.units.map((item) => `${item.label} (task ${item.id})`).join(", ")}`);
+			// With two or more units a verify counts for one of them only, so the tool asks which instead of recording one that counts for none;
+			// a checkpoint without `task` addresses the loop's own items and needs no unit.
+			if (!unit && found.units.length >= 2 && params.checkpoint === undefined) throw new Error(`verify needs \`task\` in a loop of ${found.units.length} units: ${found.units.map((item) => `${item.label} (task ${item.id})`).join(", ")}`);
 			if (params.checkpoint !== undefined) {
-				const items = unit ? unit.observe : observeItems(book.entries);
-				if (!Number.isInteger(params.checkpoint) || params.checkpoint < 1 || params.checkpoint > items.length) {
-					const listing = unit ? undefined : found.units.find((item) => item.observe.length > 0);
-					const where = items.length
-						? `1 to ${items.length}`
-						: listing
-							? `none listed on the loop; todo #${listing.id} ${listing.label === `#${listing.id}` ? `"${clip(listing.subject, 60)}"` : listing.label} lists ${listing.observe.length}: give \`task: ${listing.id}\``
-							: "none listed: give `observe` on the kind call";
-					throw new Error(`checkpoint ${String(params.checkpoint)} is not an observation of this ${unit ? `unit (${unit.label})` : "loop"} (${where})`);
-				}
+				// A loop of fewer than two units is read as one loop, whose list the phases read: the number is the loop's.
+				checkpointItem(book, found, found.units.length >= 2 ? unit : undefined, params.checkpoint);
 				appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, checkpoint: params.checkpoint, ...(unit ? { task: unit.id } : {}) });
 				return reply(book.entries.some(countsAsLanding) ? "ok" : "ok (an observation counts once the work has landed)");
 			}
@@ -865,9 +895,16 @@ export default function (pi: ExtensionAPI) {
 		}
 		// skip and back; with `task`, they reach only that unit, and the phase is one of that unit's kind
 		const phase = params.phase;
-		const units = params.task === undefined ? undefined : unitsOf(book.entries, todosOf(ctx));
-		const unit = units && params.task !== undefined ? unitById(units, params.task) : undefined;
+		const units = unitsOf(book.entries, todosOf(ctx));
+		const unit = params.task === undefined ? undefined : unitById(units, params.task);
 		if (params.task !== undefined && !unit) throw new Error(`task ${String(params.task)} is not a unit of this loop (a todo with observe, kind, lands, or agents metadata)`);
+		if (stage === "skip" && phase === "observe") {
+			if (params.checkpoint === undefined) throw new Error("skip of an observation needs `checkpoint`, the number of the item to drop");
+			if (!params.reason) throw new Error("skip needs a `reason`");
+			const item = checkpointItem(book, units, units.units.length >= 2 ? unit : undefined, params.checkpoint);
+			appendEntry(book.path, "skip", { phase, reason: params.reason, checkpoint: params.checkpoint, item, ...(unit ? { task: unit.id } : {}) });
+			return reply("ok");
+		}
 		const kindOf = unit?.kind ?? had;
 		const known = (unit?.kind ? SEQUENCES[unit.kind] : sequence).filter((name) => name !== "close");
 		if (!phase || !known.includes(phase)) throw new Error(`${stage} needs \`phase\`, one of ${known.join(", ")} for ${unit ? `${unit.label}, a` : "a"} ${kindOf ?? "undeclared"} ${unit ? "unit" : "loop"}`);

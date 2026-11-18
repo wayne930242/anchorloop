@@ -246,15 +246,29 @@ function proposedSince(ctx: Ctx): number | undefined {
 	return disk && (disk.status === "proposed" || disk.status === "approved") ? -1 : undefined;
 }
 
+/** The `skip` that dropped observation `i` of `items` (phase `observe`, its number and text), if one did. */
+const droppedObservation = (entries: Entry[], items: string[], i: number): Entry | undefined =>
+	entries.findLast((entry) => entry.stage === "skip" && entry.phase === "observe" && entry.checkpoint === i + 1 && entry.item === items[i]);
+
+/** The observations dropped with `skip`, each as `observe N (reason)`, so a drop and its reason outlive the item's closing. */
+export function droppedObservations(entries: Entry[]): string[] {
+	const items = observeItems(entries);
+	return items.flatMap((_, i) => {
+		const drop = droppedObservation(entries, items, i);
+		return drop ? [`observe ${i + 1} (${String(drop.reason ?? "")})`] : [];
+	});
+}
+
 /**
- * The first observation the anchor lists that no passing `verify` with its checkpoint number follows the last landing, as `observe i/n: text`,
- * or undefined when all are closed. Before any landing every observation is open: it can be seen only on what landed.
+ * The first observation the anchor lists that no passing `verify` with its checkpoint number follows the last landing and that no `skip` dropped,
+ * as `observe i/n: text`, or undefined when all are closed. Before any landing every observation is open: it can be seen only on what landed.
  */
-function openObservation(entries: Entry[], from: number): string | undefined {
+export function openObservation(entries: Entry[], from: number): string | undefined {
 	const items = observeItems(entries);
 	if (items.length === 0) return undefined;
 	const landed = lastWhere(entries, 0, countsAsLanding);
 	for (let i = 0; i < items.length; i++) {
+		if (droppedObservation(entries, items, i)) continue;
 		const seen = landed < 0 ? -1 : lastWhere(entries, Math.max(from, landed + 1), (entry) => (entry.stage === "verify" || entry.stage === "check") && entry.checkpoint === i + 1);
 		if (seen < 0 || entries[seen].result === "fail") return `observe ${i + 1}/${items.length}: ${items[i]}${landed < 0 ? " (after it lands)" : ""}`;
 	}
@@ -375,7 +389,7 @@ export function computePhases(book: Pick<Book, "entries">, inputs: Omit<Inputs, 
 	if ((next === "verify" || next === "check") && last >= 0 && verify && verify.exit !== 0 && verify.declared !== true) next = "fix";
 	else if (next === "review" && last >= 0 && review?.blocking === true) next = "fix";
 	if (next === "fix") note = first?.note ?? "";
-	const skipped = statuses.filter((status) => status.state === "skipped" && status.note !== "no friction").map((status) => `${status.name} (${status.note})`);
+	const skipped = [...statuses.filter((status) => status.state === "skipped" && status.note !== "no friction").map((status) => `${status.name} (${status.note})`), ...droppedObservations(book.entries)];
 	const backs = book.entries.filter((entry) => entry.stage === "back").map((entry) => `${entry.phase} (${entry.reason})`);
 	return {
 		kind: kind ?? "undeclared",
