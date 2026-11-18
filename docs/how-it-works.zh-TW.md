@@ -1,4 +1,4 @@
-# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ 1179c01 -->
+# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ adddb70 -->
 
 [README](../README.zh-TW.md) 背後的完整行為。skill 告訴 agent 怎麼工作；下面六個 pi extension 則盯著工作進行，說出還缺什麼，所以請找到需要的那一節，其餘可以略過。
 
@@ -168,7 +168,7 @@ fast-forward 合入 worker 分支、或子代理直接在父 checkout 裡工作�
 
 anchor 是一個執行檢查點，加上 `observe` 檢查點，寫在 `kind` 或 todo metadata。
 每一項 `observe` 檢查點都要在最後一次併入之後，以 `verify` 加 `checkpoint` 編號結案。
-loop 自己的清單是 `kind` 給的那份，或第一個 todo 的 `observe`；第一個 todo 的 unit 把它當成自己的清單。
+loop 自己的清單是 `kind` 給的那份，或第一個 todo 的 `observe`；只要第一個 todo 的清單仍與它相同，第一個 todo 的 unit 就把它當成自己的清單（沒記錄來源的舊 book，則比對清單文字相同的 unit）。
 book 有數個 unit 時，不帶 `task` 的 `verify` 加 `checkpoint`，會替讀到 loop 項目的 unit 結案，也就是第一個 todo 的 unit 與每個沒列項目的 unit；帶 `task` 時，自己沒列項目的 unit 沿用 loop 的編號，自己有列的 unit 只認自己的。不到兩個 unit 的 loop 讀的是 loop 的清單，不管 `task` 寫什麼。
 每個 unit 都列了自己的項目時，loop 的項目仍然欠著：loop 那一行會點名它，直到它被結案或捨棄。
 結案只算到 unit 看得見的下一次併入為止：不帶 task 的併入會讓每個 unit 的項目重新打開，帶 task 的只重開那個 unit；`skip` 用在之後的併入也改變不了的項目。
