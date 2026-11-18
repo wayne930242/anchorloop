@@ -669,11 +669,33 @@ export function latestAnchor(entries: Entry[]): string | undefined {
 	return found?.check as string | undefined;
 }
 
-/** The post-land observations the loop's anchor lists, from the latest `observe` entry. */
-export function observeItems(entries: Entry[]): string[] {
-	const found = [...entries].reverse().find((entry) => entry.stage === "observe" && Array.isArray(entry.items));
-	return found ? (found.items as unknown[]).map(String) : [];
+/** The longest observation text and the most observations a list keeps. */
+const OBSERVE_TEXT = 200;
+const OBSERVE_COUNT = 10;
+
+/**
+ * An `observe` list as every reader keeps it (the kind call, a todo's metadata, a unit): the strings that hold text, trimmed, each cut to
+ * 200 characters, the first 10. One normalization, so a unit's list equals the list recorded for the loop from the same metadata.
+ */
+export function observeList(value: unknown): string[] {
+	const texts = (Array.isArray(value) ? value : [value]).filter((item): item is string => typeof item === "string" && item.trim() !== "").map((item) => item.trim());
+	return texts.map((text) => (text.length <= OBSERVE_TEXT ? text : `${text.slice(0, OBSERVE_TEXT - 1)}…`)).slice(0, OBSERVE_COUNT);
 }
+
+/**
+ * The post-land observations the loop's anchor lists, from the latest `observe` entry, and the todo that entry was written from (the first
+ * todo's metadata) when its todo list is the current one: that todo is the unit whose own list the loop's list is.
+ */
+export function loopObserve(entries: Entry[]): { items: string[]; source?: number } {
+	const at = entries.findLastIndex((entry) => entry.stage === "observe" && Array.isArray(entry.items));
+	if (at < 0) return { items: [] };
+	const found = entries[at];
+	const source = typeof found.source === "number" && at > todoEpoch(entries) ? found.source : undefined;
+	return { items: (found.items as unknown[]).map(String), ...(source !== undefined ? { source } : {}) };
+}
+
+/** The post-land observations the loop's anchor lists, from the latest `observe` entry. */
+export const observeItems = (entries: Entry[]): string[] => loopObserve(entries).items;
 
 /** A run of the anchor, or a declared verify of the run checkpoint: a verify or check entry that is not one of the observations. */
 export const isRunEntry = (entry: Entry): boolean => (entry.stage === "verify" || entry.stage === "check") && entry.checkpoint === undefined;

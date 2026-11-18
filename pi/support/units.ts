@@ -23,7 +23,8 @@ import {
 	findParentBooks,
 	isOpenTask,
 	latestTasks,
-	observeItems,
+	loopObserve,
+	observeList,
 	ownBases,
 	real,
 	retiredEntry,
@@ -33,7 +34,7 @@ import {
 	validFollowup,
 } from "./book.ts";
 import { type Link, liveness } from "./host.ts";
-import { type Inputs, type Phases, computePhases } from "./phases.ts";
+import { type Inputs, type Phases, computePhases, droppedObservations, openObservation } from "./phases.ts";
 
 export type Unit = { id: number; subject: string; label: string; open: boolean; anchor?: string; observe: string[]; kind?: Kind; lands?: string; agents: string[] };
 
@@ -57,11 +58,19 @@ function ofTask(task: Task): Unit {
 		label: label ? `${label[1].toUpperCase()}-${label[2]}` : `#${task.id}`,
 		open: isOpenTask(task),
 		...(typeof meta.anchor === "string" && meta.anchor.trim() ? { anchor: meta.anchor.trim() } : {}),
-		observe: strings(meta.observe),
+		observe: observeList(meta.observe),
 		...(kind ? { kind } : {}),
 		...(typeof meta.lands === "string" && meta.lands.trim() ? { lands: meta.lands.trim() } : {}),
 		agents: strings(meta.agents),
 	};
+}
+
+/**
+ * True when a checkpoint tick or drop of no task counts for `unit`: a unit that lists no items inherits the loop's, and the unit whose
+ * own metadata the loop's list was written from (the first todo's) has that list. Any other unit lists items of its own, whatever their text.
+ */
+function sharesLoopItems(unit: Unit, entries: Entry[]): boolean {
+	return unit.observe.length === 0 || loopObserve(entries).source === unit.id;
 }
 
 /** A task `anchor` alone is the todo's own check (a plain session may carry several); only coordination metadata makes a unit. */
@@ -265,9 +274,8 @@ export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[]
 		typeof repo !== "string" || ownTrees.length === 0 || ownTrees.includes(repo) || ![...found.trees.values()].some((trees) => trees.includes(repo));
 	const kept: Entry[] = [];
 	const epoch = todoEpoch(entries);
-	// A checkpoint tick of no task addresses the loop's own items: a unit that lists none, or lists exactly those, is the one it counts for.
-	const loopItems = observeItems(entries);
-	const sharesLoopItems = unit.observe.length === 0 || (unit.observe.length === loopItems.length && unit.observe.every((item, i) => item === loopItems[i]));
+	// A checkpoint tick or drop of no task addresses the loop's own items, so it counts for the units that have them.
+	const shares = sharesLoopItems(unit, entries);
 	for (const [index, entry] of entries.entries()) {
 		// A task-tied entry of an earlier todo list is evidence for a todo that is gone.
 		if (retiredEntry(entries, index, epoch)) continue;
@@ -289,7 +297,7 @@ export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[]
 				break;
 			case "back":
 			case "skip":
-				if (entry.task === undefined || entry.task === unit.id) kept.push(entry);
+				if (entry.task !== undefined ? entry.task === unit.id : entry.stage === "skip" && entry.phase === "observe" ? shares : true) kept.push(entry);
 				break;
 			case "verify":
 			case "check":
@@ -297,7 +305,7 @@ export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[]
 					if (entry.task === unit.id) kept.push(entry);
 				} else if (entry.child !== undefined) {
 					if (mine(entry.child)) kept.push(entry);
-				} else if (entry.checkpoint !== undefined ? sharesLoopItems : unit.anchor === undefined) {
+				} else if (entry.checkpoint !== undefined ? shares : unit.anchor === undefined) {
 					kept.push(entry);
 				}
 				break;
@@ -314,13 +322,36 @@ export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[]
 
 export type UnitRow = { unit: Unit; phases: Phases };
 
-/** The loop's phases, and a row per unit when the loop has two or more. The loop's own phases are those of the first unit not yet done. */
-export function computeLoop(book: Pick<Book, "entries">, inputs: Omit<Inputs, "entries">): { phases: Phases; rows: UnitRow[]; found: Units } {
+/** The book as the loop's own items see it: a tick, drop, or check addressed to a task is that unit's, so it is left out. */
+function loopLevelEntries(entries: Entry[]): Entry[] {
+	const epoch = todoEpoch(entries);
+	return entries.filter((entry, index) => !retiredEntry(entries, index, epoch) && !((entry.stage === "verify" || entry.stage === "check" || entry.stage === "skip") && entry.task !== undefined));
+}
+
+/**
+ * The loop's phases, and a row per unit when the loop has two or more. The loop's own phases are those of the first unit not yet done.
+ * When every unit lists items of its own, none reads the loop's list, so the loop's items are read here: an item still open is
+ * `loopOpen`, and it holds the loop's line at verify, and the close, until it is ticked or dropped; a dropped one is carried in `skipped`.
+ */
+export function computeLoop(book: Pick<Book, "entries">, inputs: Omit<Inputs, "entries">): { phases: Phases; rows: UnitRow[]; found: Units; loopOpen?: string } {
 	const found = unitsOf(book.entries, inputs.todos);
 	const cache: TreeCache = inputs.scope?.cache ?? new Map();
 	if (found.units.length < 2) return { phases: computePhases(book, { ...inputs, scope: { ...inputs.scope, cache } }), rows: [], found };
 	const rows = found.units.map((unit) => ({ unit, phases: computePhases({ entries: unitEntries(book.entries, unit, found) }, { ...inputs, scope: unitScope(found, unit, cache) }) }));
-	return { phases: (rows.find((row) => row.phases.next !== "close") ?? rows[rows.length - 1]).phases, rows, found };
+	const chosen = rows.find((row) => row.phases.next !== "close") ?? rows[rows.length - 1];
+	const orphaned = !found.units.some((unit) => sharesLoopItems(unit, book.entries));
+	const loopEntries = loopLevelEntries(book.entries);
+	const loopOpen = orphaned ? openObservation(loopEntries, 0) : undefined;
+	// A drop of a unit's own item is named with the unit; a drop of a loop item that a unit reads is the same text on each of them.
+	const shared = new Set(droppedObservations(loopEntries));
+	const unitDrops = rows.flatMap((row) => row.phases.skipped.filter((text) => text.startsWith("observe ") && !shared.has(text)).map((text) => `${row.unit.label} ${text}`));
+	const skipped = [...chosen.phases.skipped.filter((text) => !text.startsWith("observe ")), ...shared, ...unitDrops];
+	const phases: Phases = { ...chosen.phases, skipped };
+	if (loopOpen) {
+		phases.next = phases.next === "close" ? "verify" : phases.next;
+		phases.missing = phases.missing ? `${phases.missing}; ${loopOpen}` : loopOpen;
+	}
+	return { phases, rows, found, ...(loopOpen ? { loopOpen } : {}) };
 }
 
 /** The trees a unit's readings compare: its own trees, or all when it has none it can tell. */
