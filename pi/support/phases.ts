@@ -372,7 +372,8 @@ export function computePhases(book: Pick<Book, "entries">, inputs: Omit<Inputs, 
 	const kind = currentKind(book.entries);
 	const seq = SEQUENCES[kind ?? "inline"];
 	const entries = withChildActs(book.entries);
-	const named = specFolderOf(entries, inputs.todos, inputs.cwd);
+	// Only durable phases consult artifacts on disk.
+	const named = kind === "durable" ? specFolderOf(entries, inputs.todos, inputs.cwd) : { rejected: [] };
 	const ctx: Ctx = { ...inputs, entries, own: book.entries, seq, folder: named.folder, rejected: named.rejected, lastAct: lastActIndex(entries) };
 	const statuses = seq.filter((name) => name !== "close").map((name) => evaluate(name, ctx));
 	let prefix = 0;
