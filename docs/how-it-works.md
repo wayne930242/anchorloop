@@ -168,7 +168,7 @@ A merge onto a base that moved, a parent edit or repo the child never saw, or a 
 
 An anchor is a run checkpoint plus `observe` checkpoints, which are written on the `kind` call or in todo metadata.
 Each `observe` checkpoint is closed by `verify` with its `checkpoint` number, after the last landing.
-The loop's own list is the one `kind` gave, or the first todo's `observe`; the first todo's unit reads it as its own list.
+The loop's own list is the one `kind` gave, or the first todo's `observe`; the first todo's unit reads it as its own list while its todo's list still equals it (an earlier book, which recorded no source, matches the unit whose list has the same text).
 In a book of several units, `verify` with `checkpoint` and no `task` ticks the loop's item for the units that read it, the first todo's unit and every unit that lists none; with `task`, a unit that lists none takes the loop's numbers, and one that lists its own takes only those. A loop of fewer than two units reads the loop's list whatever `task` says.
 When every unit lists its own, the loop's item is still owed: the loop line names it until it is ticked or dropped.
 A tick counts until the next landing a unit sees: a landing with no task reopens the item on every unit, a task-bound one on that unit only; `skip` is for an item that later landings do not change.
