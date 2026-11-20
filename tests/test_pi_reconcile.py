@@ -50,14 +50,15 @@ class TestTicketIds(ReconcileCase):
         self.assertIn("MP-4367 inline · anchor ✓ → act (missing: a change to the code)", lines)
 
 
-    def test_a_subject_binds_a_key_of_either_case_alone_or_before_a_hyphen_and_never_a_zero_led_number(self):
+    def test_a_subject_binds_an_uppercase_key_alone_or_before_a_hyphen_and_never_a_lowercase_or_zero_led_one(self):
         self.git_repo()
         meta = {"anchor": "make test", "kind": "inline"}
         tasks = ({"subject": "MP-4366 fix", "status": "pending", "metadata": meta}, {"subject": "MP-4367-followup", "status": "pending", "metadata": meta},
                  {"subject": "mp-4368 fix", "status": "pending", "metadata": meta}, {"subject": "MP-0123 pad", "status": "pending", "metadata": meta},
-                 {"subject": "Box watch agent-tower-01", "status": "pending", "metadata": meta}, {"subject": "Cut release-1117", "status": "pending", "metadata": meta})
+                 {"subject": "Box watch agent-tower-01", "status": "pending", "metadata": meta}, {"subject": "Cut release-1117", "status": "pending", "metadata": meta},
+                 {"subject": "Read macq-1120 triage", "status": "pending", "metadata": meta})
         labels = [line.split(" inline")[0] for line in self.read_text(self.creates(*tasks), branch=[todo_state(*tasks)]).splitlines() if " inline ·" in line and not line.startswith("inline")]
-        self.assertEqual(labels, ["MP-4366", "MP-4367", "MP-4368", "#4", "#5", "#6"])
+        self.assertEqual(labels, ["MP-4366", "MP-4367", "#3", "#4", "#5", "#6", "#7"])
 
 
 class TestOwnAnchor(ReconcileCase):

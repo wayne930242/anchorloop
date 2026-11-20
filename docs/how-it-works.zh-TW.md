@@ -227,7 +227,7 @@ link 會記下子代理的 session 檔、cwd、worktree 與它的成果要併入
 兩個以上 unit 時，`read` 與 Jev 的任務清單各給每個 unit 一行階段；widget 裡狀態相同的 unit 共用一行。
 
 子代理以 `agents` 綁定 unit，沒有的話，在恰有一個未完成 todo 含有它的名稱或 brief 裡的票號時綁定。
-todo 標題只有格式為 2–4 個字母（大小寫皆可）、連字號、不以 0 開頭的數字的票號才算，須獨立出現或後面接連字號，例如 `MP-4366`、`mp-4366 fix` 或 `MP-4366-followup`；主機名稱或帶日期的名稱，例如 `agent-tower-01` 或 `release-1117`，不算，而子代理名稱可以寫成 `mp4366-hq`。
+todo 標題只有格式為大寫字母、連字號、不以 0 開頭的數字的票號才算，須獨立出現或後面接連字號，例如 `MP-4366` 或 `MP-4366-followup`；小寫、主機名稱或帶日期的名稱，例如 `mp-4366`、`agent-tower-01` 或 `release-1117`，不算，而子代理名稱可以寫成 `mp4366-hq`。
 
 unit 的 tree 是它 worker 的 worktree（或 checkout），沒有的話是 loop 自己的 repo。
 修改算給 tree 含有它的 unit，都不含時算給每個 unit。

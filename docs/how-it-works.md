@@ -227,7 +227,7 @@ An `anchor` alone is the task's own check and makes none.
 Two or more units get one phase line each in `read` and Jev's task list; in the widget, units in the same state share one line.
 
 A child binds to a unit by `agents`, else by the ticket id in its name or brief when exactly one open todo holds it.
-A todo subject names a ticket only by a 2–4 letter key of either case standing alone or followed by a hyphen, with a number that does not start with 0, such as `MP-4366`, `mp-4366 fix`, or `MP-4366-followup`; a host or dated name such as `agent-tower-01` or `release-1117` names none, while a child's name may write the key as `mp4366-hq`.
+A todo subject names a ticket only by an uppercase key standing alone or followed by a hyphen, with a number that does not start with 0, such as `MP-4366` or `MP-4366-followup`; a lowercase, host, or dated name such as `mp-4366`, `agent-tower-01`, or `release-1117` names none, while a child's name may write the key as `mp4366-hq`.
 
 A unit's trees are its workers' worktrees (or checkouts), else the loop's own repos.
 An edit counts for the units whose trees hold it, and for every unit when none does.
