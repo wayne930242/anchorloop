@@ -837,6 +837,8 @@ export default function (pi: ExtensionAPI) {
 	 * its entries (in memory only), so `read`, the close text, and Jev's snapshot count them as reflected with their class.
 	 */
 	function readLateReflects(book: Book, ctx: ExtensionContext): void {
+		// The session is read only while friction waits, so a loop without any costs no branch read.
+		if (!allFriction(book.entries).some((item) => !item.reflected)) return;
 		const branch = ctx.sessionManager.getBranch() as { type?: string; customType?: string; data?: { friction?: unknown; class?: unknown; action?: unknown } }[];
 		for (const entry of branch) {
 			if (entry.type !== "custom" || entry.customType !== REFLECT_ENTRY || !Array.isArray(entry.data?.friction)) continue;
