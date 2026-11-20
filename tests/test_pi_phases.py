@@ -283,7 +283,7 @@ class TestCloseAndReflect(PhaseCase):
     def test_closing_with_unreflected_friction_is_a_jump_that_warns_and_lists_it(self):
         out = self.replay([*self.open_loop(anchor="pytest -q"), edit(), bash_result("pytest -q", 0, "ok"), stage(stage="friction", tried="a", found="b"), stage(stage="close", verdict="landed")])
         text = text_of(out["results"][-1])
-        self.assertEqual(text, "closed (landed). not complete: reflect (1 friction entry without a reflect). unreflected friction: 1 (b). Clear the todo list.")
+        self.assertEqual(text, "closed (landed). unreflected friction: 1 (b); `reflect` still takes these ids after the close. Clear the todo list.")
 
     def test_reflect_can_be_skipped(self):
         self.replay([*self.open_loop(anchor="pytest -q"), edit(), bash_result("pytest -q", 0, "ok"), stage(stage="friction", tried="a", found="b")])

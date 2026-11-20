@@ -72,7 +72,7 @@ export function snapshot(book: Book, ctx: { cwd: string; sessionManager: { getBr
 		`stages: ${stagesDone(entries).join(", ") || "none"}`,
 		`last check: ${check ? `${check.declared ? `declared ${check.result}` : `exit ${check.exit ?? "unknown"}`}${check.last ? ` — ${check.last}` : ""}` : "none after the last change"}`,
 		`reviews: ${reviewTrend(entries)}`,
-		...childLines(entries).map((line) => `child ${line}`),
+		...childLines(entries),
 		...(pendingLinks(entries).length ? [`${pendingLinks(entries).length} ${pendingLinks(entries).length === 1 ? "child" : "children"} without a result`] : []),
 	].join("; ");
 	const items = allFriction(entries);
@@ -89,7 +89,7 @@ export function snapshot(book: Book, ctx: { cwd: string; sessionManager: { getBr
 			phase: `${row ? `${row.unit.label} · ` : ""}current: ${phases.current}; next: ${phases.next}${phases.missing ? `; missing: ${phases.missing}` : ""}${phases.skipped.length ? `; skipped: ${phases.skipped.join(", ")}` : ""}`.slice(0, 600),
 			verify: verify.slice(0, 1200),
 			todos: `${openTasks.length} open of ${todos.length}${unsettled.length ? `: ${listTodos(unsettled, 5)}` : ""}${settled ? ` (${settled} with a followup)` : ""}`.slice(0, 700),
-			tasks: [`legend: ${TASK_LEGEND}`, ...taskLines(entries, todos, ctx.cwd), ...looped.rows.map(unitLine)].join("\n").slice(0, 1500),
+			tasks: [`legend: ${TASK_LEGEND}`, ...taskLines(entries, todos, ctx.cwd, new Set(looped.rows.map((item) => item.unit.id))), ...looped.rows.map(unitLine)].join("\n").slice(0, 1500),
 			friction: (friction.join("\n") || "none").slice(0, 800),
 		},
 		next: phases.next,

@@ -61,9 +61,10 @@ subagent 的 book 放在 `agents/`；subagent 自己 close 時，book 留給主 
 `session_start` 會清掉 session 已不存在或 7 天沒有更新的 book。
 提示只用一行列出數量（本專案未關的 book、刪掉的過期 book），再列最新三本與其餘所在的目錄。
 
-`close` 回覆 `closed (landed). Clear the todo list.`，只多列沒有完成的階段和還沒 reflect 的 friction。
+`close` 回覆 `closed (landed). Clear the todo list.`，只多列沒有完成的階段和還沒 reflect 的 friction，各列一次；未完成的 todo 已帶 followup 的 unit 不列。
 它不會因為階段或 friction 而拒絕。
 只在還有 pending 或 in-progress 的 todo 沒有 `metadata.followup` 時拒絕：票號、`memory` 或 `drop — <reason>`。
+close 之後，`reflect` 仍接受它列出的 friction 編號，記在 session 裡。
 
 </details>
 
@@ -118,6 +119,7 @@ flowchart TD
 
 `read` 顯示 `<kind> · phase <current> ✓ → <next> (missing: …) · skipped: …`。
 最後一次修改之後有 check 或 review 失敗時，下一個階段是 `fix`，否則是 `close`。
+摘要會收合協調者已處理過的東西：已回報結果的子代理、最新五筆以前的併入、還在工作的子代理，以及最後三輪以前的 review；`view: "all"` 逐一列出。
 
 編輯器下方的 widget 會顯示 `⚓ <kind> · <current> ✓ → <next>`，還有 friction 等著 `reflect` 時附 `· N friction`。
 它在每次工具呼叫後、`session_start` 時，以及 agent 寫出 `Reality anchor:` 這一行時更新，loop 結案後清掉。
@@ -212,7 +214,8 @@ link 會記下子代理的 session 檔、cwd、worktree 與它的成果要併入
 
 子代理第一次編輯、commit 或執行父 loop 的 anchor 時，不需要 todo 就會開啟自己的 book。
 
-`read` 與 `session_start` 會列出沒有回報結果的子代理，附上行程、book 與 worktree 狀態。
+`session_start` 會列出沒有回報結果的子代理，附上行程、book 與 worktree 狀態；`read` 只這樣列行程已結束的子代理，其餘併成一行 `out (no result yet)`。
+`read` 會註明 worker 的起點落後它要併入的 ref 多少，直到它的改動併入為止；reviewer 不併入任何東西，不註明。
 
 </details>
 
@@ -221,9 +224,10 @@ link 會記下子代理的 session 檔、cwd、worktree 與它的成果要併入
 
 帶有 `observe`、`kind`、`lands` 或 `agents` metadata 的 todo 是一個 unit。
 只有 `anchor` 時是該任務自己的檢查，不構成 unit。
-兩個以上 unit 時，`read`、widget 與 Jev 的任務清單各給每個 unit 一行階段。
+兩個以上 unit 時，`read` 與 Jev 的任務清單各給每個 unit 一行階段；widget 裡狀態相同的 unit 共用一行。
 
 子代理以 `agents` 綁定 unit，沒有的話，在恰有一個未完成 todo 含有它的名稱或 brief 裡的票號時綁定。
+todo 標題只有獨立的大寫票號（例如 `MP-4366`）才算票號；主機名稱或帶日期的名稱，例如 `agent-tower-01` 或 `release-1117`，不算，而子代理名稱可以寫成 `mp4366-hq`。
 
 unit 的 tree 是它 worker 的 worktree（或 checkout），沒有的話是 loop 自己的 repo。
 修改算給 tree 含有它的 unit，都不含時算給每個 unit。
@@ -234,6 +238,8 @@ unit 的檢查只比對自己的 tree，所以一個 unit 的修改不會讓另�
 - 沒有 `task` 的 `verify` 會被拒絕，並列出各 unit，除非它帶 `checkpoint`，那結的是 loop 自己的項目。
 - 帶 `task` 的 `back` 與 `skip` 只影響那個 unit，並依那個 unit 的種類檢查。
 - 子代理繼承所屬 unit 的 anchor，它回報時通過的那個 anchor 執行會記為該 unit 的 verify。
+- unit 只讀自己的 anchor，因為 loop 的 anchor 是最後設定它的那張票的：todo 沒帶 anchor 的 unit 顯示 `missing: own anchor`，也不交 anchor 給它的子代理。
+- friction 屬於整個 loop：unit 那一行不等 `reflect`，loop 那一行與 close 只列一次。
 - 每次對常駐 reviewer 的 `subagent_send` 都是一次獨立派工，結論算給 brief 指名的 unit。
 
 </details>

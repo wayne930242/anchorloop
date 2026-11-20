@@ -34,16 +34,28 @@ import {
 	validFollowup,
 } from "./book.ts";
 import { type Link, liveness } from "./host.ts";
-import { type Inputs, type Phases, computePhases, droppedObservations, openObservation } from "./phases.ts";
+import { type Inputs, OWN_ANCHOR, type Phases, computePhases, droppedObservations, openObservation, reflectStatus } from "./phases.ts";
 
 export type Unit = { id: number; subject: string; label: string; open: boolean; anchor?: string; observe: string[]; kind?: Kind; lands?: string; agents: string[] };
 
-const TICKET_KEY = /\b([A-Za-z]{1,10})-?(\d{2,6})\b/g;
-const TICKET_LABEL = /\b([A-Za-z]{1,10})-(\d{2,6})\b/;
+/** A ticket id in a child's name, brief, or branch: `MP-4366`, `mp4366-hq`, `fix-mp-4366-guard`. A number never starts with 0. */
+const TICKET_KEY = /\b([A-Za-z]{1,10})-?([1-9]\d{1,5})\b/g;
+/**
+ * A ticket id in a todo subject: an uppercase key standing alone, as a tracker writes it (`MP-4366`). A host name (`agent-tower-01`)
+ * or a dated name (`release-1117`) is part of a hyphenated lowercase word, so it names no ticket and makes no unit.
+ */
+const SUBJECT_TICKET = /(?<![\w-])([A-Z]{1,10})-([1-9]\d{1,5})(?![\w-])/g;
+
+const keyOf = (found: RegExpMatchArray): string => `${found[1].toLowerCase()}${found[2]}`;
 
 /** Ticket ids in `text` as lowercase letters and digits, so `MP-4366` and a worker named `mp4366-hq` name the same ticket. */
 export function ticketKeys(text: string): string[] {
-	return [...new Set([...text.matchAll(TICKET_KEY)].map((found) => `${found[1].toLowerCase()}${found[2]}`))];
+	return [...new Set([...text.matchAll(TICKET_KEY)].map(keyOf))];
+}
+
+/** The ticket ids a todo subject names, by the stricter subject rule. */
+function subjectTickets(subject: string): RegExpMatchArray[] {
+	return [...subject.matchAll(SUBJECT_TICKET)];
 }
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value : [value]).filter((item): item is string => typeof item === "string" && item.trim() !== "").map((item) => item.trim());
@@ -51,7 +63,7 @@ const strings = (value: unknown): string[] => (Array.isArray(value) ? value : [v
 function ofTask(task: Task): Unit {
 	const meta = task.metadata ?? {};
 	const kind = KINDS.find((name) => name === meta.kind);
-	const label = TICKET_LABEL.exec(task.subject);
+	const label = subjectTickets(task.subject)[0];
 	return {
 		id: task.id,
 		subject: task.subject,
@@ -85,7 +97,7 @@ const hasUnitMetadata = (unit: Unit): boolean => unit.observe.length > 0 || unit
 /** The tickets a todo names: in its subject, and its `followup` when that is a ticket id. */
 export function taskTickets(task: Task): string[] {
 	const followup = task.metadata?.followup;
-	return ticketKeys(`${task.subject} ${validFollowup(followup) ? String(followup) : ""}`);
+	return [...new Set([...subjectTickets(task.subject).map(keyOf), ...(validFollowup(followup) ? ticketKeys(String(followup)) : [])])];
 }
 
 export type Units = {
@@ -182,9 +194,10 @@ function namedByCurrentList(entries: Entry[], link: Entry): boolean {
 }
 
 /**
- * The anchor a linked child inherits: the anchor of the unit it is bound to in a loop of two or more units, else its parent's loop
- * anchor command. A child linked under an earlier todo list (its parent's book was adopted, or its todos cleared, while it worked)
- * that no todo of the current list names keeps the unit it was dispatched for: the todos of the list its link was recorded under.
+ * The anchor a linked child inherits: the anchor of the unit it is bound to in a loop of two or more units (none when that unit has no
+ * anchor of its own: the loop's anchor is another ticket's), else its parent's loop anchor command. A child linked under an earlier
+ * todo list (its parent's book was adopted, or its todos cleared, while it worked) that no todo of the current list names keeps the
+ * unit it was dispatched for: the todos of the list its link was recorded under.
  * Once a todo of the current list names it, the current list decides, whatever the todo's status or the number of units.
  */
 export function childAnchor(id: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
@@ -193,7 +206,7 @@ export function childAnchor(id: string, env: NodeJS.ProcessEnv = process.env): s
 		let unit = boundUnit(entries, id);
 		const linked = entries.findLastIndex((entry) => entry.stage === "link" && entry.child === id);
 		if (!unit && linked >= 0 && linked < todoEpoch(entries) && !namedByCurrentList(entries, entries[linked])) unit = boundUnit(entries.slice(0, todoListEnd(entries, linked)), id);
-		if (unit?.anchor) return unit.anchor;
+		if (unit) return unit.anchor;
 		const anchor = anchorCommand(entries);
 		if (anchor && anchorIsCommand(entries)) return anchor;
 	}
@@ -269,8 +282,9 @@ export function childrenOf(entries: Entry[], found: Units, unit: Unit): string[]
 /**
  * The book's entries as `unit` sees them: everything nobody owns, the links, results, landings, adopted runs and reviews of its children,
  * and its own task-anchor runs as verify entries; the unit's kind, anchor and observe list come last, so they win over the loop's.
- * An entry recorded for a todo of an earlier todo list (before an `adopt` or a `todo clear`) belongs to no unit: the unit that now
- * holds that id is another todo, which earns its own evidence.
+ * The loop's anchor and its untasked runs are no unit's: in a coordinator book the loop anchor is whichever ticket set it, so a unit
+ * without an anchor of its own reads none and its anchor phase names its todo. An entry recorded for a todo of an earlier todo list
+ * (before an `adopt` or a `todo clear`) belongs to no unit: the unit that now holds that id is another todo, which earns its own evidence.
  */
 export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[] {
 	const mine = (child: unknown): boolean => typeof child !== "string" || !found.bound.has(child) || found.bound.get(child) === unit.id;
@@ -301,6 +315,8 @@ export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[]
 			case "edit":
 				if (touches(entry.repo)) kept.push(entry);
 				break;
+			case "anchor":
+				break;
 			case "back":
 			case "skip":
 				if (entry.task !== undefined ? entry.task === unit.id : entry.stage === "skip" && entry.phase === "observe" ? shares : true) kept.push(entry);
@@ -311,7 +327,7 @@ export function unitEntries(entries: Entry[], unit: Unit, found: Units): Entry[]
 					if (entry.task === unit.id) kept.push(entry);
 				} else if (entry.child !== undefined) {
 					if (mine(entry.child)) kept.push(entry);
-				} else if (entry.checkpoint !== undefined ? shares : unit.anchor === undefined) {
+				} else if (entry.checkpoint !== undefined && shares) {
 					kept.push(entry);
 				}
 				break;
@@ -335,7 +351,8 @@ function loopLevelEntries(entries: Entry[]): Entry[] {
 }
 
 /**
- * The loop's phases, and a row per unit when the loop has two or more. The loop's own phases are those of the first unit not yet done.
+ * The loop's phases, and a row per unit when the loop has two or more. The loop's own phases are those of the first unit not yet done,
+ * with the loop's one reflect phase in place of the units' (friction is the loop's, so a unit row never waits on it).
  * When every unit lists items of its own, none reads the loop's list, so the loop's items are read here: an item still open is
  * `loopOpen`, and it holds the loop's line at verify, and the close, until it is ticked or dropped; a dropped one is carried in `skipped`.
  */
@@ -343,8 +360,11 @@ export function computeLoop(book: Pick<Book, "entries">, inputs: Omit<Inputs, "e
 	const found = unitsOf(book.entries, inputs.todos);
 	const cache: TreeCache = inputs.scope?.cache ?? new Map();
 	if (found.units.length < 2) return { phases: computePhases(book, { ...inputs, scope: { ...inputs.scope, cache } }), rows: [], found };
-	const rows = found.units.map((unit) => ({ unit, phases: computePhases({ entries: unitEntries(book.entries, unit, found) }, { ...inputs, scope: unitScope(found, unit, cache) }) }));
+	const rows = found.units.map((unit) => ({ unit, phases: computePhases({ entries: unitEntries(book.entries, unit, found) }, { ...inputs, scope: unitScope(found, unit, cache), unit: unit.id }) }));
 	const chosen = rows.find((row) => row.phases.next !== "close") ?? rows[rows.length - 1];
+	// A `skip` of reflect with no task reaches every unit, so the chosen unit holds it; otherwise the loop's friction decides.
+	const declared = chosen.phases.statuses.find((status) => status.name === "reflect" && status.state === "skipped" && status.auto !== true);
+	const reflect = declared ?? reflectStatus(book.entries, inputs.env);
 	const orphaned = !found.units.some((unit) => sharesLoopItems(unit, book.entries));
 	const loopEntries = loopLevelEntries(book.entries);
 	const loopOpen = orphaned ? openObservation(loopEntries, 0) : undefined;
@@ -352,10 +372,13 @@ export function computeLoop(book: Pick<Book, "entries">, inputs: Omit<Inputs, "e
 	const shared = new Set(droppedObservations(loopEntries));
 	const unitDrops = rows.flatMap((row) => row.phases.skipped.filter((text) => text.startsWith("observe ") && !shared.has(text)).map((text) => `${row.unit.label} ${text}`));
 	const skipped = [...chosen.phases.skipped.filter((text) => !text.startsWith("observe ")), ...shared, ...unitDrops];
-	const phases: Phases = { ...chosen.phases, skipped };
+	const phases: Phases = { ...chosen.phases, statuses: chosen.phases.statuses.map((status) => (status.name === "reflect" ? reflect : status)), skipped };
 	if (loopOpen) {
 		phases.next = phases.next === "close" ? "verify" : phases.next;
 		phases.missing = phases.missing ? `${phases.missing}; ${loopOpen}` : loopOpen;
+	} else if (phases.next === "close" && reflect.state === "missing") {
+		phases.next = "reflect";
+		phases.missing = reflect.note;
 	}
 	return { phases, rows, found, ...(loopOpen ? { loopOpen } : {}) };
 }
@@ -374,15 +397,28 @@ export function unitLine(row: UnitRow): string {
 
 const BRIEF_LIMIT = 40;
 
-/** What a widget line names as missing: `anchor run` for a pending anchor run, else the note cut to one short phrase. */
+/** What a widget line names as missing: `anchor run` for a pending anchor run, `own anchor` for a unit without one, else the note cut to one short phrase. */
 export function briefMissing(missing: string): string {
 	if (/^a passing run of `/.test(missing)) return "anchor run";
+	if (missing.startsWith(`${OWN_ANCHOR} (`)) return OWN_ANCHOR;
 	const flat = missing.replace(/\s+/g, " ").trim();
 	return flat.length > BRIEF_LIMIT ? `${flat.slice(0, BRIEF_LIMIT - 1).trimEnd()}…` : flat;
 }
 
-/** The unit's line in the widget below the editor: `unitLine` with the missing note cut short; `read` keeps the full note. */
-export function unitWidgetLine(row: UnitRow): string {
+/** A unit's state in the widget: `unitLine` without the label, with the missing note cut short; `read` keeps the full note. */
+function widgetState(row: UnitRow): string {
 	const { phases } = row;
-	return `${row.unit.label} ${phases.kind} · ${phases.current}${phases.current === "start" ? "" : " ✓"} → ${phases.next}${phases.missing ? ` (missing: ${briefMissing(phases.missing)})` : ""}`;
+	return `${phases.kind} · ${phases.current}${phases.current === "start" ? "" : " ✓"} → ${phases.next}${phases.missing ? ` (missing: ${briefMissing(phases.missing)})` : ""}`;
+}
+
+const ROW_LABELS = 4;
+
+/**
+ * The units' lines in the widget below the editor: units in the same state share one line that names them (`MP-3506, MP-3507 inline ·
+ * start → anchor (missing: own anchor)`), at most four labels and `+N`, in the order of their first unit.
+ */
+export function unitWidgetLines(rows: UnitRow[]): string[] {
+	const groups = new Map<string, string[]>();
+	for (const row of rows) groups.set(widgetState(row), [...(groups.get(widgetState(row)) ?? []), row.unit.label]);
+	return [...groups].map(([state, labels]) => `${labels.slice(0, ROW_LABELS).join(", ")}${labels.length > ROW_LABELS ? ` +${labels.length - ROW_LABELS}` : ""} ${state}`);
 }

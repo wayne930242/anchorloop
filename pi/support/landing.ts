@@ -16,6 +16,7 @@ import {
 	observeItems,
 	ownBases,
 	passingRunOf,
+	REVIEWERS,
 	repoRootOf,
 	resultOf,
 	retiredEntry,
@@ -51,11 +52,16 @@ export function behindBy(repo: string, base: string, ref: string): number | unde
 	return count === undefined || count === "" ? undefined : Number(count);
 }
 
-/** One advisory line per linked worker that was based behind the ref it lands on, from the link's base SHA to that ref's tip now. */
+/**
+ * One advisory line per linked worker that was based behind the ref it lands on, from the link's base SHA to that ref's tip now: a
+ * rebase it may need before it lands. A reviewer lands nothing, and a worker whose change landed needs no rebase, so neither is named.
+ */
 export function linkNotes(entries: Entry[]): string[] {
 	const notes: string[] = [];
+	const landed = new Set(entries.filter((entry) => entry.stage === "land" && entry.verified !== false && typeof entry.child === "string").map((entry) => String(entry.child)));
 	for (const entry of entries) {
 		if (entry.stage !== "link" || typeof entry.ref !== "string") continue;
+		if (REVIEWERS.has(String(entry.agent ?? "")) || landed.has(String(entry.child))) continue;
 		const worktree = entry.worktree as Worktree | undefined;
 		if (!worktree?.baseSha) continue;
 		const dir = worktree.path && existsSync(worktree.path) ? worktree.path : typeof entry.cwd === "string" ? entry.cwd : undefined;
@@ -331,7 +337,17 @@ function childPassingRun(book: Book, child: string): { name: string; run: Entry 
 }
 
 /** The landings recorded so far, newest last, for `read`. */
-export function landLines(entries: Entry[]): string[] {
+/** How many landings `read` lists by default: the newest, which the next step acts on. */
+const LISTED_LANDINGS = 5;
+
+/** One `landed` line per landing, the newest five after a `landed: N earlier` line unless `all` asks for each. */
+export function landLines(entries: Entry[], options: { all?: boolean } = {}): string[] {
+	const lines = allLandLines(entries);
+	if (options.all || lines.length <= LISTED_LANDINGS) return lines;
+	return [`landed: ${lines.length - LISTED_LANDINGS} earlier (\`read\` with view "all" lists each)`, ...lines.slice(-LISTED_LANDINGS)];
+}
+
+function allLandLines(entries: Entry[]): string[] {
 	// A retired car that its recreated unit declared is recorded twice (for no unit, then for that unit) and read once. The two records
 	// can differ in `self` (this session landed it, then the declaration found it landed), so one landing is the same branch and head
 	// in the same ref, and the first record's line stands.

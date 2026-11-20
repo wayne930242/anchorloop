@@ -817,7 +817,7 @@ class TestOrphans(CoordinatorCase):
     def test_a_child_with_no_process_record_is_unknown_and_one_that_returned_is_not_named(self):
         self.replay([*self.open_loop(), spawn("kid", "w1", "/s/none.jsonl"), spawn("kid2", "w2", "/s/two.jsonl"), returned("w2", "/s/two.jsonl")])
         text = self.read_text([])
-        self.assertIn("w1: no result; process unknown; no child book", text)
+        self.assertIn("out (no result yet): w1 (process unknown)", text)
         self.assertNotIn("w2:", text)
 
     def test_a_link_from_before_2_11_reads_as_result_unknown_not_as_no_result(self):
@@ -833,7 +833,7 @@ class TestOrphans(CoordinatorCase):
         try:
             session = self.process_record(alive.pid)
             self.replay([*self.open_loop(), spawn("kid", "w1", session)])
-            self.assertIn("w1: no result; process alive", self.read_text([]))
+            self.assertIn("out (no result yet): w1 (process alive)", self.read_text([]))
         finally:
             alive.kill()
             alive.wait()

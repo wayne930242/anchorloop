@@ -29,10 +29,20 @@ function worktreeState(link: Entry): string | undefined {
 	return `worktree ${worktree.branch}${ahead !== undefined ? ` ahead ${ahead}` : ""}`;
 }
 
-/** One line per child without a result: `name: no result; process <alive|gone|unknown>; <child book state>; <worktree state>`. */
-export function orphanLines(entries: Entry[], env: NodeJS.ProcessEnv = process.env): string[] {
-	return pendingLinks(entries).map((link) => {
+/**
+ * One line per child without a result: `name: no result; process <alive|gone|unknown>; <child book state>; <worktree state>`. With
+ * `out`, a child whose process is alive or unknown is still at work as far as anyone can tell, so those share one `out (no result yet)`
+ * line, and only a gone child, whose result will never come, keeps its own: `read` mid-session. `session_start` lists each, since after
+ * a restart an unknown child is the one whose watcher was dropped.
+ */
+export function orphanLines(entries: Entry[], env: NodeJS.ProcessEnv = process.env, options: { out?: boolean } = {}): string[] {
+	const lines: string[] = [];
+	const out: string[] = [];
+	for (const link of pendingLinks(entries)) {
 		const alive = liveness(link as unknown as Link);
-		return [`${String(link.name ?? link.child)}: ${typeof link.cwd === "string" ? "no result" : "result unknown (link has no cwd)"}`, `process ${alive}`, bookState(String(link.child), env), worktreeState(link)].filter(Boolean).join("; ");
-	});
+		const name = String(link.name ?? link.child);
+		if (options.out && alive !== "gone" && typeof link.cwd === "string") out.push(`${name} (process ${alive})`);
+		else lines.push([`${name}: ${typeof link.cwd === "string" ? "no result" : "result unknown (link has no cwd)"}`, `process ${alive}`, bookState(String(link.child), env), worktreeState(link)].filter(Boolean).join("; "));
+	}
+	return out.length ? [...lines, `out (no result yet): ${out.join(", ")}`] : lines;
 }

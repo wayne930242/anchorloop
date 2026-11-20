@@ -61,9 +61,10 @@ Subagent books live under `agents/`; a child that closes keeps its book for the 
 `session_start` sweeps books whose session is gone or that have not changed in 7 days.
 Its notice gives one line of counts (open books of this project, stale books deleted), the three newest open books, and the directory holding the rest.
 
-`close` answers `closed (landed). Clear the todo list.`, adding only the phases not shown complete and the unreflected friction.
+`close` answers `closed (landed). Clear the todo list.`, adding only the phases not shown complete and the unreflected friction, each named once; a unit whose open todo carries a followup is left out.
 It never refuses over phases or friction.
 It refuses only while a pending or in-progress todo lacks `metadata.followup`: a ticket id, `memory`, or `drop — <reason>`.
+After the close, `reflect` still takes the friction ids it named and records them in the session.
 
 </details>
 
@@ -118,6 +119,7 @@ Every kind ends with reflect → close.
 
 `read` shows `<kind> · phase <current> ✓ → <next> (missing: …) · skipped: …`.
 The next phase is `fix` when a check or review failed after the last change, else `close`.
+Its summary folds what the coordinator already handled: children whose result came back, landings before the newest five, children still at work, and review rounds before the last three; `view: "all"` lists each.
 
 A widget below the editor shows `⚓ <kind> · <current> ✓ → <next>`, with `· N friction` while friction waits for a `reflect`.
 It updates after every tool call, on `session_start`, and when a `Reality anchor:` line is stated, and it clears when the loop closes.
@@ -212,7 +214,8 @@ Spawns made before the first todo are linked when the loop opens.
 
 A child opens its own book from its first edit, commit, or run of its parent's anchor, with no todo.
 
-`read` and `session_start` name each child with no result, with its process, book, and worktree state.
+`session_start` names each child with no result, with its process, book, and worktree state; `read` does so for a child whose process is gone and puts the rest on one `out (no result yet)` line.
+`read` notes a worker based behind the ref it lands on until its change lands; a reviewer lands nothing and gets no note.
 
 </details>
 
@@ -221,9 +224,10 @@ A child opens its own book from its first edit, commit, or run of its parent's a
 
 A todo with `observe`, `kind`, `lands`, or `agents` metadata is a unit.
 An `anchor` alone is the task's own check and makes none.
-Two or more units get one phase line each in `read`, the widget, and Jev's task list.
+Two or more units get one phase line each in `read` and Jev's task list; in the widget, units in the same state share one line.
 
 A child binds to a unit by `agents`, else by the ticket id in its name or brief when exactly one open todo holds it.
+A todo subject names a ticket only by an uppercase key standing alone, such as `MP-4366`; a host or dated name such as `agent-tower-01` or `release-1117` names none, while a child's name may write the key as `mp4366-hq`.
 
 A unit's trees are its workers' worktrees (or checkouts), else the loop's own repos.
 An edit counts for the units whose trees hold it, and for every unit when none does.
@@ -234,6 +238,8 @@ With two or more units:
 - `verify` without `task` is refused, with the units listed, unless it carries a `checkpoint`, which ticks the loop's own item.
 - `back` and `skip` with `task` reach only that unit and take that unit's kind.
 - A child inherits its unit's anchor, and its returned passing run of that anchor is recorded as its unit's verify.
+- A unit reads only its own anchor, since the loop's anchor is whichever ticket set it: a unit whose todo carries none shows `missing: own anchor` and hands its children no anchor.
+- Friction is the loop's: a unit's line never waits on `reflect`, and the loop line and the close name it once.
 - Each `subagent_send` to a persistent reviewer is its own dispatch, and its verdict counts for the unit its brief names.
 
 </details>

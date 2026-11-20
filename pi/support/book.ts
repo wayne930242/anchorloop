@@ -645,10 +645,13 @@ export function reviewsStalled(entries: Entry[]): boolean {
 	return rounds.length >= 2 && isBlocking(rounds[rounds.length - 1]) && isBlocking(rounds[rounds.length - 2]);
 }
 
+/** How many review rounds the trend spells out: the latest, which say whether the rounds converge. */
+const TREND_ROUNDS = 3;
+
 export function reviewTrend(entries: Entry[]): string {
 	const rounds = reviews(entries);
 	if (rounds.length === 0) return "no review";
-	return `${rounds.length} round(s): ${rounds.map((round) => (round.blocking === true ? `blocking${round.p0 !== undefined ? ` P0=${round.p0} P1=${round.p1}` : ""}` : round.blocking === false ? "clear" : "unknown")).join(" → ")}`;
+	return `${rounds.length} round(s): ${rounds.length > TREND_ROUNDS ? "… → " : ""}${rounds.slice(-TREND_ROUNDS).map((round) => (round.blocking === true ? `blocking${round.p0 !== undefined ? ` P0=${round.p0} P1=${round.p1}` : ""}` : round.blocking === false ? "clear" : "unknown")).join(" → ")}`;
 }
 
 /** A review that still covers the code (see `reviewStands`) with no blocking finding on it. */
@@ -725,20 +728,34 @@ export function childIds(entries: Entry[]): string[] {
 	return entries.filter((entry) => entry.stage === "link" && typeof entry.child === "string").map((entry) => entry.child as string);
 }
 
-/** One line per linked child book that exists. */
-export function childLines(entries: Entry[], env: NodeJS.ProcessEnv = process.env): string[] {
+/** True when a `result` of `child` follows its latest dispatch (`link` or `send`): its work came back to the coordinator. */
+export function returnedChild(entries: Entry[], child: string): boolean {
+	const dispatched = entries.findLastIndex((entry) => (entry.stage === "link" || entry.stage === "send") && entry.child === child);
+	return entries.findLastIndex((entry) => entry.stage === "result" && entry.child === child) > dispatched;
+}
+
+/**
+ * One `child` line per linked child book that exists. A child whose result came back is the coordinator's to read from that result, so
+ * those children share one `children returned: N` line unless `all` asks for each.
+ */
+export function childLines(entries: Entry[], env: NodeJS.ProcessEnv = process.env, options: { all?: boolean } = {}): string[] {
 	const lines: string[] = [];
-	for (const id of childIds(entries)) {
+	let returned = 0;
+	for (const id of [...new Set(childIds(entries))]) {
+		if (!options.all && returnedChild(entries, id)) {
+			returned++;
+			continue;
+		}
 		const link = entries.find((entry) => entry.stage === "link" && entry.child === id);
 		for (const { book: child, tag } of findChildBooks(id, env)) {
 			const lastCheck = [...child.entries].reverse().find((entry) => entry.stage === "check" || entry.stage === "verify");
 			const friction = frictionOf(child.entries).length;
 			lines.push(
-				`${link?.name ?? id}${tag}: ${currentKind(child.entries) ?? "no kind"}${isClosed(child) ? " (closed)" : ""}; stages ${stagesDone(child.entries).join(", ") || "none"}; ${lastCheck ? evidenceLine(lastCheck) : "no check"}${friction ? `; ${friction} friction` : ""}`,
+				`child ${link?.name ?? id}${tag}: ${currentKind(child.entries) ?? "no kind"}${isClosed(child) ? " (closed)" : ""}; stages ${stagesDone(child.entries).join(", ") || "none"}; ${lastCheck ? evidenceLine(lastCheck) : "no check"}${friction ? `; ${friction} friction` : ""}`,
 			);
 		}
 	}
-	return lines;
+	return returned ? [...lines, `children returned: ${returned} (\`read\` with view "all" lists each)`] : lines;
 }
 
 // --- friction and reflection ---------------------------------------------------------------------
@@ -1513,8 +1530,11 @@ export function latestTasks(entries: Entry[]): Entry[] {
 
 export const TASK_LEGEND = "#id status subject — anchor (last exit) — ref → line range; missing = heading gone";
 
-/** One line per live task: its own anchor with the last exit code of a matching bash call, and its refs with current line ranges. */
-export function taskLines(entries: Entry[], todos: Task[], cwd: string): string[] {
+/**
+ * One line per live task: its own anchor with the last exit code of a matching bash call, and its refs with current line ranges. A todo
+ * without an anchor reads the loop's, except a unit of a loop of two or more units (`units`), which reads none.
+ */
+export function taskLines(entries: Entry[], todos: Task[], cwd: string, units: ReadonlySet<number> = new Set()): string[] {
 	const live = new Map(todos.map((task) => [task.id, task]));
 	const exits = new Map<number, Entry>();
 	const epoch = todoEpoch(entries);
@@ -1527,7 +1547,7 @@ export function taskLines(entries: Entry[], todos: Task[], cwd: string): string[
 		.map((entry) => {
 			const task = live.get(entry.id as number);
 			const run = exits.get(entry.id as number);
-			const anchor = typeof entry.anchor === "string" ? `${entry.anchor}${run ? ` (exit ${run.exit})` : ""}` : "loop anchor";
+			const anchor = typeof entry.anchor === "string" ? `${entry.anchor}${run ? ` (exit ${run.exit})` : ""}` : units.has(entry.id as number) ? "no own anchor" : "loop anchor";
 			const refs = ((entry.refs ?? []) as { ref: string }[]).map((item) => {
 				const range = resolveRef(item.ref, cwd, entries);
 				return range ? `${item.ref} → ${range}` : item.ref;

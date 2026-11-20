@@ -55,7 +55,16 @@ export type Phases = {
 	backs: string[];
 };
 
-export type Inputs = { entries: Entry[]; cwd: string; todos: Task[]; env?: NodeJS.ProcessEnv; /** Which recorded trees count as this reading's code; all of them when absent. */ scope?: Scope };
+export type Inputs = {
+	entries: Entry[];
+	cwd: string;
+	todos: Task[];
+	env?: NodeJS.ProcessEnv;
+	/** Which recorded trees count as this reading's code; all of them when absent. */
+	scope?: Scope;
+	/** The todo id of the unit this reading is for, in a loop of two or more units: its anchor is its own, and its friction is the loop's. */
+	unit?: number;
+};
 
 // --- paths ---------------------------------------------------------------------------------------
 
@@ -323,7 +332,9 @@ function evaluate(name: string, ctx: Ctx): Status {
 		}
 		case "anchor": {
 			const index = lastWhere(entries, from, (entry) => entry.stage === "anchor");
-			return index >= 0 ? done(name, String(entries[index].check ?? "")) : missing(name, "a `Reality anchor:` line, `metadata.anchor` on the first todo, or `anchor` on the kind call");
+			if (index >= 0) return done(name, String(entries[index].check ?? ""));
+			// A unit reads no other ticket's anchor: the loop's anchor is whichever ticket set it, so the unit names its own todo instead.
+			return missing(name, ctx.unit !== undefined ? `${OWN_ANCHOR} (metadata.anchor on todo #${ctx.unit})` : "a `Reality anchor:` line, `metadata.anchor` on the first todo, or `anchor` on the kind call");
 		}
 		case "act":
 			return lastWhere(entries, from, (entry) => entry.stage === "edit" || countsAsLanding(entry)) >= 0 ? done(name) : missing(name, "a change to the code");
@@ -356,15 +367,25 @@ function evaluate(name: string, ctx: Ctx): Status {
 			const stalled = rounds.length >= 2 && rounds.at(-1)?.blocking === true && rounds.at(-2)?.blocking === true;
 			return missing(name, stalled ? "two consecutive review rounds still blocking: hand the trend to the user" : round.blocking === true ? "blocking review findings are open" : "the review verdict is unknown");
 		}
-		case "reflect": {
-			const items = allFriction(ctx.own, ctx.env);
-			if (items.length === 0) return { name, state: "skipped", note: "no friction", auto: true };
-			const open = items.filter((item) => !item.reflected).length;
-			return open === 0 ? done(name) : missing(name, `${open} friction entr${open === 1 ? "y" : "ies"} without a reflect`);
-		}
+		case "reflect":
+			// Friction is the loop's, whichever unit it came from: the loop line and the close name it once, not once per unit.
+			return ctx.unit !== undefined ? { name, state: "skipped", note: LOOPS_FRICTION, auto: true } : reflectStatus(ctx.own, ctx.env);
 		default:
 			return missing(name, name);
 	}
+}
+
+/** The words a unit's anchor phase opens with when its todo carries no anchor of its own. */
+export const OWN_ANCHOR = "own anchor";
+const LOOPS_FRICTION = "the loop's";
+const NO_FRICTION = "no friction";
+
+/** The loop's reflect phase: done when every friction entry of the book and its children has a reflect, skipped when there is none. */
+export function reflectStatus(own: Entry[], env?: NodeJS.ProcessEnv): Status {
+	const items = allFriction(own, env);
+	if (items.length === 0) return { name: "reflect", state: "skipped", note: NO_FRICTION, auto: true };
+	const open = items.filter((item) => !item.reflected).length;
+	return open === 0 ? done("reflect") : missing("reflect", `${open} friction entr${open === 1 ? "y" : "ies"} without a reflect`);
 }
 
 /** The phase state of the loop kind recorded in the book. */
@@ -390,7 +411,7 @@ export function computePhases(book: Pick<Book, "entries">, inputs: Omit<Inputs, 
 	if ((next === "verify" || next === "check") && last >= 0 && verify && verify.exit !== 0 && verify.declared !== true) next = "fix";
 	else if (next === "review" && last >= 0 && review?.blocking === true) next = "fix";
 	if (next === "fix") note = first?.note ?? "";
-	const skipped = [...statuses.filter((status) => status.state === "skipped" && status.note !== "no friction").map((status) => `${status.name} (${status.note})`), ...droppedObservations(book.entries)];
+	const skipped = [...statuses.filter((status) => status.state === "skipped" && status.note !== NO_FRICTION && status.note !== LOOPS_FRICTION).map((status) => `${status.name} (${status.note})`), ...droppedObservations(book.entries)];
 	const backs = book.entries.filter((entry) => entry.stage === "back").map((entry) => `${entry.phase} (${entry.reason})`);
 	return {
 		kind: kind ?? "undeclared",

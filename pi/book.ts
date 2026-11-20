@@ -84,9 +84,11 @@ import { linkOfResult, priorSpawns } from "./support/links.ts";
 import { orphanLines } from "./support/orphans.ts";
 import { REVIEWLESS, SEQUENCES, describe, incompleteBefore, outsideWork, reachLine, reachOf, unansweredReach } from "./support/phases.ts";
 import { type Snapshot, snapshot } from "./support/snapshot.ts";
-import { type Unit, type Units, childAnchor, childrenOf, computeLoop, taskTickets, ticketKeys, todoForTickets, unitById, unitLine, unitOfDispatch, unitsOf, unitWidgetLine } from "./support/units.ts";
+import { type Unit, type Units, briefMissing, childAnchor, childrenOf, computeLoop, taskTickets, ticketKeys, todoForTickets, unitById, unitLine, unitOfDispatch, unitsOf, unitWidgetLines } from "./support/units.ts";
 
 export const SESSION_ENTRY = "anchorloop-loop";
+/** A `reflect` declared after its loop closed, for the friction the close summary carried. */
+export const REFLECT_ENTRY = "anchorloop-reflect";
 const STAGES = ["kind", "verify", "fresh-read", "friction", "reflect", "skip", "back", "landed", "close", "read"] as const;
 const BLOCKING = /Blocking\s*:?\**\s*:?\s*P0\s*=\s*(\d+)\D{0,5}P1\s*=\s*(\d+)/gi;
 const ANCHOR_LINE = /Reality anchor:[ \t]*(.*)/;
@@ -468,7 +470,11 @@ export default function (pi: ExtensionAPI) {
 		return open && last?.source === "jev" && last.ok === false ? [`fresh read by ${String(last.child || "a subagent")} judged not fresh — declare \`fresh-read\` if it was`] : [];
 	}
 
-	function summaryLines(book: Book, ctx: ExtensionContext): string[] {
+	/**
+	 * The `read` summary. Without `all`, what the coordinator already handled collapses: children whose result came back, landings but
+	 * the newest, children still at work; `view: "all"` lists each.
+	 */
+	function summaryLines(book: Book, ctx: ExtensionContext, all = false): string[] {
 		const cache: TreeCache = new Map();
 		const looped = computeLoop(book, { cwd: ctx.cwd, todos: todosOf(ctx), scope: { cache } });
 		const { phases } = looped;
@@ -481,11 +487,11 @@ export default function (pi: ExtensionAPI) {
 			`intent: ${currentIntent(book.entries) ?? "not declared"}`,
 			`last ${verify?.stage ?? "verify"}: ${verify ? `${verify.declared ? `declared ${verify.result}` : `exit ${verify.exit ?? "unknown"}`}${verify.last ? ` — ${verify.last}` : ""}${verifyAfterLastAct(book.entries, { cache }) ? "" : " (before the last change)"}` : "none"}`,
 			`reviews: ${reviewTrend(book.entries)}; open todos: ${open}; friction: ${friction.length} (${friction.filter((item) => !item.reflected).length} unreflected)`,
-			...childLines(book.entries).map((line) => `child ${line}`),
+			...childLines(book.entries, process.env, { all }),
 			...linkNotes(book.entries),
-			...landLines(book.entries),
+			...landLines(book.entries, { all }),
 			...partialLines(book.entries),
-			...orphanLines(book.entries),
+			...orphanLines(book.entries, process.env, { out: !all }),
 			...friction.filter((item) => item.owner !== "main").map((item) => `friction ${item.ref}: ${item.tried} → ${item.found}${item.reflected ? ` [${item.class}]` : ""}`),
 			...freshReadLine(book, phases),
 		];
@@ -701,14 +707,20 @@ export default function (pi: ExtensionAPI) {
 		const kind = currentKind(book.entries);
 		const looped = computeLoop(book, { cwd: ctx.cwd, todos });
 		const phases = looped.phases;
-		// A loop of several units is complete only when each is: every unit's missing phases are named with the unit.
+		// A todo still open with a followup is deferred to that ticket or note: its unit's phases are no longer this loop's.
+		const deferred = new Set(todos.filter((task) => isOpenTask(task) && validFollowup(task.metadata?.followup)).map((task) => task.id));
+		// A loop of several units is complete only when each is: each unit is named once, with its missing phases and the first one's note.
+		// Friction is the loop's, named once by the unreflected line below, so `reflect` is not listed with the phases.
 		const missing = looped.rows.length
 			? [
-					...looped.rows.flatMap((row) => incompleteBefore(row.phases, "close").map((status) => ({ ...status, name: `${row.unit.label} ${status.name}` }))),
+					...looped.rows.flatMap((row) => {
+						const open = deferred.has(row.unit.id) ? [] : incompleteBefore(row.phases, "close");
+						return open.length ? [{ name: `${row.unit.label} ${open.map((status) => status.name).join(", ")}`, note: briefMissing(open[0].note) }] : [];
+					}),
 					// An item of the loop's own list that no unit reads is still the loop's to observe.
-					...(looped.loopOpen ? [{ name: "loop verify", state: "missing" as const, note: looped.loopOpen }] : []),
+					...(looped.loopOpen ? [{ name: "loop verify", note: looped.loopOpen }] : []),
 				]
-			: incompleteBefore(phases, "close");
+			: incompleteBefore(phases, "close").filter((status) => status.name !== "reflect");
 		const diff = diffAgainstBases(book.entries);
 		const friction = allFriction(book.entries);
 		const phaseList = phases.statuses.map((status) => ({ phase: status.name, state: status.state === "skipped" && status.auto ? "auto-skipped" : status.state === "missing" ? "not shown complete" : status.state, ...(status.state === "skipped" ? { note: status.note } : {}) }));
@@ -731,7 +743,8 @@ export default function (pi: ExtensionAPI) {
 		const text = [
 			`closed (${verdict}).`,
 			...(missing.length ? [`${verdict === "landed" ? "not complete" : "not reached"}: ${missing.map((status) => (verdict === "landed" ? `${status.name} (${status.note})` : status.name)).join("; ")}.`] : []),
-			...(unreflected.length ? [`unreflected friction: ${unreflected.map((item) => `${item.ref} (${item.found})`).join("; ")}.`] : []),
+			// A main session's close keeps the summary in the session, so a reflect still lands; a child's friction is the main session's to reflect.
+			...(unreflected.length ? [`unreflected friction: ${unreflected.map((item) => `${item.ref} (${item.found})`).join("; ")}${kept ? "." : "; \`reflect\` still takes these ids after the close."}`] : []),
 		].join(" ");
 		if (kept) {
 			// A child's book stays for the main session to read and delete.
@@ -791,6 +804,29 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	/** The friction ids a `reflect` names, checked against the `known` refs; throws on a missing class or an unknown id. */
+	function reflectIds(params: Params, known: string[]): string[] {
+		const ids = (params.friction ?? []).map(String);
+		if (ids.length === 0 || !params.class) throw new Error(`reflect needs \`friction\` ids (${known.join(", ") || "none recorded"}) and \`class\``);
+		const unknown = ids.filter((id) => !known.includes(id));
+		if (unknown.length) throw new Error(`unknown friction ${unknown.join(", ")}; known: ${known.join(", ") || "none"}`);
+		return ids;
+	}
+
+	/**
+	 * A `reflect` after the loop closed: the close named the unreflected friction, so the reflect is recorded in the session against the
+	 * friction the close summary carried. Undefined when this session closed no loop.
+	 */
+	function reflectClosed(ctx: ExtensionContext, params: Params): ReturnType<typeof reply> | undefined {
+		const branch = ctx.sessionManager.getBranch() as { type?: string; customType?: string; data?: unknown }[];
+		const closed = branch.findLast((entry) => entry.type === "custom" && entry.customType === SESSION_ENTRY);
+		if (!closed) return undefined;
+		const friction = (closed.data as { friction?: { ref?: unknown }[] } | undefined)?.friction ?? [];
+		const ids = reflectIds(params, friction.map((item) => String(item.ref)));
+		pi.appendEntry(REFLECT_ENTRY, { friction: ids, class: params.class, ...(params.action ? { action: params.action } : {}) });
+		return reply("ok (recorded against the closed loop)");
+	}
+
 	function stageTool(_toolCallId: string, raw: unknown, _signal: unknown, _onUpdate: unknown, ctx: ExtensionContext) {
 		const params = raw as Params;
 		const { stage } = params;
@@ -818,12 +854,19 @@ export default function (pi: ExtensionAPI) {
 			recordPriorAnchor(book, ctx);
 			recordPriorLinks(book, ctx);
 		}
+		if (!book && stage === "reflect") {
+			const closed = reflectClosed(ctx, params);
+			if (closed) return closed;
+		}
 		if (!book) return reply("No loop is open, so nothing was recorded. A loop opens with the first `todo` create or `kind`.");
 		const had = currentKind(book.entries);
 		const sequence = SEQUENCES[had ?? "inline"];
 		if (stage === "read") {
 			// The id a handoff names, so the session that takes over can pass it as `resume`.
-			const lines = [...summaryLines(book, ctx), ...taskLines(book.entries, todosOf(ctx), ctx.cwd), `book: ${String(book.header.id ?? "no id")}`];
+			const todos = todosOf(ctx);
+			const units = unitsOf(book.entries, todos).units;
+			const all = params.view === "all";
+			const lines = [...summaryLines(book, ctx, all), ...taskLines(book.entries, todos, ctx.cwd, new Set(units.length >= 2 ? units.map((unit) => unit.id) : [])), `book: ${String(book.header.id ?? "no id")}`];
 			if (params.view === "all") lines.push("entries:", ...book.entries.map((entry) => JSON.stringify(entry).slice(0, 300)));
 			return reply(lines.join("\n"));
 		}
@@ -903,11 +946,7 @@ export default function (pi: ExtensionAPI) {
 			return reply(`friction #${id}`);
 		}
 		if (stage === "reflect") {
-			const known = allFriction(book.entries).map((item) => item.ref);
-			const ids = (params.friction ?? []).map(String);
-			if (ids.length === 0 || !params.class) throw new Error(`reflect needs \`friction\` ids (${known.join(", ") || "none recorded"}) and \`class\``);
-			const unknown = ids.filter((id) => !known.includes(id));
-			if (unknown.length) throw new Error(`unknown friction ${unknown.join(", ")}; known: ${known.join(", ") || "none"}`);
+			const ids = reflectIds(params, allFriction(book.entries).map((item) => item.ref));
 			appendEntry(book.path, "reflect", { friction: ids, class: params.class, ...(params.action ? { action: params.action } : {}) });
 			return reply("ok");
 		}
@@ -1183,7 +1222,7 @@ export default function (pi: ExtensionAPI) {
 		const open = allFriction(book.entries).filter((item) => !item.reflected).length;
 		const kind = phases.kind === "undeclared" ? "no kind" : phases.kind;
 		const at = `${phases.current}${phases.current === "start" ? "" : " ✓"} → ${phases.next}`;
-		const units = looped.rows.map(unitWidgetLine);
+		const units = unitWidgetLines(looped.rows);
 		renderWidget(ctx, [`⚓ ${kind} · ${at}${open ? ` · ${open} friction` : ""}`, ...units]);
 	}
 
