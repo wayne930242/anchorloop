@@ -61,10 +61,10 @@ Subagent books live under `agents/`; a child that closes keeps its book for the 
 `session_start` sweeps books whose session is gone or that have not changed in 7 days.
 Its notice gives one line of counts (open books of this project, stale books deleted), the three newest open books, and the directory holding the rest.
 
-`close` answers `closed (landed). Clear the todo list.`, adding only the phases not shown complete and the unreflected friction, each named once; a unit whose open todo carries a followup is left out.
+`close` answers `closed (landed). Clear the todo list.`, adding only the phases not shown complete and the unreflected friction, each named once; a unit whose open todo carries a followup is left out, except a unit parked by `memory` or `drop` that acted with no passing check, which gets a `parked without check:` line.
 It never refuses over phases or friction.
 It refuses only while a pending or in-progress todo lacks `metadata.followup`: a ticket id, `memory`, or `drop — <reason>`.
-After the close, `reflect` still takes the friction ids it named and records them in the session.
+After the close, `reflect` still takes the friction ids it named and records them in the session; `read`, the close text, and Jev's snapshot count those ids as reflected with their class.
 
 </details>
 
@@ -227,7 +227,7 @@ An `anchor` alone is the task's own check and makes none.
 Two or more units get one phase line each in `read` and Jev's task list; in the widget, units in the same state share one line.
 
 A child binds to a unit by `agents`, else by the ticket id in its name or brief when exactly one open todo holds it.
-A todo subject names a ticket only by an uppercase key standing alone, such as `MP-4366`; a host or dated name such as `agent-tower-01` or `release-1117` names none, while a child's name may write the key as `mp4366-hq`.
+A todo subject names a ticket only by a 2–4 letter key of either case standing alone or followed by a hyphen, with a number that does not start with 0, such as `MP-4366`, `mp-4366 fix`, or `MP-4366-followup`; a host or dated name such as `agent-tower-01` or `release-1117` names none, while a child's name may write the key as `mp4366-hq`.
 
 A unit's trees are its workers' worktrees (or checkouts), else the loop's own repos.
 An edit counts for the units whose trees hold it, and for every unit when none does.
@@ -236,7 +236,7 @@ A unit's checks compare only its trees, so one unit's change leaves another's ch
 With two or more units:
 
 - `verify` without `task` is refused, with the units listed, unless it carries a `checkpoint`, which ticks the loop's own item.
-- `back` and `skip` with `task` reach only that unit and take that unit's kind.
+- `back` and `skip` with `task` reach only that unit and take that unit's kind; `skip` of `reflect` is the loop's, so it counts whether or not it names a `task`.
 - A child inherits its unit's anchor, and its returned passing run of that anchor is recorded as its unit's verify.
 - A unit reads only its own anchor, since the loop's anchor is whichever ticket set it: a unit whose todo carries none shows `missing: own anchor` and hands its children no anchor.
 - Friction is the loop's: a unit's line never waits on `reflect`, and the loop line and the close name it once.

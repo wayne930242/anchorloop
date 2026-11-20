@@ -336,11 +336,10 @@ function childPassingRun(book: Book, child: string): { name: string; run: Entry 
 	return passingRunOf(book.entries, child, anchorCommand(book.entries), roots, cwd);
 }
 
-/** The landings recorded so far, newest last, for `read`. */
 /** How many landings `read` lists by default: the newest, which the next step acts on. */
 const LISTED_LANDINGS = 5;
 
-/** One `landed` line per landing, the newest five after a `landed: N earlier` line unless `all` asks for each. */
+/** The landings recorded so far, newest last, for `read`: one `landed` line per landing, the newest five after a `landed: N earlier` line unless `all` asks for each. */
 export function landLines(entries: Entry[], options: { all?: boolean } = {}): string[] {
 	const lines = allLandLines(entries);
 	if (options.all || lines.length <= LISTED_LANDINGS) return lines;

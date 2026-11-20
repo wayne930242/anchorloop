@@ -738,12 +738,14 @@ export function returnedChild(entries: Entry[], child: string): boolean {
  * One `child` line per linked child book that exists. A child whose result came back is the coordinator's to read from that result, so
  * those children share one `children returned: N` line unless `all` asks for each.
  */
-export function childLines(entries: Entry[], env: NodeJS.ProcessEnv = process.env, options: { all?: boolean } = {}): string[] {
+export function childLines(entries: Entry[], env: NodeJS.ProcessEnv = process.env, options: { all?: boolean; hint?: boolean } = {}): string[] {
 	const lines: string[] = [];
 	let returned = 0;
+	let failed = 0;
 	for (const id of [...new Set(childIds(entries))]) {
 		if (!options.all && returnedChild(entries, id)) {
 			returned++;
+			if (resultOf(entries, id)?.failed === true) failed++;
 			continue;
 		}
 		const link = entries.find((entry) => entry.stage === "link" && entry.child === id);
@@ -755,7 +757,7 @@ export function childLines(entries: Entry[], env: NodeJS.ProcessEnv = process.en
 			);
 		}
 	}
-	return returned ? [...lines, `children returned: ${returned} (\`read\` with view "all" lists each)`] : lines;
+	return returned ? [...lines, `children returned: ${returned} (ok ${returned - failed}, failed ${failed})${options.hint ? " (\`read\` with view \"all\" lists each)" : ""}`] : lines;
 }
 
 // --- friction and reflection ---------------------------------------------------------------------

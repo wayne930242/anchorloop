@@ -3,7 +3,7 @@
 
 import json
 
-from tests.pi_harness import stage, todo_create, todo_state, tool_call
+from tests.pi_harness import stage, todo_create, todo_state, tool_call, tool_result
 from tests.test_pi_book import edit, reviewer_result, text_of
 from tests.test_pi_coordinator import CoordinatorCase, done_loop, returned, spawn
 
@@ -48,6 +48,16 @@ class TestTicketIds(ReconcileCase):
         lines = self.read_text([], branch=[todo_state(one, two)]).splitlines()
         self.assertIn("MP-4366 inline · act ✓ → verify (missing: a passing run of `pytest -q` after the last change)", lines)
         self.assertIn("MP-4367 inline · anchor ✓ → act (missing: a change to the code)", lines)
+
+
+    def test_a_subject_binds_a_key_of_either_case_alone_or_before_a_hyphen_and_never_a_zero_led_number(self):
+        self.git_repo()
+        meta = {"anchor": "make test", "kind": "inline"}
+        tasks = ({"subject": "MP-4366 fix", "status": "pending", "metadata": meta}, {"subject": "MP-4367-followup", "status": "pending", "metadata": meta},
+                 {"subject": "mp-4368 fix", "status": "pending", "metadata": meta}, {"subject": "MP-0123 pad", "status": "pending", "metadata": meta},
+                 {"subject": "Box watch agent-tower-01", "status": "pending", "metadata": meta}, {"subject": "Cut release-1117", "status": "pending", "metadata": meta})
+        labels = [line.split(" inline")[0] for line in self.read_text(self.creates(*tasks), branch=[todo_state(*tasks)]).splitlines() if " inline ·" in line and not line.startswith("inline")]
+        self.assertEqual(labels, ["MP-4366", "MP-4367", "MP-4368", "#4", "#5", "#6"])
 
 
 class TestOwnAnchor(ReconcileCase):
@@ -126,6 +136,50 @@ class TestFrictionOnce(ReconcileCase):
         self.assertIn("MP-4366", text)
         self.assertNotIn("MP-4367", text)
 
+    def skip_reflect(self, **args) -> tuple[str, str]:
+        self.start()
+        self.child_edit("k1", "w1")
+        self.child_edit("k2", "w2")
+        branch = [todo_state(self.ONE, self.TWO)]
+        verified = [stage(stage="verify", note="ran it", task=1), stage(stage="verify", note="ran it", task=2)]
+        out = self.replay([*verified, stage(stage="skip", phase="reflect", reason="tool slip", **args)], branch=branch)
+        return text_of(out["results"][-1]), self.read_text([], branch=branch).splitlines()[0]
+
+    def test_a_skip_of_reflect_without_a_task_counts_for_the_loop(self):
+        said, line = self.skip_reflect()
+        self.assertEqual(said, "ok")
+        self.assertTrue(line.startswith("inline · phase verify ✓ → close"), line)
+
+    def test_a_skip_of_reflect_with_the_first_unit_task_counts_for_the_loop_and_says_task_is_ignored(self):
+        said, line = self.skip_reflect(task=1)
+        self.assertIn("`task` is ignored", said)
+        self.assertTrue(line.startswith("inline · phase verify ✓ → close"), line)
+
+    def test_a_skip_of_reflect_with_the_last_unit_task_counts_for_the_loop(self):
+        said, line = self.skip_reflect(task=2)
+        self.assertIn("`task` is ignored", said)
+        self.assertTrue(line.startswith("inline · phase verify ✓ → close"), line)
+
+    def test_close_names_a_unit_parked_by_memory_that_acted_without_a_check(self):
+        self.start()
+        self.child_edit("k2", "w2")
+        branch = [todo_state({**self.ONE, "status": "completed"}, {**self.TWO, "metadata": {**self.TWO["metadata"], "followup": "memory"}})]
+        text = text_of(self.replay([stage(stage="close", verdict="landed")], branch=branch)["results"][0])
+        self.assertIn("parked without check: MP-4367", text)
+
+    def test_close_leaves_out_a_ticket_followup_even_after_a_change(self):
+        self.start()
+        self.child_edit("k2", "w2")
+        branch = [todo_state({**self.ONE, "status": "completed"}, {**self.TWO, "metadata": {**self.TWO["metadata"], "followup": "MP-9999"}})]
+        self.assertNotIn("parked without check", text_of(self.replay([stage(stage="close", verdict="landed")], branch=branch)["results"][0]))
+
+    def test_a_reflect_recorded_after_close_is_read_back_with_its_class(self):
+        self.start()
+        late = {"type": "custom", "customType": "anchorloop-reflect", "data": {"friction": ["1"], "class": "gap", "action": "rule added"}}
+        text = self.read_text([], branch=[todo_state(self.ONE, self.TWO), late])
+        self.assertIn("friction: 1 (0 unreflected)", text)
+        self.assertNotIn("without a reflect", text)
+
     def test_reflect_after_close_is_recorded_against_the_closed_loop(self):
         out = self.replay([*done_loop(self), stage(stage="friction", tried="a", found="b"), stage(stage="close", verdict="landed"),
                            stage(stage="reflect", friction=["1"], **{"class": "gap"}, action="rule added"), stage(stage="reflect", friction=["7"], **{"class": "gap"})])
@@ -145,9 +199,24 @@ class TestReadSummary(ReconcileCase):
         self.replay([returned("w1"), returned("w2")])
         text = self.read_text([])
         self.assertNotIn("child w1:", text)
-        self.assertIn("children returned: 2", text)
+        self.assertIn("children returned: 2 (ok 2, failed 0) (`read` with view", text)
         full = text_of(self.replay([stage(stage="read", view="all")])["results"][-1])
         self.assertIn("child w1:", full)
+
+    def test_jevs_snapshot_counts_returned_children_by_state_without_the_read_hint(self):
+        self.git_repo()
+        self.replay([*done_loop(self), spawn("k1", "w1"), spawn("k2", "w2")])
+        self.child_edit("k1", "w1")
+        self.child_edit("k2", "w2")
+        self.replay([returned("w1"), returned("w2", exitCode=1)])
+        close = {"event": "tool_call", "payload": {"toolName": "anchorloop_stage", "toolCallId": "c9", "input": {"stage": "close", "verdict": "abandoned"}}}
+        answers = {"move": {"type": "choice", "choice": "advance", "probabilities": {"advance": 0.7}}, "done": {"type": "bool", "probability": 0.9},
+                   "review": {"type": "choice", "choice": "none", "probabilities": {"none": 0.6}}, "quality": {"type": "score", "score": 2.9}}
+        out = self.replay([close, stage(stage="close", verdict="abandoned"), tool_result("anchorloop_stage", {"stage": "close"}, "closed", call_id="c9")],
+                          branch=[todo_state({"subject": "unit", "status": "completed"})], extensions=("book.ts", "second-thought.ts"), classify={"stopReason": "stop", "answers": answers})
+        verify = out["classifyCalls"][0]["verify"]
+        self.assertIn("children returned: 2 (ok 1, failed 1)", verify)
+        self.assertNotIn('view "all"', verify)
 
     def test_a_child_still_out_shares_one_out_line(self):
         text = self.read_text([*done_loop(self), spawn("k1", "w1", "/s/none.jsonl"), spawn("k2", "w2", "/s/two.jsonl")])

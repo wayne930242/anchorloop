@@ -41,10 +41,11 @@ export type Unit = { id: number; subject: string; label: string; open: boolean; 
 /** A ticket id in a child's name, brief, or branch: `MP-4366`, `mp4366-hq`, `fix-mp-4366-guard`. A number never starts with 0. */
 const TICKET_KEY = /\b([A-Za-z]{1,10})-?([1-9]\d{1,5})\b/g;
 /**
- * A ticket id in a todo subject: an uppercase key standing alone, as a tracker writes it (`MP-4366`). A host name (`agent-tower-01`)
- * or a dated name (`release-1117`) is part of a hyphenated lowercase word, so it names no ticket and makes no unit.
+ * A ticket id in a todo subject: a 2-4 letter key of either case, a hyphen, and a number not starting with 0, standing alone (`MP-4366`,
+ * `mp-4366 fix`) or followed by a hyphen (`MP-4366-followup`). A host name (`agent-tower-01`) or a dated name (`release-1117`) is part
+ * of a longer hyphenated word, so it names no ticket and makes no unit.
  */
-const SUBJECT_TICKET = /(?<![\w-])([A-Z]{1,10})-([1-9]\d{1,5})(?![\w-])/g;
+const SUBJECT_TICKET = /(?<![\w-])([A-Za-z]{2,4})-([1-9]\d{1,5})(?!\w)/g;
 
 const keyOf = (found: RegExpMatchArray): string => `${found[1].toLowerCase()}${found[2]}`;
 

@@ -487,7 +487,7 @@ export default function (pi: ExtensionAPI) {
 			`intent: ${currentIntent(book.entries) ?? "not declared"}`,
 			`last ${verify?.stage ?? "verify"}: ${verify ? `${verify.declared ? `declared ${verify.result}` : `exit ${verify.exit ?? "unknown"}`}${verify.last ? ` — ${verify.last}` : ""}${verifyAfterLastAct(book.entries, { cache }) ? "" : " (before the last change)"}` : "none"}`,
 			`reviews: ${reviewTrend(book.entries)}; open todos: ${open}; friction: ${friction.length} (${friction.filter((item) => !item.reflected).length} unreflected)`,
-			...childLines(book.entries, process.env, { all }),
+			...childLines(book.entries, process.env, { all, hint: !all }),
 			...linkNotes(book.entries),
 			...landLines(book.entries, { all }),
 			...partialLines(book.entries),
@@ -704,11 +704,15 @@ export default function (pi: ExtensionAPI) {
 			);
 		}
 		const kept = childId() !== undefined;
+		readLateReflects(book, ctx);
 		const kind = currentKind(book.entries);
 		const looped = computeLoop(book, { cwd: ctx.cwd, todos });
 		const phases = looped.phases;
 		// A todo still open with a followup is deferred to that ticket or note: its unit's phases are no longer this loop's.
 		const deferred = new Set(todos.filter((task) => isOpenTask(task) && validFollowup(task.metadata?.followup)).map((task) => task.id));
+		// A ticket or handoff carries the unit on; a unit parked by `memory` or `drop` that acted with no passing check after it keeps one line.
+		const noted = new Set(todos.filter((task) => deferred.has(task.id) && /^(memory|drop)/.test(String(task.metadata?.followup).trim())).map((task) => task.id));
+		const parked = looped.rows.filter((row) => noted.has(row.unit.id) && row.phases.statuses.some((status) => status.name === "act" && status.state === "done") && incompleteBefore(row.phases, "close").some((status) => status.name === "verify" || status.name === "check"));
 		// A loop of several units is complete only when each is: each unit is named once, with its missing phases and the first one's note.
 		// Friction is the loop's, named once by the unreflected line below, so `reflect` is not listed with the phases.
 		const missing = looped.rows.length
@@ -742,6 +746,7 @@ export default function (pi: ExtensionAPI) {
 		// The agent has just done the finished phases, so the result names only what is left.
 		const text = [
 			`closed (${verdict}).`,
+			...(parked.length ? [`parked without check: ${parked.map((row) => row.unit.label).join(", ")}.`] : []),
 			...(missing.length ? [`${verdict === "landed" ? "not complete" : "not reached"}: ${missing.map((status) => (verdict === "landed" ? `${status.name} (${status.note})` : status.name)).join("; ")}.`] : []),
 			// A main session's close keeps the summary in the session, so a reflect still lands; a child's friction is the main session's to reflect.
 			...(unreflected.length ? [`unreflected friction: ${unreflected.map((item) => `${item.ref} (${item.found})`).join("; ")}${kept ? "." : "; \`reflect\` still takes these ids after the close."}`] : []),
@@ -827,6 +832,20 @@ export default function (pi: ExtensionAPI) {
 		return reply("ok (recorded against the closed loop)");
 	}
 
+	/**
+	 * The reflects declared after a close sit in the session, not in a book: the ones naming friction of this book are read back into
+	 * its entries (in memory only), so `read`, the close text, and Jev's snapshot count them as reflected with their class.
+	 */
+	function readLateReflects(book: Book, ctx: ExtensionContext): void {
+		const branch = ctx.sessionManager.getBranch() as { type?: string; customType?: string; data?: { friction?: unknown; class?: unknown; action?: unknown } }[];
+		for (const entry of branch) {
+			if (entry.type !== "custom" || entry.customType !== REFLECT_ENTRY || !Array.isArray(entry.data?.friction)) continue;
+			const known = new Set(allFriction(book.entries).filter((item) => !item.reflected).map((item) => item.ref));
+			const ids = entry.data.friction.map(String).filter((id) => known.has(id));
+			if (ids.length) book.entries.push({ ts: new Date().toISOString(), stage: "reflect", friction: ids, class: entry.data.class, ...(entry.data.action ? { action: entry.data.action } : {}) } as Entry);
+		}
+	}
+
 	function stageTool(_toolCallId: string, raw: unknown, _signal: unknown, _onUpdate: unknown, ctx: ExtensionContext) {
 		const params = raw as Params;
 		const { stage } = params;
@@ -862,6 +881,7 @@ export default function (pi: ExtensionAPI) {
 		const had = currentKind(book.entries);
 		const sequence = SEQUENCES[had ?? "inline"];
 		if (stage === "read") {
+			readLateReflects(book, ctx);
 			// The id a handoff names, so the session that takes over can pass it as `resume`.
 			const todos = todosOf(ctx);
 			const units = unitsOf(book.entries, todos).units;
@@ -964,6 +984,12 @@ export default function (pi: ExtensionAPI) {
 		}
 		const kindOf = unit?.kind ?? had;
 		const known = (unit?.kind ? SEQUENCES[unit.kind] : sequence).filter((name) => name !== "close");
+		if (stage === "skip" && phase === "reflect") {
+			// Friction is the loop's, so a skip of reflect reaches the loop whether or not it names a task.
+			if (!params.reason) throw new Error("skip needs a `reason`");
+			appendEntry(book.path, stage, { phase, reason: params.reason });
+			return reply(params.task === undefined ? "ok" : "ok (reflect is the loop's, so the skip counts for the loop and `task` is ignored)");
+		}
 		if (!phase || !known.includes(phase)) throw new Error(`${stage} needs \`phase\`, one of ${known.join(", ")} for ${unit ? `${unit.label}, a` : "a"} ${kindOf ?? "undeclared"} ${unit ? "unit" : "loop"}`);
 		if (!params.reason) throw new Error(`${stage} needs a \`reason\``);
 		appendEntry(book.path, stage, { phase, reason: params.reason, ...(unit ? { task: unit.id } : {}) });
