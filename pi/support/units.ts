@@ -34,7 +34,7 @@ import {
 	validFollowup,
 } from "./book.ts";
 import { type Link, liveness } from "./host.ts";
-import { type Inputs, OWN_ANCHOR, type Phases, computePhases, droppedObservations, openObservation, reflectStatus } from "./phases.ts";
+import { type Inputs, OWN_ANCHOR, type Phases, UNIT_VERIFY, computePhases, droppedObservations, openObservation, reflectStatus } from "./phases.ts";
 
 export type Unit = { id: number; subject: string; label: string; open: boolean; anchor?: string; observe: string[]; kind?: Kind; lands?: string; agents: string[] };
 
@@ -352,8 +352,9 @@ function loopLevelEntries(entries: Entry[]): Entry[] {
 }
 
 /**
- * The loop's phases, and a row per unit when the loop has two or more. The loop's own phases are those of the first unit not yet done,
- * with the loop's one reflect phase in place of the units' (friction is the loop's, so a unit row never waits on it).
+ * The loop's phases, and a row per unit when the loop has two or more. The loop's own phases are those of the first open unit not yet
+ * done (a completed todo's missing evidence is the close's to name, not the live line's), else of the first unit not yet done, with the
+ * loop's one reflect phase in place of the units' (friction is the loop's, so a unit row never waits on it).
  * When every unit lists items of its own, none reads the loop's list, so the loop's items are read here: an item still open is
  * `loopOpen`, and it holds the loop's line at verify, and the close, until it is ticked or dropped; a dropped one is carried in `skipped`.
  */
@@ -362,7 +363,7 @@ export function computeLoop(book: Pick<Book, "entries">, inputs: Omit<Inputs, "e
 	const cache: TreeCache = inputs.scope?.cache ?? new Map();
 	if (found.units.length < 2) return { phases: computePhases(book, { ...inputs, scope: { ...inputs.scope, cache } }), rows: [], found };
 	const rows = found.units.map((unit) => ({ unit, phases: computePhases({ entries: unitEntries(book.entries, unit, found) }, { ...inputs, scope: unitScope(found, unit, cache), unit: unit.id }) }));
-	const chosen = rows.find((row) => row.phases.next !== "close") ?? rows[rows.length - 1];
+	const chosen = rows.find((row) => row.unit.open && row.phases.next !== "close") ?? rows.find((row) => row.phases.next !== "close") ?? rows[rows.length - 1];
 	// A `skip` of reflect with no task reaches every unit, so the chosen unit holds it; otherwise the loop's friction decides.
 	const declared = chosen.phases.statuses.find((status) => status.name === "reflect" && status.state === "skipped" && status.auto !== true);
 	const reflect = declared ?? reflectStatus(book.entries, inputs.env);
@@ -398,9 +399,12 @@ export function unitLine(row: UnitRow): string {
 
 const BRIEF_LIMIT = 40;
 
-/** What a widget line names as missing: `anchor run` for a pending anchor run, `own anchor` for a unit without one, else the note cut to one short phrase. */
+/**
+ * What a widget line names as missing: `anchor run` for a pending anchor run (`anchor run or verify` for a unit, which a declared `verify`
+ * with its task also closes), `own anchor` for a unit without one, else the note cut to one short phrase.
+ */
 export function briefMissing(missing: string): string {
-	if (/^a passing run of `/.test(missing)) return "anchor run";
+	if (/^a passing run of `/.test(missing)) return missing.includes(`, or ${UNIT_VERIFY}`) ? "anchor run or verify" : "anchor run";
 	if (missing.startsWith(`${OWN_ANCHOR} (`)) return OWN_ANCHOR;
 	const flat = missing.replace(/\s+/g, " ").trim();
 	return flat.length > BRIEF_LIMIT ? `${flat.slice(0, BRIEF_LIMIT - 1).trimEnd()}…` : flat;
@@ -416,10 +420,11 @@ const ROW_LABELS = 4;
 
 /**
  * The units' lines in the widget below the editor: units in the same state share one line that names them (`MP-3506, MP-3507 inline ·
- * start → anchor (missing: own anchor)`), at most four labels and `+N`, in the order of their first unit.
+ * start → anchor (missing: own anchor)`), at most four labels and `+N`, in the order of their first unit. Only open todos get a line:
+ * the widget shows the work still in hand, and `read` and the close name what a completed todo left unproved.
  */
 export function unitWidgetLines(rows: UnitRow[]): string[] {
 	const groups = new Map<string, string[]>();
-	for (const row of rows) groups.set(widgetState(row), [...(groups.get(widgetState(row)) ?? []), row.unit.label]);
+	for (const row of rows.filter((item) => item.unit.open)) groups.set(widgetState(row), [...(groups.get(widgetState(row)) ?? []), row.unit.label]);
 	return [...groups].map(([state, labels]) => `${labels.slice(0, ROW_LABELS).join(", ")}${labels.length > ROW_LABELS ? ` +${labels.length - ROW_LABELS}` : ""} ${state}`);
 }

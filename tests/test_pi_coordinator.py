@@ -881,7 +881,7 @@ class TestUnits(CoordinatorCase):
         self.start()
         self.child_edit("k1", "w1")
         lines = self.lines()
-        self.assertIn("MP-4366 reviewed \u00b7 act \u2713 \u2192 verify (missing: a passing run of `pytest -q` after the last change)", lines)
+        self.assertIn("MP-4366 reviewed \u00b7 act \u2713 \u2192 verify (missing: a passing run of `pytest -q` after the last change, or `verify` with `task: 1`)", lines)
         self.assertIn("MP-4367 inline \u00b7 anchor \u2713 \u2192 act (missing: a change to the code)", lines)
 
     def test_the_widget_names_each_units_missing_step_briefly_and_read_keeps_the_full_note(self):
@@ -889,9 +889,9 @@ class TestUnits(CoordinatorCase):
         self.child_edit("k1", "w1")
         out = self.replay([{"event": "session_start", "payload": {}}], branch=self.branch())
         lines = [widget for widget in out["widgets"] if widget["key"] == "anchorloop"][-1]["lines"]
-        self.assertIn("MP-4366 reviewed \u00b7 act \u2713 \u2192 verify (missing: anchor run)", lines)
+        self.assertIn("MP-4366 reviewed \u00b7 act \u2713 \u2192 verify (missing: anchor run or verify)", lines)
         self.assertIn("MP-4367 inline \u00b7 anchor \u2713 \u2192 act (missing: a change to the code)", lines)
-        self.assertIn("MP-4366 reviewed \u00b7 act \u2713 \u2192 verify (missing: a passing run of `pytest -q` after the last change)", self.lines())
+        self.assertIn("MP-4366 reviewed \u00b7 act \u2713 \u2192 verify (missing: a passing run of `pytest -q` after the last change, or `verify` with `task: 1`)", self.lines())
 
     def test_a_units_own_kind_and_anchor_decide_its_next_phase(self):
         self.start()
@@ -906,7 +906,7 @@ class TestUnits(CoordinatorCase):
         self.start(one, two, links=(spawn("k2", "mp4367-hq-worker"),))
         self.child_edit("k2", "mp4367-hq-worker")
         lines = self.lines(tasks=(one, two))
-        self.assertIn("MP-4367 inline \u00b7 act \u2713 \u2192 verify (missing: a passing run of `make test` after the last change)", lines)
+        self.assertIn("MP-4367 inline \u00b7 act \u2713 \u2192 verify (missing: a passing run of `make test` after the last change, or `verify` with `task: 2`)", lines)
         self.assertIn("MP-4366 reviewed \u00b7 anchor \u2713 \u2192 act (missing: a change to the code)", lines)
 
     def test_a_ticket_id_two_open_todos_hold_binds_nothing_and_the_child_counts_for_every_unit(self):

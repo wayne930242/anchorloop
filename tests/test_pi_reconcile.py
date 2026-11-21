@@ -46,7 +46,7 @@ class TestTicketIds(ReconcileCase):
         self.replay([*self.creates(one, two), spawn("k1", "fix-mp-4366-guard")], branch=[todo_state(one, two)])
         self.child_edit("k1", "fix-mp-4366-guard")
         lines = self.read_text([], branch=[todo_state(one, two)]).splitlines()
-        self.assertIn("MP-4366 inline · act ✓ → verify (missing: a passing run of `pytest -q` after the last change)", lines)
+        self.assertIn("MP-4366 inline · act ✓ → verify (missing: a passing run of `pytest -q` after the last change, or `verify` with `task: 1`)", lines)
         self.assertIn("MP-4367 inline · anchor ✓ → act (missing: a change to the code)", lines)
 
 
@@ -189,6 +189,37 @@ class TestFrictionOnce(ReconcileCase):
         self.assertIn("unknown friction 7", out["results"][-1]["error"])
         recorded = [entry["data"] for entry in out["appended"] if entry["customType"] == "anchorloop-reflect"]
         self.assertEqual(recorded, [{"friction": ["1"], "class": "gap", "action": "rule added"}])
+
+
+class TestLiveWidget(ReconcileCase):
+    """The widget shows the work still in hand: a box main's book listed completed tickets as owing a verify (box friction F6, 2026-11-21)."""
+
+    ONE = {"subject": "MP-4366 export", "status": "in_progress", "metadata": {"anchor": "pytest -q", "kind": "inline", "agents": ["w1"]}}
+    TWO = {"subject": "MP-4367 view", "status": "in_progress", "metadata": {"anchor": "filtered view tests pass", "kind": "inline", "agents": ["w2"]}}
+
+    def start(self) -> None:
+        self.git_repo()
+        self.replay([*self.creates(self.ONE, self.TWO), spawn("k1", "w1"), spawn("k2", "w2")], branch=[todo_state(self.ONE, self.TWO)])
+        self.child_edit("k1", "w1")
+        self.child_edit("k2", "w2")
+
+    def test_a_completed_unit_leaves_the_widget_and_the_loop_line_follows_the_open_one(self):
+        self.start()
+        branch = [todo_state({**self.ONE, "status": "completed"}, self.TWO)]
+        rows = self.widget(branch)
+        self.assertFalse([row for row in rows if row.startswith("MP-4366")], rows)
+        self.assertIn("MP-4367 inline · act ✓ → verify (missing: anchor run or verify)", rows)
+        self.assertTrue(self.read_text([], branch=branch).startswith("inline · phase act ✓ → verify (missing: a passing run of `filtered view tests pass`"))
+        # Once no open unit owes anything, the loop line names what the completed one left unproved, as the close will.
+        lines = self.read_text([stage(stage="verify", note="view tests passed", task=2)], branch=branch).splitlines()
+        self.assertEqual(lines[0], "inline · phase act ✓ → verify (missing: a passing run of `pytest -q` after the last change, or `verify` with `task: 1`)")
+
+    def test_a_units_prose_anchor_is_closed_by_a_declared_verify_with_its_task(self):
+        self.start()
+        branch = [todo_state(self.ONE, self.TWO)]
+        self.assertIn("MP-4366, MP-4367 inline · act ✓ → verify (missing: anchor run or verify)", self.widget(branch))
+        lines = self.read_text([stage(stage="verify", note="filtered view tests passed in w2's worktree", task=2)], branch=branch).splitlines()
+        self.assertIn("MP-4367 inline · verify ✓ → close", lines)
 
 
 class TestReadSummary(ReconcileCase):

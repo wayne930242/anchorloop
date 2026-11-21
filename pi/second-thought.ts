@@ -6,10 +6,11 @@
  * the user. It runs when a run settles and the book gained an evidence entry (not a task, link, or watch record) since the last judgment, and at a
  * `close` declaration. The advisory is `next: <phase> (<missing>)` plus Jev's concerns, and is sent only when it
  * changes the agent's next action: Jev has a concern, todos are still open without a followup, or the run
- * continues. It continues the run once when Jev agrees to advance and the next phase is a verify, review, or
- * fix, or when todos are still open without a followup (unless Jev says to ask the user). Away from close the
- * advisory names up to three of those todos and asks the agent to continue, complete, or settle each with
- * `metadata.followup`. An advisory with the same next phase, assessment findings, and open todo ids, and Jev's move is sent once. At
+ * continues. It continues the run once when Jev agrees to advance and the next phase is a verify, review,
+ * fix, or close, or when todos are still open without a followup (unless Jev says to ask the user). Away from a
+ * `close` call the advisory names up to three of those todos and offers two ways on: carry on with them (the
+ * default), or wrap up by completing each or settling it with `metadata.followup`, then closing the loop and
+ * reporting; the agent asks the user when the choice is theirs. A loop at close with no such todo is told to wrap up. An advisory with the same next phase, assessment findings, and open todo ids, and Jev's move is sent once. At
  * close only concerns are sent. A run that arranged a wake (a monitor, a loop, a goal wait, or a subagent call whose child the book has
  * not linked yet) is waiting, not finished, and is not judged. A loop whose child has no result is quiet; in a loop of two or more units
  * the quiet is per unit: the notice judges, speaks, and continues for the first unit that waits on the coordinator (started, not done,
@@ -108,11 +109,17 @@ export function assess(verdict: Verdict, snap: Snapshot): { found: string[] } {
 	return { found };
 }
 
-/** True when Jev agrees to advance and the next phase is one the agent can act on now, or open todos wait and the user is not needed. */
-export function continues(verdict: Verdict, snap: Snapshot): boolean {
+/**
+ * True when Jev agrees to advance and the next phase is one the agent can act on now, or open todos wait and the user is not needed.
+ * A loop at close with nothing open and no concern continues too: wrapping up (the close and the report) is the agent's to do.
+ */
+export function continues(verdict: Verdict, snap: Snapshot, found: string[] = []): boolean {
 	if (snap.unsettled.length && verdict.move !== "ask-user") return true;
-	return verdict.move === "advance" && ACTIONABLE.has(snap.next);
+	return verdict.move === "advance" && (ACTIONABLE.has(snap.next) || wrapsUp(verdict, snap, found));
 }
+
+/** True when the loop is at close with no open todo and Jev agrees with nothing to add: what is left is the close and the report. */
+const wrapsUp = (verdict: Verdict, snap: Snapshot, found: string[]): boolean => snap.next === "close" && snap.unsettled.length === 0 && concerns(verdict, found).length === 0;
 
 /** What Jev's move adds to the program's reading when it is not "advance". */
 const MOVE_CONCERN: Record<Move, string | undefined> = { advance: undefined, back: "earlier evidence does not hold", "ask-user": "needs the user's decision" };
@@ -123,12 +130,18 @@ export function concerns(verdict: Verdict, found: string[]): string[] {
 	return move ? [move, ...found] : found;
 }
 
-/** The open todos the agent must answer, or the call to put them to the user. */
+const WRAP_UP = "`anchorloop_stage close` with a verdict, then report to the user";
+
+/**
+ * The open todos the agent must answer, as two ways on: carry on with them, which is the default, or wrap up; the agent asks the user
+ * when the choice is theirs, and is told to ask when Jev says the user is needed.
+ */
 function todoCall(verdict: Verdict, snap: Snapshot): string {
 	const list = `open: ${listTodos(snap.unsettled)}`;
+	const wrap = `wrap up: complete each or set metadata.followup (a ticket id, \`memory\`, or \`drop — <reason>\`), then ${WRAP_UP}`;
 	return verdict.move === "ask-user"
-		? `${list} — ask the user about them before ending the turn`
-		: `${list} — continue each, complete it, or set metadata.followup (a ticket id, \`memory\`, or \`drop — <reason>\`)`;
+		? `${list} — ask the user whether to carry on with them or wrap up before ending the turn`
+		: `${list} — carry on with them; or ${wrap}; when which one is the user's call, ask the user`;
 }
 
 /** The advisory: the program's next phase and its gap, Jev's concerns, and, away from close, the open todos. Empty at close without concerns. */
@@ -139,7 +152,7 @@ export function message(verdict: Verdict, snap: Snapshot, found: string[], atClo
 		`next: ${snap.unit ? `${snap.unit.label} ` : ""}${snap.next}${snap.missing ? ` (${snap.missing})` : ""}`,
 		...others.map((line) => `next: ${line}`),
 		...(list.length ? [`concerns: ${list.join("; ")}`] : []),
-		...(snap.unsettled.length ? [todoCall(verdict, snap)] : []),
+		...(snap.unsettled.length ? [todoCall(verdict, snap)] : wrapsUp(verdict, snap, found) ? [`wrap up: ${WRAP_UP}`] : []),
 	].join("\n");
 }
 
@@ -252,8 +265,8 @@ export default function (pi: ExtensionAPI) {
 		if (!judgment.verdict) return { entries: [...earlier, record({ verdict: "unknown", reason: judgment.reason })] };
 		const { found } = assess(judgment.verdict, snap);
 		const verdictEntry = record({ ...judgment.verdict, concerns: found, ...(snap.unit ? { unit: snap.unit.label } : {}) });
-		const proceed = !continued && continues(judgment.verdict, snap);
-		// Jev agrees and nothing needs the agent: the verdict is recorded and nothing is said.
+		const proceed = !continued && continues(judgment.verdict, snap, found);
+		// Jev agrees and nothing needs the agent: the verdict is recorded and nothing is said. A loop at close needs its wrap-up, so `proceed` speaks.
 		const speaks = proceed || snap.unsettled.length > 0 || concerns(judgment.verdict, found).length > 0;
 		const key = adviceKey(judgment.verdict, snap, found);
 		if (!speaks || sent.told === key) return { entries: [...earlier, verdictEntry] };

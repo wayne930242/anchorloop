@@ -36,7 +36,7 @@ class TestReusedTodoIds(HandoffCase):
         self.assertIn("#1 in_progress MP-7001 a — make a (exit 0)", lines, "the old todo's own run was not recorded")
 
     def assert_new_units_have_no_run(self, lines: list[str]) -> None:
-        self.assertIn("MP-9001 inline · act ✓ → verify (missing: a passing run of `make c` after the last change)", lines,
+        self.assertIn("MP-9001 inline · act ✓ → verify (missing: a passing run of `make c` after the last change, or `verify` with `task: 1`)", lines,
                       "the new todo #1 took the old todo #1's run as its verify")
         self.assertIn("#1 in_progress MP-9001 c — make c", lines, "the new todo #1's line shows the old todo #1's exit")
 

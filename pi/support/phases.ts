@@ -345,7 +345,9 @@ function evaluate(name: string, ctx: Ctx): Status {
 			if (index < 0) {
 				const command = anchorCommand(entries);
 				if (!command) return missing(name, "a verify declaration or a run of the anchor");
-				return missing(name, anchorIsCommand(entries) ? `a passing run of \`${command}\` after the last change` : "evidence for the anchor after the last change: a run of its command, or `verify` naming what you observed");
+				// A unit's anchor is its todo's text, which may be prose no run matches: the unit names the declaration that also closes it.
+				const declare = ctx.unit !== undefined ? `, or ${UNIT_VERIFY} ${ctx.unit}\`` : "";
+				return missing(name, anchorIsCommand(entries) ? `a passing run of \`${command}\` after the last change${declare}` : "evidence for the anchor after the last change: a run of its command, or `verify` naming what you observed");
 			}
 			const entry = entries[index];
 			if (entry.declared === true && entry.result === "fail") return missing(name, "the declared verify failed");
@@ -374,6 +376,9 @@ function evaluate(name: string, ctx: Ctx): Status {
 			return missing(name, name);
 	}
 }
+
+/** How a unit's missing verify names the declaration that closes it: `verify` with the unit's todo id. */
+export const UNIT_VERIFY = "`verify` with `task:";
 
 /** The words a unit's anchor phase opens with when its todo carries no anchor of its own. */
 export const OWN_ANCHOR = "own anchor";

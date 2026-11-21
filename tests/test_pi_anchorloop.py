@@ -260,8 +260,9 @@ class TestSecondThought(ExtensionCase):
         out = self.replay([*self.loop(), link, back, SETTLE], classify=answers())
         self.assertIn("worker-1#1: old cmd → renamed [unreflected]", out["classifyCalls"][0]["friction"])
 
-    def test_jev_agreeing_with_no_concerns_and_no_open_todos_says_nothing_but_the_verdict_is_recorded(self):
-        out = self.settle_after(answers(), edit_result(), bash_result("pytest -q", 0, "3 passed"))
+    def test_jev_agreeing_with_no_concerns_away_from_close_says_nothing_but_the_verdict_is_recorded(self):
+        # Before any change the next phase is act, which only the work itself supplies.
+        out = self.settle_after(answers())
         result = out["results"][-1]
         self.assertIsNone(self.advice(result))
         self.assertEqual([entry["type"] for entry in result["entries"]], ["custom"])
@@ -295,7 +296,9 @@ class TestSecondThought(ExtensionCase):
     def test_open_todos_are_listed_in_the_advisory_with_the_call_to_settle_each(self):
         out = self.settle_after(answers(), self.open_todos({"subject": "port the cache", "status": "pending"}, {"subject": "done", "status": "completed"}),
                                 bash_result("pytest -q", 0, "ok"))
-        self.assertEqual(self.content(out), "next: act (a change to the code)\nopen: #1 port the cache — continue each, complete it, or set metadata.followup (a ticket id, `memory`, or `drop — <reason>`)")
+        self.assertEqual(self.content(out), "next: act (a change to the code)\nopen: #1 port the cache — carry on with them; or wrap up: complete each or set metadata.followup "
+                         "(a ticket id, `memory`, or `drop — <reason>`), then `anchorloop_stage close` with a verdict, then report to the user; "
+                         "when which one is the user's call, ask the user")
         self.assertEqual(out["classifyCalls"][0]["todos"], "1 open of 2: #1 port the cache")
 
     def test_the_todo_list_is_bounded(self):
@@ -323,9 +326,9 @@ class TestSecondThought(ExtensionCase):
         out = self.settle_after(answers("ask-user"), self.open_todos({"subject": "port the cache", "status": "pending"}))
         self.assertNotIn("continue", out["results"][-1])
         text = self.content(out)
-        self.assertIn("open: #1 port the cache — ask the user about them before ending the turn", text)
+        self.assertIn("open: #1 port the cache — ask the user whether to carry on with them or wrap up before ending the turn", text)
         self.assertIn("concerns: needs the user's decision", text)
-        self.assertNotIn("continue each", text)
+        self.assertNotIn("carry on with them;", text)
 
     def test_a_todo_with_a_valid_followup_is_no_longer_called_out(self):
         out = self.settle_after(answers(), self.open_todos({"subject": "later", "status": "pending", "metadata": {"followup": "MP-12"}}))
@@ -333,9 +336,17 @@ class TestSecondThought(ExtensionCase):
         self.assertNotIn("continue", out["results"][-1])
         self.assertEqual(out["classifyCalls"][0]["todos"], "1 open of 1 (1 with a followup)")
 
-    def test_without_open_todos_a_finished_loop_hears_nothing(self):
-        out = self.settle_after(answers(), self.open_todos({"subject": "done", "status": "completed"}), edit_result(), bash_result("pytest -q", 0, "3 passed"))
-        self.assertIsNone(self.advice(out["results"][-1]))
+    def test_without_open_todos_a_finished_loop_is_told_to_wrap_up_once(self):
+        done = self.open_todos({"subject": "done", "status": "completed"})
+        out = self.replay([*self.loop(), done, edit_result(), bash_result("pytest -q", 0, "3 passed"), SETTLE, SETTLED, SETTLE], classify=answers())
+        self.assertEqual(self.advice(out["results"][-3]), "next: close\nwrap up: `anchorloop_stage close` with a verdict, then report to the user")
+        self.assertTrue(out["results"][-3]["continue"])
+        # A turn that ends again with no new evidence is not judged again.
+        self.assertIsNone(out["results"][-1])
+
+    def test_a_finished_loop_with_a_concern_is_not_told_to_wrap_up(self):
+        out = self.settle_after(answers("advance", done=0.05), edit_result(), bash_result("pytest -q", 0, "3 passed"))
+        self.assertNotIn("wrap up", self.content(out))
         self.assertNotIn("continue", out["results"][-1])
 
     def test_an_unchanged_advisory_is_not_repeated_when_todos_change_around_it_but_a_new_open_todo_speaks_again(self):
@@ -386,8 +397,7 @@ class TestSecondThought(ExtensionCase):
         self.assertTrue(missing["results"][-1]["continue"])
         self.assertTrue(self.content(missing).startswith("next: review ("))
         reviewed = self.settle_after(answers(), *steps, reviewer("Blocking: P0=0 P1=0"), kind="reviewed")
-        self.assertNotIn("continue", reviewed["results"][-1])
-        self.assertIsNone(self.advice(reviewed["results"][-1]))
+        self.assertEqual(self.content(reviewed), "next: close\nwrap up: `anchorloop_stage close` with a verdict, then report to the user")
 
     def test_a_blocking_review_makes_fix_the_next_phase_until_the_code_changes(self):
         out = self.settle_after(answers(), edit_result(), bash_result("pytest -q", 0, "ok"), reviewer("Blocking: P0=0 P1=1"), kind="reviewed")
@@ -461,8 +471,7 @@ class TestSecondThought(ExtensionCase):
     def test_a_full_rating_is_noted_without_a_recheck_after_a_clean_review_that_follows_the_last_change(self):
         out = self.settle_after(answers(review="full"), edit_result(), bash_result("pytest -q", 0, "ok"), reviewer("**Blocking:** P0=0 P1=0"), kind="reviewed")
         result = out["results"][-1]
-        self.assertNotIn("continue", result)
-        self.assertIsNone(self.advice(result))
+        self.assertEqual(self.advice(result), "next: close\nwrap up: `anchorloop_stage close` with a verdict, then report to the user")
         self.assertEqual(result["entries"][0]["data"]["concerns"], [])
 
     def test_a_full_rating_is_a_concern_when_no_clean_review_follows_the_last_change(self):
@@ -472,7 +481,7 @@ class TestSecondThought(ExtensionCase):
     def test_a_retry_pair_is_reflected_as_resolved_without_a_call(self):
         out = self.settle_after(answers(), edit_result(), bash_result("pytest -q", 0, "ok"), bash_result("pytest -q", 1, "bad"), bash_result("pytest -q", 0, "ok"))
         # The rerun's friction is auto-recorded and reflected as resolved, so the loop is ready to close.
-        self.assertIsNone(self.advice(out["results"][-1]))
+        self.assertEqual(self.advice(out["results"][-1]), "next: close\nwrap up: `anchorloop_stage close` with a verdict, then report to the user")
         self.assertEqual(out["classifyCalls"][0]["friction"].splitlines()[0], "1 recorded, 1 reflected")
 
     def test_low_completion_done_and_quality_are_listed_as_concerns(self):

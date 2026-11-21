@@ -224,7 +224,8 @@ link 會記下子代理的 session 檔、cwd、worktree 與它的成果要併入
 
 帶有 `observe`、`kind`、`lands` 或 `agents` metadata 的 todo 是一個 unit。
 只有 `anchor` 時是該任務自己的檢查，不構成 unit。
-兩個以上 unit 時，`read` 與 Jev 的任務清單各給每個 unit 一行階段；widget 裡狀態相同的 unit 共用一行。
+兩個以上 unit 時，`read` 與 Jev 的任務清單各給每個 unit 一行階段；widget 只列未完成 todo 的 unit，狀態相同的 unit 共用一行。
+unit 缺 verify 時會寫出兩種補法：通過一次它的 anchor，或帶它 `task` 的 `verify`，後者也能結掉沒有執行對得上的散文 anchor。
 
 子代理以 `agents` 綁定 unit，沒有的話，在恰有一個未完成 todo 含有它的名稱或 brief 裡的票號時綁定。
 todo 標題只有格式為大寫字母、連字號、不以 0 開頭的數字的票號才算，須獨立出現或後面接連字號，例如 `MP-4366` 或 `MP-4366-followup`；小寫、主機名稱或帶日期的名稱，例如 `mp-4366`、`agent-tower-01` 或 `release-1117`，不算，而子代理名稱可以寫成 `mp4366-hq`。
@@ -354,14 +355,14 @@ Jev 看到種類、intent、anchor、diff 摘要（≤1200 字元）、`phase`�
 
 提醒是 `next: <phase> (<missing>)` 加上 Jev 的疑慮，不附分數。
 只在 Jev 有疑慮、有 todo 未完成而沒有 followup、或這次會讓 agent 多跑一輪時才送出。
-Jev 同意且沒有補充時保持安靜，判斷結果仍記在 session 裡。
-結案時只附疑慮。
+到 close 之前，Jev 同意且沒有補充時保持安靜，判斷結果仍記在 session 裡。
+`close` 呼叫的結果只附疑慮。
 
-離開 close 時，提醒也會點名 loop 中還沒有有效 `metadata.followup` 的未完成 todo：前三個，標題截成 60 字元，其餘以 `+N more` 帶過。
-請 agent 逐一繼續、完成，或設定該 followup。
+不是 `close` 呼叫時，提醒也會點名 loop 中還沒有有效 `metadata.followup` 的未完成 todo：前三個，標題截成 60 字元，其餘以 `+N more` 帶過。
+並給兩條路：繼續做這些 todo（預設），或收工：逐一完成或設定該 followup，然後 `anchorloop_stage close` 並回報；該由使用者決定時，agent 去問使用者。
 
-Jev 同意前進、而下一個階段是 verify、review 或 fix，或有這類 todo 未完成且 Jev 的判斷不是 `ask-user` 時，才讓 agent 多跑一輪。
-在最後這種情況，提醒改請 agent 去問使用者。
+Jev 同意前進、而下一個階段是 verify、review 或 fix，或是沒有這類 todo 也沒有疑慮的 close，或有這類 todo 未完成且 Jev 的判斷不是 `ask-user` 時，才讓 agent 多跑一輪。
+到 close、沒有這類 todo 也沒有疑慮的 loop 會被提醒收工；判斷是 `ask-user` 時，提醒改請 agent 問使用者要繼續還是收工。
 
 Jev 的判斷、下一個階段、評估發現和未完成 todo 的 id 都與上一則相同的提醒不重複。
 Jev 的判斷也在比對鍵裡，所以在新證據上轉成 `back` 或 `ask-user` 時，即使其餘相同也會送出提醒。

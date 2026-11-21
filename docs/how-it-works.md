@@ -224,7 +224,8 @@ A child opens its own book from its first edit, commit, or run of its parent's a
 
 A todo with `observe`, `kind`, `lands`, or `agents` metadata is a unit.
 An `anchor` alone is the task's own check and makes none.
-Two or more units get one phase line each in `read` and Jev's task list; in the widget, units in the same state share one line.
+Two or more units get one phase line each in `read` and Jev's task list; the widget lists only open todos' units, and units in the same state share one line.
+A unit's missing verify names both ways to supply it: a passing run of its anchor, or `verify` with its `task`, which also closes a prose anchor no run matches.
 
 A child binds to a unit by `agents`, else by the ticket id in its name or brief when exactly one open todo holds it.
 A todo subject names a ticket only by an uppercase key standing alone or followed by a hyphen, with a number that does not start with 0, such as `MP-4366` or `MP-4366-followup`; a lowercase, host, or dated name such as `mp-4366`, `agent-tower-01`, or `release-1117` names none, while a child's name may write the key as `mp4366-hq`.
@@ -354,14 +355,14 @@ A child's result counts as evidence; task, link, base, and watch records do not.
 
 The advisory is `next: <phase> (<missing>)` plus Jev's concerns, with no scores.
 It is sent only when Jev has a concern, todos are open without a followup, or the run continues.
-It stays silent when Jev agrees with nothing to add, and the verdict is still recorded in the session.
-At close it carries concerns only.
+It stays silent when Jev agrees with nothing to add before close, and the verdict is still recorded in the session.
+The result of a `close` call carries concerns only.
 
-Away from close it also names the loop's open todos that have no valid `metadata.followup`: the first three, subjects cut to 60 characters, then `+N more`.
-It asks the agent to continue each, complete it, or set that followup.
+Away from a `close` call it also names the loop's open todos that have no valid `metadata.followup`: the first three, subjects cut to 60 characters, then `+N more`.
+It offers two ways on: carry on with them, the default, or wrap up by completing each or setting that followup, then `anchorloop_stage close` and a report; the agent asks the user when the choice is theirs.
 
-The run continues once, when Jev agrees to advance and the next phase is a verify, review, or fix, or when such todos are open and Jev's move is not `ask-user`.
-In that last case the advisory tells the agent to ask the user instead.
+The run continues once, when Jev agrees to advance and the next phase is a verify, review, or fix, or close with no such todo and no concern, or when such todos are open and Jev's move is not `ask-user`.
+A loop at close with no such todo and no concern is told to wrap up; with `ask-user`, the advisory tells the agent to ask the user whether to carry on or wrap up.
 
 An advisory with the same Jev move, next phase, assessment findings, and open todo ids as the last one is not repeated.
 Jev's move is part of that key, so a turn to `back` or `ask-user` on new evidence is advised even when the rest repeats.
