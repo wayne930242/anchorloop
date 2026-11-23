@@ -4,47 +4,45 @@ description: "How the chain of command of pi-straw-boss and the loops of anchorl
 ---
 
 [pi-straw-boss](https://wayne930242.github.io/pi-straw-boss/docs/) decides who works and where: a main agent per tab, a tower per workspace, a head tower for you, and an integrator and train sessions for merges.
-anchorloop decides what counts as done inside each of those sessions: the loop's kind, its anchor, its verify, the review gate, the book, and the notice.
+anchorloop decides what counts as done inside each of those sessions: the anchor, its passing run after the last change, and the review rule.
 anchorloop works without pi-straw-boss, and pi-straw-boss's merge train needs the `integrating` and `deploying` skills; together, a ticket goes from a plan to a landed change with evidence at every step.
 
 This page covers only the seams between them; each project's own pages explain the rest.
 
 ## Who does what
 
-<!-- Sources: ~/projects/pi-straw-boss docs/how-it-works.md (positions, main kinds), prompts/main.md, prompts/integrator.md, prompts/train.md; anchorloop skills/integrating and pi/book.ts. -->
+<!-- Sources: ~/projects/pi-straw-boss docs/how-it-works.md (positions, main kinds), prompts/main.md, prompts/integrator.md, prompts/train.md; anchorloop skills/anchorloop and skills/integrating. -->
 
 | Session | pi-straw-boss gives it | anchorloop gives it |
 | --- | --- | --- |
-| Main agent (`coordinator`) | The tab's chain of command: plans, dispatches workers, asks the boss. | A loop book: the plan's todos become units, workers are linked, and their evidence rolls up. |
+| Main agent (`coordinator`) | The tab's chain of command: plans, dispatches workers, asks the boss. | The loop: each todo's `metadata.anchor` is its check, a worker's passing run is the coordinator's verify, and two or more workers bring a reviewer on another model family. |
 | Tower | Routes work between the mains of a workspace; forwards car slips. | Nothing it needs: it forwards, and the loops run in the sessions it routes to. |
 | Integrator (`integ <project>`) | Receives and places cars, and asks the tower to open trains. | The `integrating` skill's `receive-car` playbook. |
-| Train (`train <code>`) | A session of its own for one train. | The `integrating` and `deploying` skills' steps, and the loop book its first todo opens. |
+| Train (`train <code>`) | A session of its own for one train. | The `integrating` and `deploying` skills' steps. |
 
 <details>
 <summary>How the two fit</summary>
 
-A main's kind (`coordinator`, `integrator`, `standing`) is a pi-straw-boss notion; a loop's kind (`quick`, `inline`, `reviewed`, `durable`) is an anchorloop notion.
-They are independent: a `coordinator` main can run an `inline` loop for one ticket and a `durable` loop for the next.
+A main's kind (`coordinator`, `integrator`, `standing`) is a pi-straw-boss notion; anchorloop has no kinds, only the one loop rule every session runs.
 
-The two packages meet at three contracts: the todo list a plan writes, the merge-train contract that makes `integrating` and `deploying` the train's procedure, and the book id a handoff carries.
+The two packages meet at three points: the todo list a plan writes, the merge-train contract that makes `integrating` and `deploying` the train's procedure, and the resume note a handoff carries.
 
 </details>
 
 ## A coordinator's plan
 
-A plan is todos, and the book reads the same todos as units.
-The anchor a plan names for a task becomes the anchor its worker inherits, so the plan, the worker's check, and the coordinator's verify are one check.
+A plan is todos, and each todo's `metadata.anchor` names its check.
+The brief hands that check to the worker as its `Anchor:` line, so the plan, the worker's check, and the coordinator's verify are one check.
 
-<!-- Diagram: ~/projects/pi-straw-boss prompts/planning.md (graph, anchor, checkpoint metadata, blockedBy); anchorloop pi/support/units.ts (unitsOf, childAnchor, outDispatches), pi/book.ts (adopted verify), pi/second-thought.ts (per-unit quiet). -->
+<!-- Diagram: ~/projects/pi-straw-boss prompts/planning.md (graph, anchor, checkpoint metadata, blockedBy); anchorloop skills/anchorloop/SKILL.md (Review, Delegation), pi/close-guard.ts. -->
 
 ```mermaid
 flowchart TD
-  plan["Plan: one todo per task<br/>metadata graph, anchor, checkpoint"] --> unit["Unit<br/>todo that also carries<br/>observe, kind, lands, or agents"]
-  unit -->|"worker named in agents,<br/>or the ticket id in its name or brief"| worker["Worker<br/>linked through pi-herdr-agents"]
-  unit -->|"anchor inherited"| worker
-  worker -->|"passing run of that anchor"| verify["Unit verify<br/>adopted by the coordinator"]
-  unit -.->|"worker out"| quiet["Second thought stays quiet<br/>for that unit only"]
-  worker -->|"branch"| land["Reaches the lands ref:<br/>landing read from git,<br/>observe checkpoints next"]
+  plan["Plan: one todo per task<br/>metadata graph, anchor, checkpoint"] -->|"Anchor: line in the brief"| worker["Worker"]
+  worker -->|"passing run on the tree<br/>the coordinator holds"| verify["Coordinator's verify"]
+  worker -->|"two or more workers,<br/>or auth, migration, contract, security"| review["One fresh reviewer<br/>on another model family"]
+  review -->|"P0 or P1: narrow re-check"| worker
+  verify --> guard["Close guard reads the anchor<br/>from the todo or the Anchor: line"]
 ```
 
 <details>
@@ -53,20 +51,17 @@ flowchart TD
 pi-straw-boss's planning prompt has the coordinator write one todo per task with `subject`, `owner`, `description`, `blockedBy`, and `metadata` of `graph` (`single-loop`, `fan-out/fan-in`, or `orchestrator-worker`), `anchor`, and `checkpoint`.
 pi-straw-boss refuses a worker dispatch until a todo names a graph.
 
-anchorloop reads `metadata.anchor` as the task's own check; the first todo's anchor becomes the loop's anchor.
-A todo becomes a unit when it also carries `observe`, `kind`, `lands`, or `agents`; the planning prompt does not write those, so a coordinator that wants per-ticket phases adds them.
-Without them, a worker whose name or brief holds the ticket id of exactly one open todo is bound to that todo and makes it a unit.
-
-A unit's phases, its workers' trees, its quiet notice, and its landing follow [Subagents and units](/anchorloop/reference/how-it-works/subagents-and-units/) and [Landing](/anchorloop/reference/how-it-works/landing/).
+anchorloop reads `metadata.anchor` as the task's own check, and the close guard counts it like an `Anchor:` line.
+The coordinator reviews each worker's diff, not its report, and runs the check again only when its own change or an integration altered the tree the worker passed on.
 
 </details>
 
 ## A merge train, end to end
 
 pi-straw-boss moves the car and tells its coordinator what became of it; anchorloop supplies the procedure that decides it.
-The coordinator's loop counts the change as landed only when git shows it in the integration ref.
+The coordinator counts the change as landed only when git shows it in the integration ref.
 
-<!-- Diagram: ~/projects/pi-straw-boss site guide/merge-train.md and prompts/main.md, integrator.md, train.md; anchorloop skills/integrating (receive-car, train), skills/deploying, pi/support/landing.ts. -->
+<!-- Diagram: ~/projects/pi-straw-boss site guide/merge-train.md and prompts/main.md, integrator.md, train.md; anchorloop skills/integrating (receive-car, train), skills/deploying. -->
 
 ```mermaid
 sequenceDiagram
@@ -85,7 +80,7 @@ sequenceDiagram
   R->>R: Train assembly, review, Full gates, Merge, Post-merge, then deploying
   R-->>C: sb notice: landed or dropped
   R->>G: merge moves the integration ref
-  C->>G: the book reads the landing from git
+  C->>G: the coordinator reads the landing from git
 ```
 
 <details>
@@ -95,7 +90,7 @@ sequenceDiagram
 - The tower forwards the slip to the project's one integrator, opening it when none runs.
 - The integrator checks every claim at receipt (`train check`, and `auth` covering every `strict` target) and sets each car's fate with `train_car`; the sb server sends the notice.
 - The train runs `integrating`'s `Train assembly`, review, `Full gates`, `Merge`, and `Post-merge`, then `deploying` where the stages say so. It never waits on a person.
-- A car's notice is one of received, returned, dropped, or landed. The coordinator may record the landed one with `anchorloop_stage landed`, and git checks it the same way it reads any landing: by ancestry, equal patch ids, or equal content.
+- A car's notice is one of received, returned, dropped, or landed. The coordinator confirms a landed one in git (`git merge-base --is-ancestor`, or equal patch ids) before closing its ticket.
 
 </details>
 
@@ -125,15 +120,12 @@ pi-anchorloop implements version 1 since 2.11.0, and pi-straw-boss accepts pi-an
 
 ## Rotating a long-lived session
 
-A main that runs for days hands over its loop by id, so the next session starts with what the loop proved; each unit earns its reviews and landings again.
+A main that runs for days hands over through a resume note, so the next session starts from the anchor and what the run already proved.
 
 <details>
 <summary>The handoff</summary>
 
-The `pause` playbook writes a resume note that holds the open loop book's id, the `book:` line of `anchorloop_stage read`.
-The new session passes that id as `resume` on its first `anchorloop_stage kind`, before any todo, as the `pickup` playbook says.
-The book moves to the new session, and the old one is told on its next call.
-
-[Handoff](/anchorloop/reference/how-it-works/handoff/) draws the exchange and lists the refusals.
+The `pause` playbook commits a `wip:` and writes `scratch/resume-<task-slug>.md`: intent, the anchor, each unit's status, the next action, and gotchas.
+The new session follows the `pickup` playbook: it restates the anchor, redoes nothing the note shows finished, and verifies inherited claims on the real artifact before reporting done.
 
 </details>

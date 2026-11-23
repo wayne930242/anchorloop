@@ -5,7 +5,7 @@ description: Use when a person must see and approve how something looks before i
 
 # Visual Designing
 
-Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md). The anchor is the person's verdict on rendered frames: state it as the `anchor` of the `kind` call before drawing, and record it with `anchorloop_stage verify`, `pass` once every frame is accepted and `fail` with the comments otherwise; it stays `unknown` until they answer. Frames live outside the repository, so record `skip` for phase `act` with that reason.
+Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md). The anchor is the person's verdict on rendered frames, stated as the `Anchor:` line before drawing: `pass` once every frame is accepted, `fail` with the comments otherwise, and `unknown` until they answer.
 
 Draw every frame as a hand-written SVG file. SVG is text: a frame costs a few kilobytes to write, a revision is an `edit` to the lines that change, and the same file serves as the build reference later. HTML and CSS pull in layout code nobody asked to approve, and generated raster images cannot be revised in place. Motion is animated SVG too ([motion](playbooks/motion.md)); only gesture feel or performance on a real device needs the `coding` prototype playbook.
 

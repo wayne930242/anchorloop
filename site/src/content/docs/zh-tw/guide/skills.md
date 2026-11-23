@@ -9,7 +9,7 @@ description: skill 樹、每個入口 skill 的 anchor 與 playbook，以及它�
 ## Skill 樹
 
 ```text
-anchorloop            核心循環 · 原則 · playbook：autonomous-run、pause、pickup
+anchorloop            循環卡 · playbook：autonomous-run、pause、pickup
 ├─ answering        explain · compare
 ├─ investigating    research · diagnose
 ├─ inspecting       diff-review · qa-release
@@ -24,7 +24,7 @@ anchorloop            核心循環 · 原則 · playbook：autonomous-run、paus
 
 這棵樹列出有哪些入口 skill，以及各自擁有的 playbook。入口 skill 也會在固定的地方互相呼叫，或呼叫共用 skill：
 
-<!-- 圖：coding/MINI-SDD.md、writing/playbooks/draft.md、grilling/SKILL.md、visual-designing/SKILL.md、human-feedback/SKILL.md、anchorloop/SKILL.md 與 integrating/playbooks/train.md 裡找得到的相互引用。 -->
+<!-- 圖：coding/SKILL.md、writing/playbooks/draft.md、grilling/SKILL.md、visual-designing/SKILL.md、human-feedback/SKILL.md、anchorloop/SKILL.md 與 integrating/playbooks/train.md 裡找得到的相互引用。 -->
 
 ```mermaid
 flowchart LR
@@ -33,7 +33,7 @@ flowchart LR
   loop -.->|"brief"| terse["agent-terse"]
   integrating -->|"deploy 階段"| deploying
   integrating -.->|"列車 review"| inspecting
-  coding -.->|"durable：decide"| grilling
+  coding -.->|"先寫 spec：decide"| grilling
   writing -.->|"draft"| grilling
   grilling -.-> domain["domain-modeling"]
   visual["visual-designing"] -.->|"複查頁"| feedback["human-feedback"]
@@ -58,11 +58,10 @@ flowchart LR
 | `solid-loop` | 驗證器乾淨，且每個編輯過的段落都通過 no-op 測試。 | `apply-friction`、`author-skill`、`bootstrap` |
 
 <details>
-<summary>`coding`：先分類，durable 工作用 Mini SDD</summary>
+<summary>`coding`：要審查的改動先寫前提，要先寫 spec 時用 Mini SDD</summary>
 
-第一筆 production 修改前，`coding` 依改動影響的範圍分類：Inline、Reviewed 或 Durable。
-Reviewed 的工作依 `references/reviewed.md` 處理前提與獨立 review。
-Durable 的工作依 `MINI-SDD.md`：一個 `docs/specs/<日期>-<slug>/` 資料夾，放 `decision.md`、`spec.md`、`design.md` 與 `verification.md`，spec 要等使用者核准才能做任何 production 修改。
+循環要送審的改動，在第一次編輯前寫下三到五條前提，由 reviewer 逐條拿程式碼驗證。
+使用者要 spec，或使用者自己決定的取捨卡住設計時，`coding` 依 `MINI-SDD.md`：一個 `docs/specs/<日期>-<slug>/` 資料夾，放 `decision.md`、`spec.md`、`design.md` 與 `verification.md`，spec 要等使用者核准才能做任何 production 修改。
 `state-model` playbook 把有多個參與者、重試、重啟或逾時的流程，當成 TLA+ 模型檢查，找到的 bug 路徑變成會失敗的測試。
 
 </details>
@@ -86,13 +85,10 @@ Durable 的工作依 `MINI-SDD.md`：一個 `docs/specs/<日期>-<slug>/` 資料
 - `human-feedback` 把人對成品的反應變成有證據的根因，也跑 UAT：由人複查 e2e 流程的擷圖。
 - `agent-terse` 處理只給 agent 讀的文字：任務 brief、回報、agent 之間的訊息。
 
-## 生命週期 playbook 與原則
+## 生命週期 playbook
 
 `anchorloop` 有三本包在入口 playbook 外面的生命週期 playbook：
 
 - `autonomous-run`：使用者離開，執行自己朝一個判準推進。
 - `pause`：明確的暫停、離線、重啟，或即將壓縮 context。
 - `pickup`：接手或繼續前一輪的工作。
-
-`PRINCIPLES.md` 列出 playbook 引用的具名原則，例如 Subtract before you add、Prove it works 與 Minimize tests。
-使用者也可以用同樣的名稱中途修正方向。

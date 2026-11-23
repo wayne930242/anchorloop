@@ -106,5 +106,5 @@ host 在 session 指令裡用一段 `## Seam bindings` 綁定它們，每個 sea
 ## 列車之後
 
 車廂沒有剩下的階段時，會通知它的協調者：「landed in `<version>`, your commit is `<sha>`」。
-協調者用 `anchorloop_stage landed` 記錄這則通知並關票。
+協調者收到這則通知後關票。
 佇列清空、也沒有階段在跑時，owner 升級為 `idle`，由 host 關閉它。

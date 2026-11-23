@@ -1,64 +1,33 @@
-# Durable phases and artifacts
+# Mini SDD
 
-The Durable threshold lives in [SKILL.md](SKILL.md).
+Artifacts live in `docs/specs/YYYY-MM-DD-<slug>/`, each created when its step is reached. Link to instructions, ADRs, code, and tickets rather than copying them.
 
-Artifacts live in `docs/specs/YYYY-MM-DD-<slug>/`. Create each file when its phase is reached, not up front. Link to instructions, ADRs, code, and tickets rather than copying them.
+1. **`decision.md`**: outcome and actors, scope in and out, concrete scenarios, and one row per consequential question. Invoke `grilling` with the file only when a row is `open`. Done when no open row blocks observable behavior.
 
-## Decision → `decision.md`
+   ```markdown
+   | Question | Answer | Basis | Status |
+   |---|---|---|---|
+   | ... | ... | request, evidence, or decision link | grounded, confirmed, or open |
+   ```
 
-Resolve facts from their source; use `investigating` or `inspecting` when search is wide. Invoke `grilling` with `decision.md` only when it has an `open` row. Before implementation, note core-rule readiness in `decision.md`.
+2. **`spec.md`**: observable behavior and edge cases, compatibility constraints and non-goals, evidence links, and the anchor. Have a fresh-context subagent read it, restate the contract, and list each point it would have to guess; fold each guess in or add it as an `open` row. Then ask the user. Only the user's approving reply sets the header to approved; production source stays untouched while it is `proposed`.
 
-The file holds outcome and actors; in and out of scope; concrete scenarios; confirmed decisions; open consequential decisions. Explore every consequential branch in:
+   ```markdown
+   Status: proposed | approved
+   Approved at: <date the user approved, empty while proposed>
+   Approved from: <the user reply that approved it, empty while proposed>
+   ```
 
-```markdown
-| Question | Answer | Basis | Status |
-|---|---|---|---|
-| ... | ... | request, evidence, or decision link | grounded, confirmed, or open |
-```
+3. **`design.md`**: the smallest approach that fits the approved spec, the interfaces and data flow it touches, precedent, and at least one rejected alternative. Done when implementation invents no product behavior.
+4. **`verification.md`**: one row per requirement of `spec.md`, then deviations from the spec and open gaps.
 
-`grounded` comes from the request, source facts, or existing decisions; `confirmed` comes from the user; `open` is a consequential user-owned decision.
+   ```markdown
+   | Requirement | Evidence | Result |
+   |---|---|---|
+   | Observable behavior from spec | Real interface executed and the output observed | pass / fail / unknown |
+   ```
 
-**Complete when:** no open row blocks observable behavior.
-
-## Spec → `spec.md`
-
-Persist the spec in `spec.md` under `Status: proposed`, then have a fresh-context subagent read it and its links, restate the contract, and list each point it would have to guess to build it. Fold each guess into the spec or add it to `decision.md` as an `open` row, because the author cannot see assumptions it never wrote; rerun the reader once when a fold changes observable behavior. Then present it for explicit user confirmation. `proposed` keeps production source untouched while artifacts and read-only work stay open. Only the user's approving reply sets `Status: approved`, `Approved at`, and `Approved from`.
-
-The file opens with the approval header, then observable behavior and edge cases; compatibility constraints and non-goals; applied standards with their impact; evidence and precedent links; the selected reality anchor and checkpoint.
-
-```markdown
-Status: proposed | approved
-Approved at: <date the user approved, empty while proposed>
-Approved from: <the user reply that approved it, empty while proposed>
-```
-
-## Design → `design.md`
-
-Choose the smallest approach that fits the approved spec and architecture. Follow the matching playbook's design steps ([feature](playbooks/feature.md) for interfaces and seams, [prototype](playbooks/prototype.md) when a named question is cheaper to settle by experiment) and the project's exact skill.
-
-The file holds the chosen approach; interfaces and data flow affected; existing precedent; decisions, trade-offs, and risks, with at least one rejected alternative or the reason none exists; the method selected inside the reality anchor.
-
-**Complete when:** implementation invents no product behavior or architecture.
-
-## Verify → `verification.md`
-
-Review the diff against project standards, the approved spec, and the confirmed domain model; dispatch a verification agent when the anchor needs an independent observer. Give every requirement in `spec.md` its own row:
-
-```markdown
-| Requirement | Evidence | Result |
-|---|---|---|
-| Observable behavior from spec | Real interface executed and the specific output observed | pass / fail / unknown |
-```
-
-- **pass**: The anchor ran against the actual implementation and observed the expected behavior.
-- **fail**: The anchor observed a deviation from the spec or an error.
-- **unknown**: No anchor exercised the requirement in this run.
-
-Then human appropriateness verdicts; deviations from the approved spec or design; unresolved verification gaps and their impact. When the loop book holds friction, include a Reflexive section listing each entry with its class (`misdirection`, `gap`, or `resolved`) and its action.
-
-## Updates
-
-Update the owning phase file when new information changes it. A new consequential decision returns to `decision.md`; a change to user intent or observable behavior returns to Spec and user confirmation.
+A new consequential decision returns to `decision.md`; a change to observable behavior returns to `spec.md` and the user.
 
 ---
 

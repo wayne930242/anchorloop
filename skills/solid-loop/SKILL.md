@@ -5,39 +5,36 @@ description: Use when creating, editing, or auditing agent skills and instructio
 
 # Solid Loop
 
-Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md). The anchor is the validator, clean: the project's own validator command where it has one (in the anchorloop repository, `uv run python hooks/validate_all.py .`), else no finding appended by the `validate-tool-use` extension to the last `write` or `edit` of each edited `SKILL.md`, instruction file, or rule file; every edited section passing the no-op test; and, when the change answers a recorded failure, a fresh-context rerun of that task in which the failure no longer occurs, or `rerun: n/a — <reason>` when no safe slice exists (see [author-skill](playbooks/author-skill.md)).
+Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md). The anchor is the validator, clean: the project's own validator command where it has one (in the anchorloop repository, `uv run python hooks/validate_all.py .`), else no finding appended by the `validate-tool-use` extension to the last `write` or `edit` of each edited skill, instruction, or rule file; every edited section passing the no-op test; and, when the change answers a recorded failure, a fresh-context rerun of that task in which the failure no longer occurs, or `rerun: n/a — <reason>` when no safe slice exists ([author-skill](playbooks/author-skill.md)).
 
 The root virtue is **predictability**: each instruction sends the next run straight to the work, with no detour and no unneeded read.
 
 ## Placement
 
-Put each fact where it stays true. One that holds for every task type goes to the `anchorloop` core; one that holds for one task type goes to its entry skill or playbook; one that holds for one project goes to that project's `AGENTS.md` or `CLAUDE.md`. A multi-step procedure no skill owns becomes a playbook, or a skill when no entry fits; propose one in the reply when you meet the same workflow a second time.
+Put each fact where it stays true: every task type, the `anchorloop` core; one task type, its entry skill or playbook; one project, that project's `AGENTS.md` or `CLAUDE.md`. A multi-step procedure no skill owns becomes a playbook, or a skill when no entry fits; propose one when you meet the same workflow a second time.
 
 ## Mechanism
 
-Enforce at the highest level that works, because nothing fails when an agent skips prose: architecture that removes the wrong path; a script for repeated deterministic work; a type, lint, or test; a tool-loop lever (pi extension hook, stream rule, validator) for a check the model demonstrably skips, with a message that names the fix. Prove the check fails on the recorded mistake. A check that existing code already violates fails only on additions; an exception sits on its line with a reason, an expiry, and the user's approval; the same command runs locally and in CI, because a rule that differs between them makes the rule table lie. Prose is for judgment calls. A `Found` fact the agent system already states in prose is a repeat: escalate it in the same change. List each enforced rule beside its enforcer in the owning instruction file's rule table, and drop the row once the mistake can no longer happen.
+Enforce at the highest level that works, because nothing fails when an agent skips prose: architecture that removes the wrong path; a script for repeated deterministic work; a type, lint, or test; a tool-loop lever (pi extension hook, validator) for a check the model demonstrably skips, with a message that names the fix. Prove the check fails on the recorded mistake. A check that existing code already violates fails only on additions; the same command runs locally and in CI. Prose is for judgment calls. A fact the agent system already states in prose that a run still missed is a repeat: escalate its enforcement in the same change.
 
 ## Hold the Size
 
-Pair each added sentence with a merge or deletion in the same file, so the file ends no longer than it began. When a fix exposes one fact stated in several places, keep one authoritative statement and replace the rest with a pointer or delete them. Run the no-op test on every section you edited and delete each sentence that fails. Keep each `SKILL.md` under 300 lines by moving reference into `references/` or a playbook.
+Pair each added sentence with a merge or deletion in the same file, so the file ends no longer than it began. One fact stated in several places keeps one authoritative statement; the rest become pointers or go. Keep each `SKILL.md` under 300 lines by moving reference into `references/` or a playbook.
 
 ## Craft Levers
 
-- **Information hierarchy**: Ordered actions are steps, co-located rules are reference, and templates or deep catalogs live behind explicit context pointers.
-- **Leading words**: Anchor behavior with compact pretrained concepts (*tight*, *red*, *tracer*, *reality anchor*) instead of spelled-out explanations.
-- **Description as hook**: Write the situation in the user's own words that should send them here, assertively, because models under-trigger.
-- **Completion criteria**: Make each criterion checkable, and demanding enough to drive thorough legwork.
-- **Explain why**: Put the consequence beside the rule, and reserve capitals and absolutes for the one rule that causes real damage, stated once.
-- **Name the shortcut**: Turn adjectives into self-test questions; an excuse → reality pair is written only beside an earned red line, from the excuse a run was observed to make.
-- **No-op test**: Evaluate each sentence in isolation and delete the ones that do not change behavior relative to the model's default.
-- **Single source of truth**: Give each operational contract one canonical home.
-- **Positive steering**: State the target behavior, because a prohibition names the unwanted pattern and makes it more likely; a prohibition or discipline skill keeps a negation only as an earned red line.
-- **Pin derived copies**: Record the upstream path and revision beside the credit of a skill, rule, or role derived from another source, and keep a check that fails when that upstream changes, so the derivation is redone instead of drifting.
-- **Earn the red line**: Admit a red line only when an observed failure backs it (a friction note's `Found` or a bare-run failure) and its reason or excuse → reality pair rides with it; delete the rest. The validator flags red-line inflation as an advisory.
+- **No-op test**: read each sentence alone and delete the ones that do not change behavior relative to the model's default.
+- **Information hierarchy**: ordered actions are steps, co-located rules are reference, templates and deep catalogs sit behind explicit pointers.
+- **Leading words**: anchor behavior with compact pretrained concepts (*tight*, *red*, *tracer*) instead of spelled-out explanations.
+- **Description as hook**: write the situation, in the user's own words, that should send a run here, assertively, because models under-trigger.
+- **Completion criteria**: make each checkable, and demanding enough to drive thorough legwork.
+- **Explain why**: put the consequence beside the rule; reserve capitals and absolutes for the one rule that causes real damage, stated once.
+- **Positive steering**: state the target behavior, because a prohibition names the unwanted pattern; keep a negation only as a red line an observed failure earned, with its reason beside it. The validator flags red-line inflation as an advisory.
+- **Pin derived copies**: record the upstream path and revision beside the credit of anything derived from another source.
 
 ## Playbooks
 
-- [apply-friction](playbooks/apply-friction.md): classified friction notes from a Reflexive pass.
+- [apply-friction](playbooks/apply-friction.md): friction notes from a run an instruction misled.
 - [author-skill](playbooks/author-skill.md): creating or editing a skill, playbook, or instruction file directly.
 - [bootstrap](playbooks/bootstrap.md): building or overhauling a project's agent system from investigation runs.
 

@@ -5,25 +5,21 @@ description: Use when changing source code or its tests, such as fixing a bug, a
 
 # Coding
 
-Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md) with one of the playbooks below. Return to Align when user intent or observable behavior changes.
-
-## Classify
-
-Before the first production edit, classify the change by which of the four review categories it touches, not by how settled the approach feels:
-
-- **Inline:** the change touches no shared contract, authorization or permission data, migration, or security. Its reach sizes the anchor, not the kind: a changed export anchors on its callers' tests, and a behavior users see (config keys, output, notices, command flags) on a check of that output. Name in the reply any behavior the requirement leaves open. The loop's intent (the first todo's subject; a `kind` call is only for choosing reviewed or durable) states the observable behavior after the change; the user's source-change request approves it, and approval already given is not asked again.
-- **Reviewed:** the change touches a shared contract, authorization or permission data, a migration, or security, without a decision the user owns. Before the first edit, follow [reviewed](references/reviewed.md) for its premises and review. It needs no spec and no further approval.
-- **Durable:** the work needs a persistent design record because of material ambiguity, a trade-off the user owns, cross-component coordination, migration risk, or a user-requested spec. Read [MINI-SDD.md](MINI-SDD.md) and create or resume its folder; work items stay in `todo`; Spec waits for the user's approval before any production edit.
-
-Re-classify when what the change touches changes: the user adds scope, an anchor run reports a reach that touches one of the four categories, or the change turns out smaller. Call `kind` with a `reason` naming the kind that now fits, or why the current one still fits. Verified work carries over; an upgrade adds only the new kind's phases, the premises and review for Reviewed, and for Durable the record from decide on, with the code so far as prototype evidence.
+Run the loop in [../anchorloop/SKILL.md](../anchorloop/SKILL.md) with one of the playbooks below. Return to the goal line when user intent or observable behavior changes, and name in the reply any behavior the requirement leaves open.
 
 ## Anchor
 
-Point the anchor at what the change touches: a one-line edit anchors on the tests that assert that file; a shared code path anchors on its callers' tests and the repository's tree-wide checks, such as lint, config sweeps, ratchets, and changelog checks. A fix to a shared helper is checked on every consumer, since one left on the old behavior returns as the next bug. Gate changes follow the anchorloop Anchor rule. After a green run, later rounds run only what covers the diff since it ([minimize tests](../anchorloop/principles/minimize-tests.md)).
+Point the anchor at what the change touches: a one-line edit anchors on the tests that assert that file; a shared code path or a changed export anchors on its callers' tests and the repository's tree-wide checks (lint, config sweeps, ratchets, changelog checks); a behavior users see (config keys, output, notices, flags) anchors on a check of that output. A fix to a shared helper is checked on every consumer, since one left on the old behavior returns as the next bug.
 
-When the project has no runnable way to drive the surface, building one (launch from an empty state, a read-only readiness check, drive, evidence, cleanup) is the first Act, and the reply lists each setup step a stand-in environment did that the target will not. When one change carries several fixes, give each fix a test case that only it turns green, and check that reverting that fix alone turns the case red: a case two fixes both satisfy stays green when either is reverted. For Inline work, a green anchor plus a read of your own diff completes Verify; report the contract with its observed output in one line.
+When the project has no runnable way to drive the surface, building one (launch from an empty state, drive, evidence, cleanup) is the first change, and the reply lists each setup step a stand-in environment did that the target will not. When one change carries several fixes, give each fix a test case only it turns green, and check that reverting that fix alone turns its case red.
 
-Reviewed work adds the independent review [reviewed](references/reviewed.md) describes. Durable work verifies into `verification.md` as MINI-SDD describes.
+## Review
+
+A change the loop sends to review (authorization or permission data, a migration, a shared contract, security) writes three to five premises before the first edit: where its results land, what names may contain, how paths are spelled, what a second run or a crash halfway leaves behind. Execute the load-bearing premise against the real code, and look for readers a symbol grep cannot see: JSON an API returns, a database column, a wire format, another language reading the same bytes, a feature flag. The reviewer's brief carries the premises and asks it to test each against the code, sweep each finding's class across the change, and report every issue it can prove in one pass. Repros run in a disposable worktree copy, never in the reviewed checkout.
+
+## Spec first
+
+When the user asks for a spec, or a user-owned trade-off, material ambiguity, or cross-component coordination blocks the design, follow [MINI-SDD.md](MINI-SDD.md) before any production edit.
 
 ## Playbooks
 
@@ -38,5 +34,4 @@ Reviewed work adds the independent review [reviewed](references/reviewed.md) des
 
 - [Benchmark checklist](references/benchmark-checklist.md): the measurement checks `perf` runs before reporting a number.
 - [Design red flags](references/design-red-flags.md): the shape screen `feature` runs on a new interface.
-- [Reviewed](references/reviewed.md): the premises and independent review a Reviewed change carries.
 - [State model checks](references/state-model-checks.md): the config sizing and `statechart` notes `state-model` reads.

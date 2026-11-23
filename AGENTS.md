@@ -7,10 +7,10 @@ This repository is the `pi-anchorloop` package: the workflow skills in `skills/`
 - All prompts, agent instructions, and code comments must be in English.
 - User communication must always be in Traditional Chinese (繁體中文).
 - Prompts, documentation, and guidelines state expected behavior directly, without defensive phrasing or prohibitive lists.
-- Work runs through an entry skill over the loop in `skills/anchorloop/SKILL.md`; `pi/anchor-gate.ts` warns when an edit runs before a Reality anchor is stated.
+- Work runs through an entry skill over the loop in `skills/anchorloop/SKILL.md`: an `Anchor:` line before the first edit, a passing run of it after the last change; `pi/close-guard.ts` adds one line when a run settles without that run.
 - Commit messages must not mention AI tools.
 
-- `pi/book.ts` adds no new recognition of anchor command forms until the 2026-11-18 review of how many real failures the book caught; unrecognized forms go through `anchorloop_stage verify`.
+- `pi/close-guard.ts` stays one short line that never starts a turn and registers no tool, at about 150 lines; a check that needs more belongs in a skill's anchor, not in the guard.
 
 ## Versioning & Release Directives
 

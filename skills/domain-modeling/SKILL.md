@@ -35,8 +35,8 @@ there is none.
   domain model by accident.
 - Use tactical DDD patterns only when they clarify real domain rules. Reserve
   entities, aggregates, value objects, and repositories for genuine domain concepts.
-- Return to Align when implementation reveals a domain
-  contradiction. Do not encode an unconfirmed model silently.
+- When implementation reveals a domain contradiction, bring it to the user
+  before encoding it.
 
 Create the glossary or ADR directory only when there is confirmed knowledge to
 record. Domain modeling is complete when language, boundaries, invariants,

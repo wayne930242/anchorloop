@@ -106,5 +106,5 @@ Settings keys are `base`, `stages` (`merge` first, then optionally `deploy`), `a
 ## After the train
 
 When a car has no stage left, its coordinator is told: "landed in `<version>`, your commit is `<sha>`".
-The coordinator records the notice with `anchorloop_stage landed` and closes its ticket.
+The coordinator closes its ticket on that notice.
 When the queue is empty and no stage runs, the owner escalates `idle` and the host closes it.

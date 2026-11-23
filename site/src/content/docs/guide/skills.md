@@ -9,7 +9,7 @@ Every main task type enters through its own skill, picks a playbook, and runs th
 ## The skill tree
 
 ```text
-anchorloop            core loop · principles · playbooks: autonomous-run, pause, pickup
+anchorloop            loop card · playbooks: autonomous-run, pause, pickup
 ├─ answering        explain · compare
 ├─ investigating    research · diagnose
 ├─ inspecting       diff-review · qa-release
@@ -24,7 +24,7 @@ shared              grilling · domain-modeling · human-feedback (uat) · agent
 
 The tree shows which entry skills exist and the playbooks each owns. Entry skills also call each other and the shared skills at fixed points:
 
-<!-- Diagram: the cross-references found in coding/MINI-SDD.md, writing/playbooks/draft.md, grilling/SKILL.md, visual-designing/SKILL.md, human-feedback/SKILL.md, anchorloop/SKILL.md, and integrating/playbooks/train.md. -->
+<!-- Diagram: the cross-references found in coding/SKILL.md, writing/playbooks/draft.md, grilling/SKILL.md, visual-designing/SKILL.md, human-feedback/SKILL.md, anchorloop/SKILL.md, and integrating/playbooks/train.md. -->
 
 ```mermaid
 flowchart LR
@@ -33,7 +33,7 @@ flowchart LR
   loop -.->|"briefs"| terse["agent-terse"]
   integrating -->|"deploy stage"| deploying
   integrating -.->|"train review"| inspecting
-  coding -.->|"durable: decide"| grilling
+  coding -.->|"spec first: decide"| grilling
   writing -.->|"draft"| grilling
   grilling -.-> domain["domain-modeling"]
   visual["visual-designing"] -.->|"review pages"| feedback["human-feedback"]
@@ -58,11 +58,10 @@ A playbook has an ownership line, numbered steps, and a `Reply:` line that sets 
 | `solid-loop` | The validator is clean and every edited section passes the no-op test. | `apply-friction`, `author-skill`, `bootstrap` |
 
 <details>
-<summary>`coding`: classify first, and Mini SDD for durable work</summary>
+<summary>`coding`: premises for reviewed changes, and Mini SDD when a spec comes first</summary>
 
-Before the first production edit, `coding` classifies the change by what it reaches: Inline, Reviewed, or Durable.
-Reviewed work follows `references/reviewed.md` for its premises and independent review.
-Durable work follows `MINI-SDD.md`: a `docs/specs/<date>-<slug>/` folder with `decision.md`, `spec.md`, `design.md`, and `verification.md`, where the spec waits for the user's approval before any production edit.
+A change the loop sends to review writes three to five premises before the first edit, and the reviewer tests each against the code.
+When the user asks for a spec, or a user-owned trade-off blocks the design, `coding` follows `MINI-SDD.md`: a `docs/specs/<date>-<slug>/` folder with `decision.md`, `spec.md`, `design.md`, and `verification.md`, where the spec waits for the user's approval before any production edit.
 The `state-model` playbook checks a flow with several actors, retries, restarts, or timeouts as a TLA+ model whose bug paths become red tests.
 
 </details>
@@ -86,13 +85,10 @@ Entry skills call these when a task needs them:
 - `human-feedback` turns a person's reaction to working output into an evidence-backed root cause, and runs UAT: a person checks the screenshots of an e2e flow.
 - `agent-terse` governs text only agents read: briefs, reports, and agent messages.
 
-## Lifecycle playbooks and principles
+## Lifecycle playbooks
 
 `anchorloop` carries three lifecycle playbooks that wrap an entry playbook:
 
 - `autonomous-run`: the user steps away and the run drives to a predicate without them.
 - `pause`: an explicit pause, going offline, a restart, or imminent compaction.
 - `pickup`: resuming or taking over a prior run's work.
-
-`PRINCIPLES.md` indexes the named principles playbooks cite, such as Subtract before you add, Prove it works, and Minimize tests.
-The user can steer a run with the same names.

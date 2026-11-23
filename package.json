@@ -1,7 +1,7 @@
 {
   "name": "pi-anchorloop",
-  "version": "2.18.1",
-  "description": "Agent workflow skills for pi: one entry skill per task type, each with playbooks, over a shared Align → Anchor → Act → Verify loop, plus loop extensions (loop book, anchor gate, decision trail tool, Jev second thought, skill validator, stream rules).",
+  "version": "3.0.0",
+  "description": "Agent workflow skills for pi: one entry skill per task type over a short anchor loop (state the check, change, show it passing), plus a close guard and a skill validator.",
   "author": "Wei Hung",
   "license": "MIT",
   "type": "module",
@@ -31,11 +31,7 @@
   "pi": {
     "extensions": [
       "./pi/validate-tool-use.ts",
-      "./pi/ttsr.ts",
-      "./pi/book.ts",
-      "./pi/anchor-gate.ts",
-      "./pi/decision-tool.ts",
-      "./pi/second-thought.ts"
+      "./pi/close-guard.ts"
     ],
     "skills": [
       "./skills"
