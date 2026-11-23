@@ -227,8 +227,11 @@ export default function (pi: ExtensionAPI) {
 			if (WAIT_TOOLS.has(event.toolName)) waiting = true;
 			if (SUBAGENT_TOOLS.has(event.toolName)) unlinked.add(event.toolCallId);
 			if (event.toolName !== "anchorloop_stage" || (event.input as { stage?: unknown }).stage !== "close") return;
-			const book = openLoop(ctx);
-			if (book && currentKind(book.entries) !== "quick") closing.set(event.toolCallId, await bookEvent(() => read(() => snapshot(book, ctx))));
+			const snap = await bookEvent(() => {
+				const book = openLoop(ctx);
+				return book && currentKind(book.entries) !== "quick" ? read(() => snapshot(book, ctx)) : undefined;
+			});
+			if (snap) closing.set(event.toolCallId, snap);
 		}),
 	);
 

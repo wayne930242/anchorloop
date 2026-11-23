@@ -896,26 +896,42 @@ const GIT_MAX_OUTPUT = 1024 * 1024;
 
 /**
  * Runs git in `cwd` off the event loop: its trimmed stdout, or undefined when git cannot start, exits non-zero, prints more than
- * 1 MiB, or outlives the timeout (it is then killed). Nothing here throws, so a git failure never fails the tool the book observes.
+ * 1 MiB, or outlives the timeout. Nothing here throws, so a git failure never fails the tool the book observes.
  */
 export function gitAsync(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string | undefined> {
 	return new Promise((done) => {
+		let settled = false;
+		let timer: NodeJS.Timeout | undefined;
+		const settle = (out: string | undefined) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			done(out);
+		};
 		let child: ChildProcess;
 		try {
-			child = spawn("git", ["-C", cwd, ...args], { stdio: ["ignore", "pipe", "ignore"], env: env ?? process.env, timeout: GIT_TIMEOUT_MS });
+			child = spawn("git", ["-C", cwd, ...args], { stdio: ["ignore", "pipe", "ignore"], env: env ?? process.env });
 		} catch {
-			done(undefined);
+			settle(undefined);
 			return;
 		}
+		// Giving up kills git and drops the pipe at once: a wrapper that does not exec git, or a process git left behind holding
+		// stdout, would otherwise hold the call, and the book lock with it, until that process exits.
+		const giveUp = () => {
+			child.kill("SIGKILL");
+			child.stdout?.destroy();
+			settle(undefined);
+		};
+		timer = setTimeout(giveUp, GIT_TIMEOUT_MS);
 		const chunks: Buffer[] = [];
 		let size = 0;
 		child.stdout?.on("data", (chunk: Buffer) => {
 			size += chunk.length;
-			if (size > GIT_MAX_OUTPUT) child.kill();
+			if (size > GIT_MAX_OUTPUT) giveUp();
 			else chunks.push(chunk);
 		});
-		child.on("error", () => done(undefined));
-		child.on("close", (code, signal) => done(code === 0 && signal === null && size <= GIT_MAX_OUTPUT ? Buffer.concat(chunks).toString("utf-8").trim() : undefined));
+		child.on("error", giveUp);
+		child.on("close", (code, signal) => settle(code === 0 && signal === null ? Buffer.concat(chunks).toString("utf-8").trim() : undefined));
 	});
 }
 
@@ -928,25 +944,64 @@ type Reading = { answers: Map<string, string | undefined>; wanted: Map<string, (
 /** Thrown by a `read` pass at the first git answer or tree it lacks; `read` fetches what was asked and runs the pass again. */
 const SUSPEND = Symbol("anchorloop.suspend");
 
+/** One git call: the directory it runs in and its arguments. */
+export type GitCall = readonly [cwd: string, args: string[]];
+
+function currentReading(): Reading {
+	const reading = scopes.getStore()?.reading;
+	if (!reading) throw new Error("git is read only inside `read`, which waits for git off the event loop");
+	return reading;
+}
+
+const gitKey = ([cwd, args]: GitCall): string => JSON.stringify([cwd, ...args]);
+
+/** True when `reading` has the answer to `call`; otherwise the call is added to what the pass asks for. */
+function answered(reading: Reading, call: GitCall): boolean {
+	const key = gitKey(call);
+	if (reading.answers.has(key)) return true;
+	reading.wanted.set(key, async () => {
+		reading.answers.set(key, await gitAsync(...call));
+	});
+	return false;
+}
+
 /**
  * The output of a git call inside `read` (see `gitAsync`). Outside `read` it throws: every handler reads git through `read`, which
  * waits for git off the event loop.
  */
 export function git(cwd: string, args: string[]): string | undefined {
-	const reading = scopes.getStore()?.reading;
-	if (!reading) throw new Error("git is read only inside `read`, which waits for git off the event loop");
-	const key = JSON.stringify([cwd, ...args]);
-	if (reading.answers.has(key)) return reading.answers.get(key);
-	reading.wanted.set(key, async () => {
-		reading.answers.set(key, await gitAsync(cwd, args));
-	});
-	throw SUSPEND;
+	const reading = currentReading();
+	if (!answered(reading, [cwd, args])) throw SUSPEND;
+	return reading.answers.get(gitKey([cwd, args]));
+}
+
+/**
+ * The output of each of `calls` inside `read`, in order (see `git`). A pass that lacks answers asks for all of them before it stops,
+ * so `read` fetches them together and runs the pass once more, where calls to `git` one by one would stop it once per call.
+ */
+export function gitAll(calls: readonly GitCall[]): (string | undefined)[] {
+	const reading = currentReading();
+	let lacking = false;
+	for (const call of calls) if (!answered(reading, call)) lacking = true;
+	if (lacking) throw SUSPEND;
+	return calls.map((call) => reading.answers.get(gitKey(call)));
+}
+
+// The git calls one pass asked for run this many at a time, so a pass that hashes hundreds of paths one by one never has more open.
+const GIT_PARALLEL = 8;
+
+async function fetchAll(fetches: (() => Promise<void>)[]): Promise<void> {
+	let next = 0;
+	const runner = async () => {
+		while (next < fetches.length) await fetches[next++]();
+	};
+	await Promise.all(Array.from({ length: Math.min(GIT_PARALLEL, fetches.length) }, runner));
 }
 
 /**
  * Runs `fn`, which reads git and working trees but writes nothing, with every git answer and tree it reads fetched off the event loop
- * first. Each pass of `fn` stops at the first answer it lacks; that answer is fetched and `fn` runs again, until a pass has every
- * answer it asks for. The last pass reads git as a synchronous `fn` would have at that moment, so its result is the one it returns.
+ * first. Each pass of `fn` stops at the first answer it lacks (a `gitAll` at the first set with any missing); what it asked for is
+ * fetched and `fn` runs again, until a pass has every answer it asks for. The last pass reads git as a synchronous `fn` would have at that moment, so its result is the one it returns.
  * Inside an event (`event`, `withTrees`) the trees are the event's; elsewhere the reading keeps its own.
  */
 export async function read<T>(fn: () => T): Promise<T> {
@@ -968,7 +1023,7 @@ export async function read<T>(fn: () => T): Promise<T> {
 			return result as T;
 		}
 		reading.wanted.clear();
-		await Promise.all(wanted.map((fetch) => fetch()));
+		await fetchAll(wanted);
 	}
 }
 
@@ -1256,10 +1311,12 @@ export function ownBases(entries: Entry[]): Base[] {
 export function contentHashes(repo: string, names: string[]): Record<string, string> {
 	const found: Record<string, string> = {};
 	const present = names.filter((name) => existsSync(join(repo, name)));
-	for (const name of names) if (!present.includes(name)) found[name] = "deleted";
+	const kept = new Set(present);
+	for (const name of names) if (!kept.has(name)) found[name] = "deleted";
 	const batch = present.length ? git(repo, ["hash-object", "--", ...present])?.split("\n") : [];
+	const hashes = batch ?? gitAll(present.map((name): GitCall => [repo, ["hash-object", "--", name]]));
 	present.forEach((name, index) => {
-		found[name] = (batch ? batch[index] : git(repo, ["hash-object", "--", name])) || "unknown";
+		found[name] = hashes[index] || "unknown";
 	});
 	return found;
 }

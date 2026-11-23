@@ -20,12 +20,16 @@ export default function (pi: ExtensionAPI) {
 		guarded(async (event, ctx) => {
 			if (event.toolName !== "write" && event.toolName !== "edit") return;
 			const filePath = (event.input as { path?: unknown }).path;
-			if (typeof filePath !== "string") return;
-			const book = openLoop(ctx);
-			if (!book || exempt(filePath, ctx.cwd) || currentKind(book.entries) === "quick") return;
-			const phases = await bookEvent(() => read(() => computePhases(book, { cwd: ctx.cwd, todos: replayTodos(ctx.sessionManager.getBranch()) })));
-			const missing = incompleteBefore(phases, "act");
-			if (jumps.fresh(String(book.header.id), "act", missing.map((status) => status.name))) pending.set(event.toolCallId, jumpLine("act", missing));
+			if (typeof filePath !== "string" || exempt(filePath, ctx.cwd)) return;
+			// The book is read under the lock, as the handlers that record into it left it.
+			const found = await bookEvent(async () => {
+				const book = openLoop(ctx);
+				if (!book || currentKind(book.entries) === "quick") return undefined;
+				return { id: String(book.header.id), phases: await read(() => computePhases(book, { cwd: ctx.cwd, todos: replayTodos(ctx.sessionManager.getBranch()) })) };
+			});
+			if (!found) return;
+			const missing = incompleteBefore(found.phases, "act");
+			if (jumps.fresh(found.id, "act", missing.map((status) => status.name))) pending.set(event.toolCallId, jumpLine("act", missing));
 		}),
 	);
 

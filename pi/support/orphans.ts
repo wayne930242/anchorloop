@@ -1,7 +1,7 @@
 /** Children the loop spawned whose result never arrived (a restart dropped the host's watchers): what the host and git can still say about each. */
 
 import { existsSync } from "node:fs";
-import { type Entry, findChildBooks, git, isClosed, stagesDone } from "./book.ts";
+import { type Entry, findChildBooks, type GitCall, gitAll, isClosed, stagesDone } from "./book.ts";
 import { type Link, liveness } from "./host.ts";
 
 /** The links of the book with no `result` entry. A link with no `cwd` (recorded by an older version) comes from a book that kept no results, so its result is unknown, not missing. */
@@ -21,11 +21,19 @@ function bookState(child: string, env: NodeJS.ProcessEnv): string {
 	return `child book ${closed}${check ? `, check exit ${String(check.exit ?? "unknown")}` : ""}`;
 }
 
-function worktreeState(link: Entry): string | undefined {
-	const worktree = link.worktree as { path?: string; branch?: string; baseSha?: string } | undefined;
+type LinkWorktree = { path?: string; branch?: string; baseSha?: string };
+
+/** The call counting the commits a link's worktree made since its base, when the worktree is still there and has a base. */
+function aheadCall(link: Entry): GitCall | undefined {
+	const worktree = link.worktree as LinkWorktree | undefined;
+	if (!worktree?.branch || !worktree.path || !worktree.baseSha || !existsSync(worktree.path)) return undefined;
+	return [worktree.path, ["rev-list", "--count", `${worktree.baseSha}..HEAD`]];
+}
+
+function worktreeState(link: Entry, ahead: string | undefined): string | undefined {
+	const worktree = link.worktree as LinkWorktree | undefined;
 	if (!worktree?.branch) return undefined;
 	if (!worktree.path || !existsSync(worktree.path)) return `worktree ${worktree.branch} gone`;
-	const ahead = worktree.baseSha ? git(worktree.path, ["rev-list", "--count", `${worktree.baseSha}..HEAD`]) : undefined;
 	return `worktree ${worktree.branch}${ahead !== undefined ? ` ahead ${ahead}` : ""}`;
 }
 
@@ -36,13 +44,20 @@ function worktreeState(link: Entry): string | undefined {
  * a restart an unknown child is the one whose watcher was dropped.
  */
 export function orphanLines(entries: Entry[], env: NodeJS.ProcessEnv = process.env, options: { out?: boolean } = {}): string[] {
+	const pending = pendingLinks(entries);
+	// Every worktree's count is asked for at once, before any liveness: a `read` pass stops at the git it lacks, so the liveness
+	// checks, which may run `ps`, run only in the pass that has every answer.
+	const calls = pending.map(aheadCall);
+	const answers = gitAll(calls.filter((call): call is GitCall => call !== undefined));
+	let next = 0;
+	const ahead = calls.map((call) => (call ? answers[next++] : undefined));
 	const lines: string[] = [];
 	const out: string[] = [];
-	for (const link of pendingLinks(entries)) {
+	pending.forEach((link, index) => {
 		const alive = liveness(link as unknown as Link);
 		const name = String(link.name ?? link.child);
 		if (options.out && alive !== "gone" && typeof link.cwd === "string") out.push(`${name} (process ${alive})`);
-		else lines.push([`${name}: ${typeof link.cwd === "string" ? "no result" : "result unknown (link has no cwd)"}`, `process ${alive}`, bookState(String(link.child), env), worktreeState(link)].filter(Boolean).join("; "));
-	}
+		else lines.push([`${name}: ${typeof link.cwd === "string" ? "no result" : "result unknown (link has no cwd)"}`, `process ${alive}`, bookState(String(link.child), env), worktreeState(link, ahead[index])].filter(Boolean).join("; "));
+	});
 	return out.length ? [...lines, `out (no result yet): ${out.join(", ")}`] : lines;
 }

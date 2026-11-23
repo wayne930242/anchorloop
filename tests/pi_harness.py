@@ -85,33 +85,41 @@ function watchLag() {
   const timer = setInterval(tick, 20);
   return () => { clearInterval(timer); tick(); return Math.max(0, Math.round(worst)); };
 }
+// Runs one step and returns what it returned; a `parallel` step starts its steps at once and returns their results in order.
+async function runStep(step) {
+  if (step.parallel) return Promise.all(step.parallel.map(inner => runStep(inner).catch(error => ({ error: error.message }))));
+  if (step.file) {
+    mkdirSync(dirname(resolve(cwd, step.file)), { recursive: true });
+    writeFileSync(resolve(cwd, step.file), step.text);
+    return null;
+  }
+  if (step.exec) {
+    // A command the agent's bash call would have run, executed between the call and its result.
+    execFileSync(step.exec[0], step.exec.slice(1), { cwd: step.in ?? cwd, stdio: "ignore" });
+    return null;
+  }
+  if (step.branchBackTo) {
+    const index = branch.findIndex(entry => entry.id === step.branchBackTo);
+    if (index < 0) throw new Error(`unknown branch entry ${step.branchBackTo}`);
+    branch.splice(index + 1);
+    return null;
+  }
+  if (step.branchAdd) {
+    branch.push(...step.branchAdd);
+    return null;
+  }
+  if (step.tool) {
+    const result = await tools[step.tool].execute("t1", step.params, undefined, undefined, ctx);
+    // `emit` also hands the tool's result to the tool_result handlers, as pi does after a tool runs.
+    if (step.emit) out.emitted.push(await dispatch("tool_result", { toolName: step.tool, toolCallId: step.emit, input: step.params, content: result.content, details: result.details, isError: false }));
+    return result ?? null;
+  }
+  return (await dispatch(step.event, step.payload ?? {})) ?? null;
+}
 for (const step of JSON.parse(stepsJson)) {
   const lag = watchLag();
   try {
-    if (step.file) {
-      mkdirSync(dirname(resolve(cwd, step.file)), { recursive: true });
-      writeFileSync(resolve(cwd, step.file), step.text);
-      out.results.push(null);
-    } else if (step.exec) {
-      // A command the agent's bash call would have run, executed between the call and its result.
-      execFileSync(step.exec[0], step.exec.slice(1), { cwd: step.in ?? cwd, stdio: "ignore" });
-      out.results.push(null);
-    } else if (step.branchBackTo) {
-      const index = branch.findIndex(entry => entry.id === step.branchBackTo);
-      if (index < 0) throw new Error(`unknown branch entry ${step.branchBackTo}`);
-      branch.splice(index + 1);
-      out.results.push(null);
-    } else if (step.branchAdd) {
-      branch.push(...step.branchAdd);
-      out.results.push(null);
-    } else if (step.tool) {
-      const result = await tools[step.tool].execute("t1", step.params, undefined, undefined, ctx);
-      out.results.push(result ?? null);
-      // `emit` also hands the tool's result to the tool_result handlers, as pi does after a tool runs.
-      if (step.emit) out.emitted.push(await dispatch("tool_result", { toolName: step.tool, toolCallId: step.emit, input: step.params, content: result.content, details: result.details, isError: false }));
-    } else {
-      out.results.push((await dispatch(step.event, step.payload ?? {})) ?? null);
-    }
+    out.results.push(await runStep(step));
   } catch (error) {
     out.results.push({ error: error.message });
   }
@@ -169,6 +177,11 @@ def run(*command: str, where: str | None = None) -> dict:
     return {"exec": list(command), **({"in": where} if where else {})}
 
 
+def parallel(*steps: dict) -> dict:
+    """A step that starts `steps` at once, as pi runs the handlers of parallel tool calls, and waits for all of them."""
+    return {"parallel": list(steps)}
+
+
 def bash_call(command: str, call_id: str = "c1") -> dict:
     return {"event": "tool_call", "payload": {"toolName": "bash", "toolCallId": call_id, "input": {"command": command}}}
 
@@ -207,8 +220,9 @@ class ExtensionCase(unittest.TestCase):
         base.update({"HOME": str(self.home), "PI_CODING_AGENT_DIR": str(self.home / "agent"), "ANCHORLOOP_BOOKS_DIR": str(self.books), "ANCHORLOOP_GIT_TIMEOUT_MS": "120000"})
         return {**base, **(extra or {})}
 
-    def command(self, steps: list[dict], branch: list | None = None, classify: object = None, extensions: tuple[str, ...] | None = None,
+    def command(self, steps: list[dict], branch: list | None = None, classify: object = None, extensions: tuple[str | Path, ...] | None = None,
                 session: str = "sess-1") -> list[str]:
+        """An extension is a file name under pi/, or an absolute path to a copy of one, which loads its own copy of every module it imports."""
         names = extensions or self.extensions or (self.extension,)
         return ["node", "--input-type=module", "-e", HARNESS, json.dumps([(PI_DIR / name).as_uri() for name in names]), str(self.cwd),
                 json.dumps(steps), json.dumps(branch or []), json.dumps(classify), session, str(self.session_file)]

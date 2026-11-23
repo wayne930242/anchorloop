@@ -1452,34 +1452,38 @@ function headAndTail(text: string): string {
 			const stated = statedAnchor(message);
 			const result = resultFrom(message);
 			if (!stated && !result) return;
-			const book = openLoop(ctx);
-			if (!book) return;
-			if (stated && !book.entries.some((entry) => entry.stage === "anchor" && entry.check === stated)) {
-				appendEntry(book.path, "anchor", { check: stated, line: true });
-				showStatus(ctx);
-			}
-			if (!result) return;
-			// A subagent session reads only its own reviewers' results: their verdicts are its review rounds; the rest its parent judges.
-			if (subagent && !REVIEWERS.has(result.agent)) return;
-			const handoff = result.handoff;
-			const link = linkOfResult(book.entries, result);
-			book.entries.push(appendEntry(book.path, "result", {
-				...(link?.child ? { child: link.child } : {}),
-				name: result.name,
-				failed: result.failed,
-				...(result.sessionFile ? { sessionFile: result.sessionFile } : {}),
-				...(handoff?.headSha ? { headSha: handoff.headSha } : {}),
-				...(handoff?.commitsAhead !== undefined ? { commitsAhead: handoff.commitsAhead } : {}),
-				...(handoff?.changedFiles ? { changedFiles: handoff.changedFiles.slice(0, 50) } : {}),
-			}));
-			if (!subagent) {
-				await bookEvent(async () => {
+			// The book is read under the lock, so a tool result recorded meanwhile is in the entries the landings are checked against.
+			const recorded = await bookEvent(async () => {
+				const book = openLoop(ctx);
+				if (!book) return undefined;
+				if (stated && !book.entries.some((entry) => entry.stage === "anchor" && entry.check === stated)) {
+					appendEntry(book.path, "anchor", { check: stated, line: true });
+					showStatus(ctx);
+				}
+				if (!result) return undefined;
+				// A subagent session reads only its own reviewers' results: their verdicts are its review rounds; the rest its parent judges.
+				if (subagent && !REVIEWERS.has(result.agent)) return undefined;
+				const handoff = result.handoff;
+				const link = linkOfResult(book.entries, result);
+				book.entries.push(appendEntry(book.path, "result", {
+					...(link?.child ? { child: link.child } : {}),
+					name: result.name,
+					failed: result.failed,
+					...(result.sessionFile ? { sessionFile: result.sessionFile } : {}),
+					...(handoff?.headSha ? { headSha: handoff.headSha } : {}),
+					...(handoff?.commitsAhead !== undefined ? { commitsAhead: handoff.commitsAhead } : {}),
+					...(handoff?.changedFiles ? { changedFiles: handoff.changedFiles.slice(0, 50) } : {}),
+				}));
+				if (!subagent) {
 					await checkLandings(book);
 					await adoptRuns(book, ctx);
-				});
-			}
-			if (REVIEWERS.has(result.agent)) await recordReview(ctx, book, result, link);
-			else await detectFreshRead(ctx, book, result);
+				}
+				return { book, result, link };
+			});
+			if (!recorded) return;
+			const { book, link } = recorded;
+			if (REVIEWERS.has(recorded.result.agent)) await recordReview(ctx, book, recorded.result, link);
+			else await detectFreshRead(ctx, book, recorded.result);
 		}),
 	);
 }
