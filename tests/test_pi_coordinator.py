@@ -1019,7 +1019,7 @@ class TestPushes(CoordinatorCase):
 class TestGitTimeout(unittest.TestCase):
     def git_head(self, value: str) -> str:
         book = (Path(__file__).resolve().parent.parent / "pi" / "support" / "book.ts").as_uri()
-        code = f'import {{ git }} from "{book}"; console.log(git(process.cwd(), ["rev-parse", "HEAD"]) ?? "none");'
+        code = f'import {{ gitAsync }} from "{book}"; console.log((await gitAsync(process.cwd(), ["rev-parse", "HEAD"])) ?? "none");'
         env = {**os.environ, "ANCHORLOOP_GIT_TIMEOUT_MS": value}
         return subprocess.run(["node", "--input-type=module", "-e", code], capture_output=True, text=True, env=env, cwd=Path(__file__).resolve().parent.parent).stdout.strip()
 

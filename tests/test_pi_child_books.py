@@ -19,8 +19,9 @@ const { readdirSync, readFileSync, writeFileSync } = fs;
 fs.readdirSync = function (path, ...rest) { if (under(path)) counts.readdir++; return readdirSync.call(this, path, ...rest); };
 fs.readFileSync = function (path, ...rest) { if (under(path)) counts.read++; return readFileSync.call(this, path, ...rest); };
 const cp = process.getBuiltinModule("node:child_process");
-const { execFileSync } = cp;
+const { execFileSync, spawn } = cp;
 cp.execFileSync = function (file, ...rest) { if (file === "git") counts.git++; return execFileSync.call(this, file, ...rest); };
+cp.spawn = function (file, ...rest) { if (file === "git") counts.git++; return spawn.call(this, file, ...rest); };
 syncBuiltinESMExports();
 process.on("exit", () => writeFileSync(process.env.ANCHORLOOP_TEST_COUNTS, JSON.stringify(counts)));
 """

@@ -16,6 +16,7 @@ import {
 	observeItems,
 	ownBases,
 	passingRunOf,
+	read,
 	REVIEWERS,
 	repoRootOf,
 	resultOf,
@@ -206,14 +207,21 @@ function tipsOf(watches: Watch[]): Map<string, string> {
 	return tips;
 }
 
+/** The refs the book watches and the tip of each now. */
+function watchedTips(entries: Entry[]): Promise<{ watches: Watch[]; now: Map<string, string> }> {
+	return read(() => {
+		const watches = watched(entries);
+		return { watches, now: tipsOf(watches) };
+	});
+}
+
 /**
  * The tip of every watched ref now, recording a baseline for a ref seen the first time. Taken before a bash call, so the call's own
  * moves of a ref can be told from moves made elsewhere.
  */
-export function watchTips(book: Book): Record<string, string> {
+export async function watchTips(book: Book): Promise<Record<string, string>> {
 	const tips: Record<string, string> = {};
-	const watches = watched(book.entries);
-	const now = tipsOf(watches);
+	const { watches, now } = await watchedTips(book.entries);
 	for (const watch of watches) {
 		const tip = now.get(watch.key);
 		if (!tip) continue;
@@ -383,34 +391,36 @@ export function partialLines(entries: Entry[]): string[] {
  * proven landing is recorded as a `land` entry. `before` holds the tips taken before the bash call that just ran: a ref that moved
  * inside that call was moved by this session (`self`), any other move was made elsewhere. Returns the landings recorded.
  */
-export function checkLandings(book: Book, before: Record<string, string> = {}): Entry[] {
+export async function checkLandings(book: Book, before: Record<string, string> = {}): Promise<Entry[]> {
 	const recorded: Entry[] = [];
-	const watches = watched(book.entries);
-	const now = tipsOf(watches);
+	const { watches, now } = await watchedTips(book.entries);
 	for (const watch of watches) {
 		const tip = now.get(watch.key);
 		const last = lastSeen(book.entries, watch);
 		if (!tip || tip === last) continue;
 		book.entries.push(appendEntry(book.path, "watch", { key: watch.key, ref: watch.ref, sha: tip }));
-		const self = before[watch.key] !== undefined && before[watch.key] !== tip && movedByFetch(watch.dir, watch.ref) !== true;
+		// The reflog is read only for a ref the call moved, as the condition it settles asks.
+		const moved = before[watch.key] !== undefined && before[watch.key] !== tip;
+		const fetched = moved ? await read(() => movedByFetch(watch.dir, watch.ref)) : undefined;
+		const self = moved && fetched !== true;
 		const done = landedKeys(book.entries);
-		const tipTree = git(watch.dir, ["rev-parse", `${tip}^{tree}`]);
+		const tipTree = await read(() => git(watch.dir, ["rev-parse", `${tip}^{tree}`]));
 		// The coordinator's own commits count only for a push this session made, and not when a worker's landing already explains the move.
 		let explained = false;
 		// Only a remote-tracking ref whose last move was `update by push` is proof of a push: a pull on a local branch, or a ref with no reflog, proves nothing.
-		const own = self && movedByFetch(watch.dir, watch.ref) === false ? before[watch.key] : undefined;
-		for (const candidate of candidatesOn(book.entries, watch, own)) {
+		const own = self && fetched === false ? before[watch.key] : undefined;
+		for (const candidate of await read(() => candidatesOn(book.entries, watch, own))) {
 			if (done.has(`${candidate.child ?? "self"}\0${candidate.head}`)) continue;
 			if (candidate.child === undefined && candidate.pushed === undefined && explained) continue;
 			// A worker whose head the ref already held before this move brought nothing to it (it only updated its branch from the ref).
-			if (candidate.child !== undefined && last !== undefined && aheadOf(candidate.repo, last, candidate.head) === 0) continue;
-			const found = standing(candidate.repo, candidate.ref, candidate.head, candidate.base);
+			if (candidate.child !== undefined && last !== undefined && (await read(() => aheadOf(candidate.repo, last, candidate.head))) === 0) continue;
+			const found = await read(() => standing(candidate.repo, candidate.ref, candidate.head, candidate.base));
 			if (!found.rule) continue;
 			if (candidate.child !== undefined) explained = true;
-			const run = candidate.child ? childPassingRun(book, candidate.child) : undefined;
+			const run = candidate.child ? await read(() => childPassingRun(book, candidate.child as string)) : undefined;
 			const checked = new Set(Array.isArray(run?.run.trees) ? (run?.run.trees as unknown[]).map(String) : []);
 			const ownHead = candidate.pushed ? `${candidate.head}^{tree}` : "HEAD^{tree}";
-			const exact = candidate.child ? tipTree !== undefined && checked.has(tipTree) : tipTree !== undefined && git(candidate.repo, ["rev-parse", ownHead]) === tipTree;
+			const exact = candidate.child ? tipTree !== undefined && checked.has(tipTree) : tipTree !== undefined && (await read(() => git(candidate.repo, ["rev-parse", ownHead]))) === tipTree;
 			const land = appendEntry(book.path, "land", {
 				...(candidate.child ? { child: candidate.child } : {}),
 				...(candidate.pushed ? { pushed: candidate.pushed } : {}),
@@ -453,8 +463,8 @@ export type Declared = { ok: boolean; text: string };
  * landed by the rules. A notice git cannot confirm is recorded `verified: false` and says to fetch the ref and declare again.
  * `task` names the unit the notice is for and `tickets` the ticket ids that unit's todo holds.
  */
-export function declareLanded(book: Book, params: { sha?: string; ref?: string; note?: string; children?: string[]; task?: number; tickets?: string[] }): Declared {
-	const watches = watched(book.entries);
+export async function declareLanded(book: Book, params: { sha?: string; ref?: string; note?: string; children?: string[]; task?: number; tickets?: string[] }): Promise<Declared> {
+	const watches = await read(() => watched(book.entries));
 	const wanted = params.ref ? watches.filter((watch) => watch.ref === params.ref) : watches;
 	const ref = params.ref ?? wanted[0]?.ref;
 	const dir = wanted[0]?.dir;
@@ -464,21 +474,24 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 		return { ok: false, text: `not confirmed: ${why}; it does not count as a landing. ${hinted ? "Then" : `Fetch ${ref ?? "the integration ref"} (git fetch), then`} declare it again.` };
 	};
 	if (!ref || !dir) return unconfirmed("no integration ref is watched for this loop (give `ref`)");
-	const tip = refSha(dir, ref);
+	const tip = await read(() => refSha(dir, ref));
 	if (!tip) return unconfirmed(`${ref} does not resolve here (fetch it, or give \`ref\`)`, true);
 	// With no `ref` given, the sha must be in every watched ref, since it is not said which one it landed in.
 	for (const watch of params.sha ? (params.ref ? [{ dir, ref }] : wanted) : []) {
-		const at = refSha(watch.dir, watch.ref);
-		if (!at || refSha(watch.dir, params.sha as string) === undefined || git(watch.dir, ["merge-base", "--is-ancestor", params.sha as string, at]) === undefined) return unconfirmed(`${(params.sha as string).slice(0, 12)} is not in ${watch.ref} here (fetch it, or give \`ref\`)`, true);
+		const contained = await read(() => {
+			const at = refSha(watch.dir, watch.ref);
+			return Boolean(at && refSha(watch.dir, params.sha as string) !== undefined && git(watch.dir, ["merge-base", "--is-ancestor", params.sha as string, at]) !== undefined);
+		});
+		if (!contained) return unconfirmed(`${(params.sha as string).slice(0, 12)} is not in ${watch.ref} here (fetch it, or give \`ref\`)`, true);
 	}
 	// A landing of a retired todo's car does not keep a unit of the current list from declaring the same car its own.
 	const done = landedKeys(book.entries.filter((_, index) => params.task === undefined || !retiredEntry(book.entries, index)));
 	const lines: string[] = [];
 	const left: string[] = [];
 	for (const watch of wanted) {
-		const watchTip = refSha(watch.dir, watch.ref) ?? tip;
-		const watchTree = git(watch.dir, ["rev-parse", `${watchTip}^{tree}`]);
-		for (const candidate of candidatesOn(book.entries, watch)) {
+		const watchTip = (await read(() => refSha(watch.dir, watch.ref))) ?? tip;
+		const watchTree = await read(() => git(watch.dir, ["rev-parse", `${watchTip}^{tree}`]));
+		for (const candidate of await read(() => candidatesOn(book.entries, watch))) {
 			if (done.has(`${candidate.child ?? "self"}\0${candidate.head}`)) continue;
 			if (params.children && candidate.child !== undefined && !params.children.includes(candidate.child)) continue;
 			// A branch this session pushed lands for the unit it was pushed for; one bound to no unit lands for whichever unit is named.
@@ -489,14 +502,14 @@ export function declareLanded(book: Book, params: { sha?: string; ref?: string; 
 				left.push(candidate.label);
 				continue;
 			}
-			const found = standing(candidate.repo, candidate.ref, candidate.head, candidate.base);
+			const found = await read(() => standing(candidate.repo, candidate.ref, candidate.head, candidate.base));
 			if (!found.rule) {
 				lines.push(`${candidate.label}: ${found.total > 0 ? `${found.upstream}/${found.total} of its commits are in ${candidate.ref}` : "nothing to land"}`);
 				continue;
 			}
-			const run = candidate.child ? childPassingRun(book, candidate.child) : undefined;
+			const run = candidate.child ? await read(() => childPassingRun(book, candidate.child as string)) : undefined;
 			const checked = new Set(Array.isArray(run?.run.trees) ? (run?.run.trees as unknown[]).map(String) : []);
-			const exact = candidate.child ? watchTree !== undefined && checked.has(watchTree) : candidate.pushed !== undefined && watchTree !== undefined && git(candidate.repo, ["rev-parse", `${candidate.head}^{tree}`]) === watchTree;
+			const exact = candidate.child ? watchTree !== undefined && checked.has(watchTree) : candidate.pushed !== undefined && watchTree !== undefined && (await read(() => git(candidate.repo, ["rev-parse", `${candidate.head}^{tree}`]))) === watchTree;
 			// A car pushed for a retired todo lands for the unit the declaration names (the unit of its ticket, checked above), else for no unit.
 			const task = candidate.task ?? (candidate.pushed !== undefined ? params.task : undefined);
 			const retired = candidate.retired === true && task === undefined;

@@ -6,8 +6,10 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { closeSync, constants, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, writeSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { closeSync, constants, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, unlinkSync, writeSync } from "node:fs";
+import { copyFile, mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { childId as hostChildId, childName, childSession } from "./host.ts";
@@ -374,7 +376,7 @@ function indexChildBooks(root: string): Map<string, ChildFiles[]> {
 /** The books of the child `id` among all projects: its earlier closed loops (`~1`, `~2`) in order, then the current one (no tag). */
 export function findChildBooks(id: string, env: NodeJS.ProcessEnv = process.env): ChildBook[] {
 	const root = booksRoot(env);
-	const books = eventTrees?.books;
+	const books = scopes.getStore()?.books;
 	const key = `${root}\0${safe(id)}`;
 	const cached = books?.children.get(key);
 	if (cached) return cached;
@@ -789,7 +791,7 @@ function item(owner: string, ref: string, entry: Entry, reflect: Entry | undefin
  * list is computed once per entries array and books root while the array keeps its length and no child book changes.
  */
 export function allFriction(entries: Entry[], env: NodeJS.ProcessEnv = process.env): FrictionItem[] {
-	const books = eventTrees?.books;
+	const books = scopes.getStore()?.books;
 	const root = booksRoot(env);
 	const memo = books?.friction.get(entries)?.get(root);
 	if (memo && memo.length === entries.length) return memo.items;
@@ -889,12 +891,84 @@ export function validFollowup(followup: unknown): boolean {
 
 // A git call that takes longer than this fails quietly (the book never blocks a tool); the suite raises it so a loaded machine does not.
 const GIT_TIMEOUT_MS = ((n) => (Number.isInteger(n) && n >= 1000 ? n : 5000))(Number(process.env.ANCHORLOOP_GIT_TIMEOUT_MS));
+// The most output one git call keeps; a longer output fails the call.
+const GIT_MAX_OUTPUT = 1024 * 1024;
 
-export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): string | undefined {
-	try {
-		return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf-8", timeout: GIT_TIMEOUT_MS, stdio: ["ignore", "pipe", "ignore"], env: env ?? process.env }).trim();
-	} catch {
-		return undefined;
+/**
+ * Runs git in `cwd` off the event loop: its trimmed stdout, or undefined when git cannot start, exits non-zero, prints more than
+ * 1 MiB, or outlives the timeout (it is then killed). Nothing here throws, so a git failure never fails the tool the book observes.
+ */
+export function gitAsync(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string | undefined> {
+	return new Promise((done) => {
+		let child: ChildProcess;
+		try {
+			child = spawn("git", ["-C", cwd, ...args], { stdio: ["ignore", "pipe", "ignore"], env: env ?? process.env, timeout: GIT_TIMEOUT_MS });
+		} catch {
+			done(undefined);
+			return;
+		}
+		const chunks: Buffer[] = [];
+		let size = 0;
+		child.stdout?.on("data", (chunk: Buffer) => {
+			size += chunk.length;
+			if (size > GIT_MAX_OUTPUT) child.kill();
+			else chunks.push(chunk);
+		});
+		child.on("error", () => done(undefined));
+		child.on("close", (code, signal) => done(code === 0 && signal === null && size <= GIT_MAX_OUTPUT ? Buffer.concat(chunks).toString("utf-8").trim() : undefined));
+	});
+}
+
+/**
+ * The git answers one `read` has: each call's output by its arguments, and the calls its last pass asked for and did not have. A
+ * reading is short, so an answer it took stands for the whole reading, as a second identical call inside one handler would.
+ */
+type Reading = { answers: Map<string, string | undefined>; wanted: Map<string, () => Promise<void>> };
+
+/** Thrown by a `read` pass at the first git answer or tree it lacks; `read` fetches what was asked and runs the pass again. */
+const SUSPEND = Symbol("anchorloop.suspend");
+
+/**
+ * The output of a git call inside `read` (see `gitAsync`). Outside `read` it throws: every handler reads git through `read`, which
+ * waits for git off the event loop.
+ */
+export function git(cwd: string, args: string[]): string | undefined {
+	const reading = scopes.getStore()?.reading;
+	if (!reading) throw new Error("git is read only inside `read`, which waits for git off the event loop");
+	const key = JSON.stringify([cwd, ...args]);
+	if (reading.answers.has(key)) return reading.answers.get(key);
+	reading.wanted.set(key, async () => {
+		reading.answers.set(key, await gitAsync(cwd, args));
+	});
+	throw SUSPEND;
+}
+
+/**
+ * Runs `fn`, which reads git and working trees but writes nothing, with every git answer and tree it reads fetched off the event loop
+ * first. Each pass of `fn` stops at the first answer it lacks; that answer is fetched and `fn` runs again, until a pass has every
+ * answer it asks for. The last pass reads git as a synchronous `fn` would have at that moment, so its result is the one it returns.
+ * Inside an event (`event`, `withTrees`) the trees are the event's; elsewhere the reading keeps its own.
+ */
+export async function read<T>(fn: () => T): Promise<T> {
+	const outer = scopes.getStore();
+	const scope: EventScope = { ...(outer ?? freshScope(true)), reading: { answers: new Map(), wanted: new Map() } };
+	const reading = scope.reading as Reading;
+	for (;;) {
+		let result: T | undefined;
+		let failure: { error: unknown } | undefined;
+		try {
+			result = scopes.run(scope, fn);
+		} catch (error) {
+			failure = { error };
+		}
+		// A pass that caught the stop itself still asked for its answer, so the wanted list, not the throw, says whether to run again.
+		const wanted = [...reading.wanted.values()];
+		if (wanted.length === 0) {
+			if (failure) throw failure.error;
+			return result as T;
+		}
+		reading.wanted.clear();
+		await Promise.all(wanted.map((fetch) => fetch()));
 	}
 }
 
@@ -912,86 +986,122 @@ type EventBooks = {
 
 const noBooks = (): EventBooks => ({ indexes: new Map(), children: new Map(), friction: new WeakMap(), roots: new Map() });
 
-// The working trees and child books of the event `withTrees` runs: each repo's tree is built once however many readings ask for it.
-let eventTrees: { cache: TreeCache; build: boolean; books: EventBooks } | undefined;
+/**
+ * One event's reading of the working state: each repo's tree, built at most once, whether this event builds trees, the child
+ * books it read, the `read` in progress, and whether the event holds the book lock (`event`).
+ */
+type EventScope = { cache: TreeCache; build: boolean; books: EventBooks; reading?: Reading; locked?: true };
+
+const freshScope = (build: boolean): EventScope => ({ cache: new Map(), build, books: noBooks() });
+
+// The event each call runs in, carried across its awaits.
+const scopes = new AsyncLocalStorage<EventScope>();
 
 function childBooksChanged(): void {
-	if (!eventTrees) return;
-	const { books } = eventTrees;
+	const books = scopes.getStore()?.books;
+	if (!books) return;
 	books.indexes.clear();
 	books.children.clear();
 	books.friction = new WeakMap();
 }
 
 /**
- * Runs `fn` as one event's reading of the working state: every `workingTree` call in it shares one tree per repo, built at most
- * once. With `build: false` (the footer) nothing more is built: a tree this event has not read is unknown, which a recorded tree
- * counts as unchanged. The event also lists the books root once for every child book it reads (`findChildBooks`) and computes
- * a book's friction once (`allFriction`). A nested call joins the outer event's trees and books. `fn` must not await.
+ * Runs `fn` as one event's reading of the working state: every tree read in it is shared, one per repo. With `build: false` (the
+ * footer) nothing more is built: a tree this event has not read is unknown, which a recorded tree counts as unchanged. The event
+ * also lists the books root once for every child book it reads (`findChildBooks`) and computes a book's friction once
+ * (`allFriction`). A nested call joins the outer event's trees and books.
  */
 export function withTrees<T>(fn: () => T, options: { build?: boolean } = {}): T {
-	const outer = eventTrees;
-	eventTrees = { cache: outer?.cache ?? new Map(), build: (outer?.build ?? true) && (options.build ?? true), books: outer?.books ?? noBooks() };
+	const outer = scopes.getStore();
+	return scopes.run({ ...(outer ?? freshScope(true)), build: (outer?.build ?? true) && (options.build ?? true) }, fn);
+}
+
+// Handlers of every anchorloop extension take turns on the books: each extension loads its own copy of this module, so the lock is global.
+const LOCK = Symbol.for("anchorloop.book-lock");
+const lock = ((globalThis as Record<symbol, unknown>)[LOCK] ??= { tail: Promise.resolve() }) as { tail: Promise<void> };
+
+/**
+ * Runs `fn` as one event (`withTrees`) that holds the book lock while it runs: the handlers of parallel tool calls and of other
+ * anchorloop extensions wait, so each records its facts against the book as it found it, as one synchronous handler did. A nested
+ * call joins the outer event. `fn` awaits only git reads and book writes: a handler releases the lock before it waits on anything else.
+ */
+export async function event<T>(fn: () => T | Promise<T>, options: { build?: boolean } = {}): Promise<T> {
+	const outer = scopes.getStore();
+	if (outer?.locked) return withTrees(fn, options);
+	const turn = lock.tail;
+	let release = () => {};
+	lock.tail = new Promise<void>((done) => {
+		release = done;
+	});
+	await turn;
 	try {
-		return fn();
+		return await scopes.run({ ...(outer ?? freshScope(true)), build: (outer?.build ?? true) && (options.build ?? true), locked: true }, fn);
 	} finally {
-		eventTrees = outer;
+		release();
 	}
 }
 
 /**
  * The tree a commit of everything in `repo`'s working state would have (tracked and untracked, ignored files and `scratch/`
- * left out), built in a copy of the index so the repo's own index is untouched; undefined when git cannot build it.
- * Inside `withTrees` the event's tree of `repo` is shared.
+ * left out), undefined when git cannot build it. Read inside `read`, which builds it once per event; with `build: false` it is
+ * the tree this event already built, else unknown.
  */
 export function workingTree(repo: string): string | undefined {
-	if (!eventTrees) return buildTree(repo);
-	const { cache, build } = eventTrees;
+	const scope = scopes.getStore();
+	if (!scope) throw new Error("a working tree is read only inside an event or `read`");
+	const { cache, build, reading } = scope;
 	if (cache.has(repo) || !build) return cache.get(repo);
-	const tree = buildTree(repo);
-	cache.set(repo, tree);
-	return tree;
+	if (!reading) throw new Error("a working tree is built only inside `read`, which builds it off the event loop");
+	reading.wanted.set(`\0tree\0${repo}`, async () => {
+		cache.set(repo, await buildTree(repo));
+	});
+	throw SUSPEND;
 }
 
-function buildTree(repo: string): string | undefined {
-	const index = git(repo, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
+/** Builds the tree `workingTree` names in a copy of the index, so the repo's own index is untouched. */
+async function buildTree(repo: string): Promise<string | undefined> {
+	const index = await gitAsync(repo, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
 	if (!index) return undefined;
-	const dir = mkdtempSync(join(tmpdir(), "anchorloop-tree-"));
+	const dir = await mkdtemp(join(tmpdir(), "anchorloop-tree-"));
 	try {
 		const env = { ...process.env, GIT_INDEX_FILE: join(dir, "index") };
 		if (existsSync(index)) {
 			// The copy keeps the index's mtime: git trusts an entry's stat only when it is older than the index, and a file
 			// changed in the second the index was written but kept its size would otherwise be taken as unchanged.
-			copyFileSync(index, env.GIT_INDEX_FILE);
-			const { atime, mtime } = statSync(index);
-			utimesSync(env.GIT_INDEX_FILE, atime, mtime);
+			await copyFile(index, env.GIT_INDEX_FILE);
+			const { atime, mtime } = await stat(index);
+			await utimes(env.GIT_INDEX_FILE, atime, mtime);
 		}
-		if (git(repo, ["add", "-A", "--", ".", ":(exclude)scratch"], env) === undefined) return undefined;
-		return git(repo, ["write-tree"], env);
+		if ((await gitAsync(repo, ["add", "-A", "--", ".", ":(exclude)scratch"], env)) === undefined) return undefined;
+		return await gitAsync(repo, ["write-tree"], env);
 	} finally {
-		rmSync(dir, { recursive: true, force: true });
+		await rm(dir, { recursive: true, force: true });
 	}
 }
 
 /** The working-state tree of each repo in `repos`, leaving out a repo git cannot build one for. */
-export function workingTrees(repos: Iterable<string>): string[] {
-	return [...new Set(repos)].map(workingTree).filter((tree): tree is string => tree !== undefined);
+export function workingTrees(repos: Iterable<string>): Promise<string[]> {
+	const list = [...new Set(repos)];
+	return read(() => list.map(workingTree).filter((tree): tree is string => tree !== undefined));
 }
 
 /** The `treeAt` field for `repos`: each repo root with its working-state tree now, leaving out a repo git cannot build one for. */
-export function treeAtField(repos: Iterable<string>): { treeAt?: Record<string, string> } {
-	const at: Record<string, string> = {};
-	for (const repo of new Set(repos)) {
-		const tree = workingTree(repo);
-		if (tree) at[repo] = tree;
-	}
-	return Object.keys(at).length ? { treeAt: at } : {};
+export function treeAtField(repos: Iterable<string>): Promise<{ treeAt?: Record<string, string> }> {
+	const list = [...new Set(repos)];
+	return read(() => {
+		const at: Record<string, string> = {};
+		for (const repo of list) {
+			const tree = workingTree(repo);
+			if (tree) at[repo] = tree;
+		}
+		return Object.keys(at).length ? { treeAt: at } : {};
+	});
 }
 
 /** True when git ignores `path` in its repo: such a file is in no diff, so writing it changes no code. */
-export function ignoredByGit(path: string): boolean {
+export function ignoredByGit(path: string): Promise<boolean> {
 	const dir = existingDir(dirname(resolve(path)));
-	return git(dir, ["check-ignore", "-q", "--", resolve(path)]) !== undefined;
+	return read(() => git(dir, ["check-ignore", "-q", "--", resolve(path)]) !== undefined);
 }
 
 const CD_STEP = /^cd\s+("[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/;
@@ -1082,16 +1192,29 @@ export function repoOf(path: string): { repo: string; head: string } | undefined
  * A caller that needs git's exact answer, or the repo's HEAD, asks `repoOf`.
  */
 export function repoRootOf(path: string): string | undefined {
-	const roots = eventTrees?.books.roots;
+	const roots = scopes.getStore()?.books.roots;
 	// Git answers for the nearest existing directory, so that is the key: sibling paths under a missing directory share one spawn.
 	const dir = existingDir(dirname(resolve(path)));
 	if (roots?.has(dir)) return roots.get(dir);
 	// Git answers from the directory's real path: a path through a symlink into another repo's subdirectory belongs to that repo.
 	const found = gitRootAbove(real(dir));
-	const repo = found === "ask" ? git(dir, ["rev-parse", "--show-toplevel"]) : found;
+	const repo = found === "ask" ? askedRoot(dir) : found;
 	const root = repo ? real(repo) : undefined;
 	roots?.set(dir, root);
 	return root;
+}
+
+/**
+ * Git's root for `dir` when the environment redirects git: read through `read` inside one, else waited for here. Only a pi started
+ * with `GIT_DIR`, `GIT_WORK_TREE`, or `GIT_CEILING_DIRECTORIES` set reaches it, so it is the one git call a handler may wait on.
+ */
+function askedRoot(dir: string): string | undefined {
+	if (scopes.getStore()?.reading) return git(dir, ["rev-parse", "--show-toplevel"]);
+	try {
+		return execFileSync("git", ["-C", dir, "rev-parse", "--show-toplevel"], { encoding: "utf-8", timeout: GIT_TIMEOUT_MS, stdio: ["ignore", "pipe", "ignore"] }).trim();
+	} catch {
+		return undefined;
+	}
 }
 
 /**
@@ -1149,11 +1272,12 @@ function dirtyAt(repo: string, head: string): Record<string, string> {
 }
 
 /** Adds the repo of `path` to the book with its HEAD, and the paths already dirty there, when the book has no base for it yet. */
-export function touchRepo(book: Book, path: string): boolean {
-	const found = repoOf(path);
+export async function touchRepo(book: Book, path: string): Promise<boolean> {
+	const found = await read(() => repoOf(path));
 	if (!found) return false;
 	if (ownBases(book.entries).some((base) => base.repo === found.repo)) return false;
-	const entry = appendEntry(book.path, "base", { ...found, dirty: dirtyAt(found.repo, found.head) });
+	const dirty = await read(() => dirtyAt(found.repo, found.head));
+	const entry = appendEntry(book.path, "base", { ...found, dirty });
 	book.entries.push(entry);
 	return true;
 }
@@ -1162,18 +1286,21 @@ export function touchRepo(book: Book, path: string): boolean {
  * Adds the repo at `dir` with its pre-command HEAD after a `verb` (merge, pull, or cherry-pick) first seen through bash: the
  * reflog entry before the run of `verb` entries on top. ORIG_HEAD is not used, since cherry-pick leaves an old one in place.
  */
-export function touchRepoBeforeMerge(book: Book, dir: string, verb: string): boolean {
-	const found = repoOf(join(dir, "_"));
+export async function touchRepoBeforeMerge(book: Book, dir: string, verb: string): Promise<boolean> {
+	const found = await read(() => repoOf(join(dir, "_")));
 	if (!found || ownBases(book.entries).some((base) => base.repo === found.repo)) return false;
-	const reflog = git(found.repo, ["reflog", "-n", "50", "--format=%H %gs"])?.split("\n").filter(Boolean) ?? [];
-	// A conflict resolved with `--continue` logs `commit (<verb>)` instead of `<verb>`.
-	const ofVerb = (line: string) => line.slice(41).startsWith(verb) || line.slice(41).startsWith(`commit (${verb})`);
-	const first = reflog.findIndex((line) => !ofVerb(line));
-	const before = reflog.length > 0 && ofVerb(reflog[0]) && first > 0 ? reflog[first].slice(0, 40) : undefined;
-	// A rebasing pull leaves the old HEAD off HEAD's history; their merge base keeps the pulled commits in the diff.
+	const head = await read(() => {
+		const reflog = git(found.repo, ["reflog", "-n", "50", "--format=%H %gs"])?.split("\n").filter(Boolean) ?? [];
+		// A conflict resolved with `--continue` logs `commit (<verb>)` instead of `<verb>`.
+		const ofVerb = (line: string) => line.slice(41).startsWith(verb) || line.slice(41).startsWith(`commit (${verb})`);
+		const first = reflog.findIndex((line) => !ofVerb(line));
+		const before = reflog.length > 0 && ofVerb(reflog[0]) && first > 0 ? reflog[first].slice(0, 40) : undefined;
+		// A rebasing pull leaves the old HEAD off HEAD's history; their merge base keeps the pulled commits in the diff.
+		return (before === undefined ? undefined : git(found.repo, ["merge-base", before, "HEAD"])) || found.head;
+	});
 	// The dirty snapshot is the uncommitted work against HEAD, so the merged files stay the loop's change.
-	const base = before === undefined ? undefined : git(found.repo, ["merge-base", before, "HEAD"]);
-	book.entries.push(appendEntry(book.path, "base", { repo: found.repo, head: base || found.head, dirty: dirtyAt(found.repo, found.head) }));
+	const dirty = await read(() => dirtyAt(found.repo, found.head));
+	book.entries.push(appendEntry(book.path, "base", { repo: found.repo, head, dirty }));
 	return true;
 }
 

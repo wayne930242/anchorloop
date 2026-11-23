@@ -7,7 +7,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { currentKind, guarded, openLoop, replayTodos, withTrees } from "./support/book.ts";
+import { currentKind, event as bookEvent, guarded, openLoop, read, replayTodos } from "./support/book.ts";
 import { JumpMemory, computePhases, exempt, incompleteBefore, jumpLine } from "./support/phases.ts";
 
 export default function (pi: ExtensionAPI) {
@@ -17,13 +17,13 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on(
 		"tool_call",
-		guarded((event, ctx) => {
+		guarded(async (event, ctx) => {
 			if (event.toolName !== "write" && event.toolName !== "edit") return;
 			const filePath = (event.input as { path?: unknown }).path;
 			if (typeof filePath !== "string") return;
 			const book = openLoop(ctx);
 			if (!book || exempt(filePath, ctx.cwd) || currentKind(book.entries) === "quick") return;
-			const phases = withTrees(() => computePhases(book, { cwd: ctx.cwd, todos: replayTodos(ctx.sessionManager.getBranch()) }));
+			const phases = await bookEvent(() => read(() => computePhases(book, { cwd: ctx.cwd, todos: replayTodos(ctx.sessionManager.getBranch()) })));
 			const missing = incompleteBefore(phases, "act");
 			if (jumps.fresh(String(book.header.id), "act", missing.map((status) => status.name))) pending.set(event.toolCallId, jumpLine("act", missing));
 		}),

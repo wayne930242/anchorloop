@@ -74,6 +74,8 @@ import {
 	movedTo,
 	resultOf,
 	type TreeCache,
+	event as bookEvent,
+	read,
 	withTrees,
 } from "./support/book.ts";
 import { type Link, dispatchFrom, isChild, linkFrom, resultFrom } from "./support/host.ts";
@@ -546,7 +548,7 @@ export default function (pi: ExtensionAPI) {
 	 * Records a child the loop spawned: who and where it works, the ref its work will land on with that ref's tip now, and a base for
 	 * its repo at the commit it started from, so the coordinator's diff includes the worker's change while its worktree exists.
 	 */
-	function recordLink(book: Book, link: Link, ctx: ExtensionContext): void {
+	async function recordLink(book: Book, link: Link, ctx: ExtensionContext): Promise<void> {
 		const cwd = ctx.cwd;
 		const source = resolve(cwd, link.cwd ?? ".");
 		const tickets = ticketKeys(`${link.name ?? ""} ${link.task ?? ""}`);
@@ -554,8 +556,12 @@ export default function (pi: ExtensionAPI) {
 		const found = unitsOf([...book.entries, { ts: "", stage: "link", child: link.child, name: link.name, tickets }], todosOf(ctx));
 		const unit = unitById(found, found.bound.get(link.child) ?? -1);
 		const tree = link.worktree?.path && existsSync(link.worktree.path) ? link.worktree.path : undefined;
-		const ref = integrationRef(source, link, unit?.lands);
-		const tip = ref ? refSha(tree ?? source, ref) : undefined;
+		const { ref, tip } = await read(() => {
+			const ref = integrationRef(source, link, unit?.lands);
+			return { ref, tip: ref ? refSha(tree ?? source, ref) : undefined };
+		});
+		// A reviewer's verdict is of the code as it was when it was dispatched: the trees it was given.
+		const trees = REVIEWERS.has(String(link.agent ?? "")) ? await treeAtField(reviewedRepos(book, cwd)) : {};
 		book.entries.push(
 			appendEntry(book.path, "link", {
 				child: link.child,
@@ -567,11 +573,10 @@ export default function (pi: ExtensionAPI) {
 				...(link.worktree ? { worktree: link.worktree } : {}),
 				...(link.acceptSec !== undefined ? { acceptSec: link.acceptSec } : {}),
 				...(ref ? { ref, ...(tip ? { refSha: tip } : {}) } : {}),
-				// A reviewer's verdict is of the code as it was when it was dispatched: the trees it was given.
-				...(REVIEWERS.has(String(link.agent ?? "")) ? treeAtField(reviewedRepos(book, cwd)) : {}),
+				...trees,
 			}),
 		);
-		const where = repoOf(join(tree ?? source, "_"));
+		const where = await read(() => repoOf(join(tree ?? source, "_")));
 		if (where && !bases(book.entries).some((base) => base.repo === where.repo)) {
 			book.entries.push(appendEntry(book.path, "base", { repo: where.repo, head: tree ? link.worktree?.baseSha ?? where.head : where.head, via: "link", child: link.child, dirty: {} }));
 		}
@@ -587,7 +592,7 @@ export default function (pi: ExtensionAPI) {
 	 * Records a follow-up task sent to a linked child (`subagent_send`, `subagent_resume`) as its own dispatch: the unit its brief names by
 	 * ticket, and for a reviewer the trees it is given. A persistent reviewer's verdicts then count for the unit each brief names.
 	 */
-	function recordSend(book: Book, toolName: string, input: unknown, details: unknown, ctx: ExtensionContext): void {
+	async function recordSend(book: Book, toolName: string, input: unknown, details: unknown, ctx: ExtensionContext): Promise<void> {
 		const dispatch = dispatchFrom(toolName, input, details);
 		if (!dispatch) return;
 		const link = [...book.entries].reverse().find(
@@ -601,20 +606,21 @@ export default function (pi: ExtensionAPI) {
 		const found = unitsOf(book.entries, todos);
 		const task = unitOfDispatch(found, todos, child, dispatch.task);
 		const tickets = ticketKeys(dispatch.task);
+		const trees = REVIEWERS.has(String(link.agent ?? "")) ? await treeAtField(reviewedRepos(book, ctx.cwd)) : {};
 		book.entries.push(
 			appendEntry(book.path, "send", {
 				child,
 				name: link.name,
 				...(tickets.length ? { tickets } : {}),
 				...(task !== undefined ? { task } : {}),
-				...(REVIEWERS.has(String(link.agent ?? "")) ? treeAtField(reviewedRepos(book, ctx.cwd)) : {}),
+				...trees,
 			}),
 		);
 	}
 
 	/** Links the children spawned before this loop opened and not yet returned. */
-	function recordPriorLinks(book: Book, ctx: ExtensionContext): void {
-		for (const link of priorSpawns(ctx.sessionManager.getBranch(), SESSION_ENTRY)) recordLink(book, link, ctx);
+	async function recordPriorLinks(book: Book, ctx: ExtensionContext): Promise<void> {
+		for (const link of priorSpawns(ctx.sessionManager.getBranch(), SESSION_ENTRY)) await recordLink(book, link, ctx);
 	}
 
 	/** True while no `kind` call has chosen the kind: the loop still holds the `inline` a todo create opened it with. */
@@ -632,10 +638,10 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/** A child's book, opened from its own evidence (a production edit, a commit, a run of its parent's anchor) with no todo: inline, the parent's anchor as its anchor. */
-	function openFromEvidence(ctx: ExtensionContext, base?: { repo: string; head: string }): Book {
+	async function openFromEvidence(ctx: ExtensionContext, base?: { repo: string; head: string }): Promise<Book> {
 		const book = createBook(ctx);
 		if (base) book.entries.push(appendEntry(book.path, "base", { ...base, dirty: {} }));
-		else touchRepo(book, join(ctx.cwd, "_"));
+		else await touchRepo(book, join(ctx.cwd, "_"));
 		book.entries.push(appendEntry(book.path, "kind", { kind: "inline", auto: true, intent: clip(`work of ${String(book.header.owner)}`, 200) }));
 		recordPriorAnchor(book, ctx);
 		const anchor = anchorCommand(book.entries) ? undefined : parentAnchorNow();
@@ -644,28 +650,32 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/** Opens a child's book for a bash call that ran its parent's anchor or committed a production change; undefined for any other call. */
-	function openChildFromBash(ctx: ExtensionContext, event: { input: unknown; isError?: boolean; structuredContent?: unknown; content?: unknown }): Book | undefined {
+	async function openChildFromBash(ctx: ExtensionContext, event: { input: unknown; isError?: boolean; structuredContent?: unknown; content?: unknown }): Promise<Book | undefined> {
 		const command = String((event.input as { command?: unknown }).command ?? "");
 		const anchor = parentAnchorNow();
 		if (anchor && anchorRun(command, anchor)) return openFromEvidence(ctx);
 		if (bashExit(event) !== 0 || !/\bgit\b[^|;&]*\bcommit\b/.test(command)) return undefined;
-		const repo = repoRootOf(join(ctx.cwd, "_"));
-		const head = repo ? git(repo, ["rev-parse", "HEAD"]) : undefined;
-		const names = repo ? (git(repo, ["show", "--name-only", "--format=", "HEAD"]) ?? "").split("\n").filter(Boolean) : [];
-		if (!repo || !head || !names.some((name) => !outsideWork(join(repo, name), ctx.cwd))) return undefined;
-		const book = openFromEvidence(ctx, { repo, head: git(repo, ["rev-parse", "HEAD~1"]) ?? head });
+		const found = await read(() => {
+			const repo = repoRootOf(join(ctx.cwd, "_"));
+			const head = repo ? git(repo, ["rev-parse", "HEAD"]) : undefined;
+			const names = repo ? (git(repo, ["show", "--name-only", "--format=", "HEAD"]) ?? "").split("\n").filter(Boolean) : [];
+			if (!repo || !head || !names.some((name) => !outsideWork(join(repo, name), ctx.cwd))) return undefined;
+			return { repo, head: git(repo, ["rev-parse", "HEAD~1"]) ?? head };
+		});
+		if (!found) return undefined;
+		const book = await openFromEvidence(ctx, found);
 		book.entries.push(appendEntry(book.path, "edit", { via: "commit" }));
 		return book;
 	}
 
 	/** Opens the loop at the first todo create as `inline`: the first todo's subject is the intent, a stated `Reality anchor:` line or its `metadata.anchor` the anchor. */
-	function openFromTodo(ctx: ExtensionContext, details: unknown): Book {
+	async function openFromTodo(ctx: ExtensionContext, details: unknown): Promise<Book> {
 		const book = createBook(ctx);
-		touchRepo(book, join(ctx.cwd, "_"));
+		await touchRepo(book, join(ctx.cwd, "_"));
 		const first = (taskDetails(details) ?? [])[0];
 		book.entries.push(appendEntry(book.path, "kind", { kind: "inline", auto: true, ...(first?.subject ? { intent: clip(first.subject.replace(/\s+/g, " ").trim(), 200) } : {}) }));
 		recordPriorAnchor(book, ctx);
-		recordPriorLinks(book, ctx);
+		await recordPriorLinks(book, ctx);
 		const anchor = first?.metadata?.anchor;
 		if (typeof anchor === "string" && anchor.trim() && !anchorCommand(book.entries)) book.entries.push(appendEntry(book.path, "anchor", { check: anchor.trim() }));
 		const inherited = !anchorCommand(book.entries) ? parentAnchorNow() : undefined;
@@ -677,9 +687,9 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/** Adopts the book a handoff names by its id (`resume` on the first `kind`, or the first todo's `metadata.resume`); see `adoptBook`. */
-	function resumeBook(ctx: ExtensionContext, id: string): ReturnType<typeof adoptBook> {
+	async function resumeBook(ctx: ExtensionContext, id: string): Promise<ReturnType<typeof adoptBook>> {
 		const adopted = adoptBook(ctx, id.trim());
-		if (adopted.book) touchRepo(adopted.book, join(ctx.cwd, "_"));
+		if (adopted.book) await touchRepo(adopted.book, join(ctx.cwd, "_"));
 		return adopted;
 	}
 
@@ -694,7 +704,7 @@ export default function (pi: ExtensionAPI) {
 		return `anchorloop: this session's loop book ${moved.id} was resumed by session ${moved.session} at ${moved.ts}, so nothing more is recorded here; continue the work in that session, or declare \`kind\` to open a new loop in this one.`;
 	}
 
-	function close(book: Book, ctx: ExtensionContext, verdict: string): { text: string; snapshot?: Snapshot } {
+	async function close(book: Book, ctx: ExtensionContext, verdict: string): Promise<{ text: string; snapshot?: Snapshot }> {
 		const todos = todosOf(ctx);
 		const undisposed = todos.filter((task) => isOpenTask(task) && !validFollowup(task.metadata?.followup));
 		if (undisposed.length > 0) {
@@ -706,7 +716,7 @@ export default function (pi: ExtensionAPI) {
 		const kept = childId() !== undefined;
 		readLateReflects(book, ctx);
 		const kind = currentKind(book.entries);
-		const looped = computeLoop(book, { cwd: ctx.cwd, todos });
+		const looped = await read(() => computeLoop(book, { cwd: ctx.cwd, todos }));
 		const phases = looped.phases;
 		// A todo still open with a followup is deferred to that ticket or note: its unit's phases are no longer this loop's.
 		const deferred = new Set(todos.filter((task) => isOpenTask(task) && validFollowup(task.metadata?.followup)).map((task) => task.id));
@@ -725,7 +735,7 @@ export default function (pi: ExtensionAPI) {
 					...(looped.loopOpen ? [{ name: "loop verify", note: looped.loopOpen }] : []),
 				]
 			: incompleteBefore(phases, "close").filter((status) => status.name !== "reflect");
-		const diff = diffAgainstBases(book.entries);
+		const diff = await read(() => diffAgainstBases(book.entries));
 		const friction = allFriction(book.entries);
 		const phaseList = phases.statuses.map((status) => ({ phase: status.name, state: status.state === "skipped" && status.auto ? "auto-skipped" : status.state === "missing" ? "not shown complete" : status.state, ...(status.state === "skipped" ? { note: status.note } : {}) }));
 		const summary = {
@@ -757,7 +767,7 @@ export default function (pi: ExtensionAPI) {
 			return { text: `${text} The book stays for the main session.` };
 		}
 		// Jev judges the loop as it stood at close; the book is gone by the time the result is judged.
-		const snap = kind === "quick" ? undefined : snapshot(book, ctx);
+		const snap = kind === "quick" ? undefined : await read(() => snapshot(book, ctx));
 		pi.appendEntry(SESSION_ENTRY, summary);
 		// Collect first: each delete drops the event's child-book index, so deleting inside the loop would re-index per link.
 		const children = withTrees(() => childIds(book.entries).flatMap((id) => findChildBooks(id)));
@@ -802,7 +812,7 @@ export default function (pi: ExtensionAPI) {
 		},
 		async execute(toolCallId: string, raw: unknown, signal: unknown, onUpdate: unknown, ctx: ExtensionContext) {
 			try {
-				return withTrees(() => stageTool(toolCallId, raw, signal, onUpdate, ctx));
+				return await bookEvent(() => stageTool(toolCallId, raw, signal, onUpdate, ctx));
 			} finally {
 				guarded(showStatus)(ctx);
 			}
@@ -848,7 +858,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	function stageTool(_toolCallId: string, raw: unknown, _signal: unknown, _onUpdate: unknown, ctx: ExtensionContext) {
+	async function stageTool(_toolCallId: string, raw: unknown, _signal: unknown, _onUpdate: unknown, ctx: ExtensionContext) {
 		const params = raw as Params;
 		const { stage } = params;
 		if (!(STAGES as readonly string[]).includes(stage)) throw new Error(`unknown stage \`${String(stage)}\`; declare one of ${STAGES.join(", ")}`);
@@ -862,7 +872,7 @@ export default function (pi: ExtensionAPI) {
 		if (stage === "kind" && params.resume !== undefined) {
 			// Only the book a handoff names is adopted, and only before this session's own loop holds evidence.
 			if (book?.header.id !== params.resume) {
-				const adopted = resumeBook(ctx, params.resume);
+				const adopted = await resumeBook(ctx, params.resume);
 				if (!adopted.book) throw new Error(`resume refused: ${adopted.refused}`);
 				book = adopted.book;
 			}
@@ -873,7 +883,7 @@ export default function (pi: ExtensionAPI) {
 			if (!params.kind || !params.intent) throw new Error("the first kind declaration needs `kind` and a one-line `intent`");
 			book = createBook(ctx);
 			recordPriorAnchor(book, ctx);
-			recordPriorLinks(book, ctx);
+			await recordPriorLinks(book, ctx);
 		}
 		if (!book && stage === "reflect") {
 			const closed = reflectClosed(ctx, params);
@@ -888,23 +898,24 @@ export default function (pi: ExtensionAPI) {
 			const todos = todosOf(ctx);
 			const units = unitsOf(book.entries, todos).units;
 			const all = params.view === "all";
-			const lines = [...summaryLines(book, ctx, all), ...taskLines(book.entries, todos, ctx.cwd, new Set(units.length >= 2 ? units.map((unit) => unit.id) : [])), `book: ${String(book.header.id ?? "no id")}`];
+			const loopBook = book;
+			const lines = [...(await read(() => summaryLines(loopBook, ctx, all))), ...taskLines(book.entries, todos, ctx.cwd, new Set(units.length >= 2 ? units.map((unit) => unit.id) : [])), `book: ${String(book.header.id ?? "no id")}`];
 			if (params.view === "all") lines.push("entries:", ...book.entries.map((entry) => JSON.stringify(entry).slice(0, 300)));
 			return reply(lines.join("\n"));
 		}
 		if (stage === "landed") {
 			// The ref may have moved since the last event; the state check records that landing first.
-			checkLandings(book);
+			await checkLandings(book);
 			const todos = todosOf(ctx);
 			const found = unitsOf(book.entries, todos);
 			const unit = params.task === undefined ? undefined : unitById(found, params.task);
 			if (params.task !== undefined && !unit) throw new Error(`task ${String(params.task)} is not a unit of this loop`);
 			const todo = unit ? todos.find((task) => task.id === unit.id) : undefined;
-			return reply(declareLanded(book, { sha: params.sha, ref: params.ref, note: params.note, ...(unit ? { children: childrenOf(book.entries, found, unit), task: unit.id, tickets: todo ? taskTickets(todo) : [] } : {}) }).text);
+			return reply((await declareLanded(book, { sha: params.sha, ref: params.ref, note: params.note, ...(unit ? { children: childrenOf(book.entries, found, unit), task: unit.id, tickets: todo ? taskTickets(todo) : [] } : {}) })).text);
 		}
 		if (stage === "close") {
 			if (!params.verdict) throw new Error("close needs a verdict: landed, blocked, or abandoned");
-			const closed = close(book, ctx, params.verdict);
+			const closed = await close(book, ctx, params.verdict);
 			return { content: [{ type: "text" as const, text: closed.text }], details: closed.snapshot ? { snapshot: closed.snapshot } : undefined };
 		}
 		if (stage === "kind") {
@@ -921,10 +932,11 @@ export default function (pi: ExtensionAPI) {
 			// The kind a todo create defaulted to is not a choice yet, so choosing another needs no reason.
 			const changed = had !== undefined && params.kind !== undefined && had !== params.kind;
 			if (changed && !params.reason && !kindIsDefault(book.entries)) throw new Error(`changing the kind from ${had} to ${params.kind} needs \`reason\`: the reach grew, the user added scope, a user-owned decision appeared, or the change turned out smaller`);
-			touchRepo(book, join(ctx.cwd, "_"));
+			await touchRepo(book, join(ctx.cwd, "_"));
 			if (params.kind || params.intent || params.reason) {
 				// A reason answers the reach measured now, so a later threshold asks again.
-				const answer = params.reason ? { reason: params.reason, crossed: reachOf(book.entries, ctx.cwd).crossed } : {};
+				const loopBook = book;
+				const answer = params.reason ? { reason: params.reason, crossed: (await read(() => reachOf(loopBook.entries, ctx.cwd))).crossed } : {};
 				appendEntry(book.path, "kind", { kind: params.kind ?? had, ...(params.intent ? { intent: params.intent } : {}), ...answer });
 			}
 			if (params.anchor) appendEntry(book.path, "anchor", { check: params.anchor });
@@ -952,7 +964,7 @@ export default function (pi: ExtensionAPI) {
 				appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, checkpoint: params.checkpoint, ...(unit ? { task: unit.id } : {}) });
 				return reply(book.entries.some(countsAsLanding) ? "ok" : "ok (an observation counts once the work has landed)");
 			}
-			const entry = appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, ...(unit ? { task: unit.id } : {}), ...reachField(book, ctx.cwd) });
+			const entry = appendEntry(book.path, recorded, { declared: true, note: params.note, result, exit: result === "pass" ? 0 : 1, ...(unit ? { task: unit.id } : {}), ...(await reachField(book, ctx.cwd)) });
 			book.entries.push(entry);
 			const notice = reachNotice(book, entry);
 			return reply(notice ? `ok\n${notice}` : "ok");
@@ -1000,14 +1012,14 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on(
 		"session_start",
-		guarded((_event, ctx) => {
+		guarded(async (_event, ctx) => {
 			lastTodos = undefined;
 			lastWidget = null;
 			const [summary, ...lines] = sweepLines(sweep(process.env, ctx.cwd));
 			const open = openLoop(ctx);
-			if (open) withTrees(() => {
-				checkLandings(open);
-				lines.push(...orphanLines(open.entries).map((line) => `child ${line}`));
+			if (open) await bookEvent(async () => {
+				await checkLandings(open);
+				lines.push(...(await read(() => orphanLines(open.entries))).map((line) => `child ${line}`));
 			});
 			if (summary !== undefined || lines.length > 0) ctx.ui.notify([`anchorloop${summary ? `: ${summary}` : ""}`, ...lines].join("\n"), "info");
 			showStatus(ctx);
@@ -1016,37 +1028,40 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on(
 		"tool_call",
-		guarded((event, ctx) => {
-			if (event.toolName === "bash") {
-				// The tips of the watched refs before the call, so a ref the call itself moves is told from one moved elsewhere.
-				const book = openLoop(ctx);
-				if (book) tipsBefore.set(event.toolCallId, watchTips(book));
-				const command = String((event.input as { command?: unknown }).command ?? "");
-				if (book && PUSH.test(command) && watchesRefs(book.entries)) {
-					remotesBefore.set(event.toolCallId, new Map(ownBases(book.entries).filter((base) => existsSync(base.repo)).map((base) => [base.repo, remoteTips(base.repo)])));
+		guarded((event, ctx) =>
+			bookEvent(async () => {
+				if (event.toolName === "bash") {
+					// The tips of the watched refs before the call, so a ref the call itself moves is told from one moved elsewhere.
+					const book = openLoop(ctx);
+					if (book) tipsBefore.set(event.toolCallId, await watchTips(book));
+					const command = String((event.input as { command?: unknown }).command ?? "");
+					if (book && PUSH.test(command) && watchesRefs(book.entries)) {
+						const repos = ownBases(book.entries).filter((base) => existsSync(base.repo)).map((base) => base.repo);
+						remotesBefore.set(event.toolCallId, await read(() => new Map(repos.map((repo) => [repo, remoteTips(repo)]))));
+					}
+					return;
 				}
-				return;
-			}
-			if (event.toolName !== "write" && event.toolName !== "edit") return;
-			const path = (event.input as { path?: unknown }).path;
-			if (typeof path !== "string") return;
-			let book = openLoop(ctx);
-			// A child's first production edit opens its book, before the file changes, so the base is the state it started from.
-			if (!book && childId() !== undefined && !artifactKind(path) && !outsideWork(path, ctx.cwd)) book = openFromEvidence(ctx);
-			if (book) touchRepo(book, resolve(ctx.cwd, path));
-		}),
+				if (event.toolName !== "write" && event.toolName !== "edit") return;
+				const path = (event.input as { path?: unknown }).path;
+				if (typeof path !== "string") return;
+				let book = openLoop(ctx);
+				// A child's first production edit opens its book, before the file changes, so the base is the state it started from.
+				if (!book && childId() !== undefined && !artifactKind(path) && !outsideWork(path, ctx.cwd)) book = await openFromEvidence(ctx);
+				if (book) await touchRepo(book, resolve(ctx.cwd, path));
+			}),
+		),
 	);
 
 	/**
 	 * Records each branch a bash call pushed (git says so: the remote-tracking ref moved by this checkout's own push) as a car this session
 	 * sends, bound to the unit whose ticket its name holds; its landing in the integration ref then counts for that unit.
 	 */
-	function recordPushes(book: Book, before: Map<string, Record<string, string>>, command: string, ctx: ExtensionContext): void {
+	async function recordPushes(book: Book, before: Map<string, Record<string, string>>, command: string, ctx: ExtensionContext): Promise<void> {
 		const named = pushRefspecs(command);
 		const todos = todosOf(ctx);
 		const found = unitsOf(book.entries, todos);
 		for (const [repo, tips] of before) {
-			for (const pushed of pushedSince(repo, tips, named)) {
+			for (const pushed of await read(() => pushedSince(repo, tips, named))) {
 				const task = todoForTickets(todos, ticketKeys(pushed.ref));
 				const unit = task === undefined ? undefined : unitById(found, task);
 				book.entries.push(appendEntry(book.path, "push", { repo, ...pushed, ...(unit ? { task: unit.id } : {}) }));
@@ -1055,8 +1070,8 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/** The reach of an unreviewed loop's diff, recorded on its verify or check entry; a reviewed loop is never measured. */
-	function reachField(book: Book, cwd: string): { reach?: ReturnType<typeof reachOf> } {
-		return REVIEWLESS.has(currentKind(book.entries) ?? "inline") ? { reach: reachOf(book.entries, cwd) } : {};
+	async function reachField(book: Book, cwd: string): Promise<{ reach?: ReturnType<typeof reachOf> }> {
+		return REVIEWLESS.has(currentKind(book.entries) ?? "inline") ? { reach: await read(() => reachOf(book.entries, cwd)) } : {};
 	}
 
 	/** The line that asks the loop to re-classify after a verify or check entry whose reach no `kind` answer covers. */
@@ -1071,13 +1086,13 @@ export default function (pi: ExtensionAPI) {
 		return [...new Set([...ownBases(book.entries).map((base) => base.repo), ...(here ? [here] : [])])];
 	}
 
-	function loopTrees(book: Book, cwd: string): string[] {
+	function loopTrees(book: Book, cwd: string): Promise<string[]> {
 		return workingTrees(loopRepos(book, cwd));
 	}
 
 	/** A child's anchor run carries the trees it ran on, so the coordinator can tell whether it holds that same state. */
-	function treesField(book: Book, cwd: string): { trees?: string[] } {
-		const trees = loopTrees(book, cwd);
+	async function treesField(book: Book, cwd: string): Promise<{ trees?: string[] }> {
+		const trees = await loopTrees(book, cwd);
 		return trees.length ? { trees } : {};
 	}
 
@@ -1086,16 +1101,16 @@ export default function (pi: ExtensionAPI) {
 	 * that run checked (after a merge lands a worker's branch, or when a child that worked in this checkout returns), so the
 	 * coordinator does not run the anchor a second time. Any other state, or another command, leaves verify to its own run.
 	 */
-	function adoptChildRun(book: Book, cwd: string): void {
+	async function adoptChildRun(book: Book, cwd: string): Promise<void> {
 		const anchor = anchorCommand(book.entries);
-		if (!anchor || verifyAfterLastAct(book.entries) || !book.entries.some((entry) => entry.stage === "link")) return;
+		if (!anchor || (await read(() => verifyAfterLastAct(book.entries))) || !book.entries.some((entry) => entry.stage === "link")) return;
 		const repos = loopRepos(book, cwd);
-		const at = treeAtField(repos);
+		const at = await treeAtField(repos);
 		const trees = Object.values(at.treeAt ?? {});
-		const found = adoptableRun(book.entries, anchor, trees, repos, cwd);
+		const found = await read(() => adoptableRun(book.entries, anchor, trees, repos, cwd));
 		if (!found) return;
 		const last = `adopted from ${found.name}${found.run.last ? `: ${String(found.run.last)}` : ""}`.slice(0, 200);
-		book.entries.push(appendEntry(book.path, "verify", { command: anchor.slice(0, 200), exit: 0, last, adopted: found.name, child: found.child, trees, ...at, ...reachField(book, cwd) }));
+		book.entries.push(appendEntry(book.path, "verify", { command: anchor.slice(0, 200), exit: 0, last, adopted: found.name, child: found.child, trees, ...at, ...(await reachField(book, cwd)) }));
 	}
 
 	/**
@@ -1124,16 +1139,16 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/** Adopts a returned child's passing run: per unit in a loop of two or more units, else as the loop's verify. */
-	function adoptRuns(book: Book, ctx: ExtensionContext): void {
+	async function adoptRuns(book: Book, ctx: ExtensionContext): Promise<void> {
 		if (unitsOf(book.entries, todosOf(ctx)).units.length >= 2) adoptUnitRuns(book, ctx);
-		else adoptChildRun(book, ctx.cwd);
+		else await adoptChildRun(book, ctx.cwd);
 	}
 
 	/**
 	 * Records what a finished bash call shows: runs of the loop anchor, of task anchors, and a first commit as the change.
 	 * Returns the re-classification line when an anchor run of an unreviewed loop measured a reach no `kind` answer covers.
 	 */
-	function recordBash(book: Book, event: { input: unknown; isError?: boolean; structuredContent?: unknown; content?: unknown }, cwd: string): string | undefined {
+	async function recordBash(book: Book, event: { input: unknown; isError?: boolean; structuredContent?: unknown; content?: unknown }, cwd: string): Promise<string | undefined> {
 		const structured = event.structuredContent as { output?: unknown } | undefined;
 		const output = typeof structured?.output === "string" ? structured.output : textOf(event.content);
 		const command = String((event.input as { command?: unknown }).command ?? "");
@@ -1146,10 +1161,10 @@ export default function (pi: ExtensionAPI) {
 		const inherited = parentAnchorNow();
 		// Each run records the working tree of the repo it ran in (a leading `cd` moves it), and stands while that tree is unchanged.
 		const trees = new Map<string, { treeAt?: Record<string, string> }>();
-		const treeOf = (at: number) => {
+		const treeOf = async (at: number) => {
 			const repo = repoRootOf(join(ranIn(command, at, cwd), "_"));
 			if (!repo) return {};
-			if (!trees.has(repo)) trees.set(repo, treeAtField([repo]));
+			if (!trees.has(repo)) trees.set(repo, await treeAtField([repo]));
 			return trees.get(repo) ?? {};
 		};
 		for (const own of [...new Set([anchor, inherited].filter((item): item is string => item !== undefined))]) {
@@ -1160,7 +1175,7 @@ export default function (pi: ExtensionAPI) {
 			const child = childId() !== undefined;
 			const recorded = child || currentKind(book.entries) === "quick" ? "check" : "verify";
 			const code = anchorExit(command, own, exit);
-			const entry = appendEntry(book.path, recorded, { command: own.slice(0, 200), exit: code, last, ...keyOf(code), ...reachField(book, cwd), ...(child ? treesField(book, cwd) : {}), ...treeOf(run.at) });
+			const entry = appendEntry(book.path, recorded, { command: own.slice(0, 200), exit: code, last, ...keyOf(code), ...(await reachField(book, cwd)), ...(child ? await treesField(book, cwd) : {}), ...(await treeOf(run.at)) });
 			book.entries.push(entry);
 			const reach = reachNotice(book, entry);
 			if (reach) notices.push(reach);
@@ -1169,22 +1184,22 @@ export default function (pi: ExtensionAPI) {
 			const run = typeof task.anchor === "string" ? anchorRun(command, task.anchor) : undefined;
 			if (typeof task.anchor !== "string" || !run) continue;
 			const code = anchorExit(command, task.anchor, exit);
-			book.entries.push(appendEntry(book.path, "taskrun", { id: task.id, command: task.anchor.slice(0, 200), exit: code, last, ...keyOf(code), ...treeOf(run.at) }));
+			book.entries.push(appendEntry(book.path, "taskrun", { id: task.id, command: task.anchor.slice(0, 200), exit: code, last, ...keyOf(code), ...(await treeOf(run.at)) }));
 		}
 		autoFriction(book);
 		const merged = mergeRun(command);
 		if (exit === 0 && merged && !/Already up[ -]to[ -]date/i.test(last ?? "")) {
 			if (book.entries.at(-1)?.stage !== "edit") {
 				const dir = resolve(String(book.header.cwd ?? process.cwd()), merged.dir);
-				touchRepoBeforeMerge(book, dir, merged.verb);
+				await touchRepoBeforeMerge(book, dir, merged.verb);
 				const repo = repoRootOf(join(dir, "_"));
 				book.entries.push(appendEntry(book.path, "edit", { via: "merge", ...(repo ? { repo } : {}) }));
 			}
-			adoptChildRun(book, cwd);
+			await adoptChildRun(book, cwd);
 		}
 		if (exit === 0 && /\bgit\b[^|;&]*\bcommit\b/.test(command) && !book.entries.some((entry) => entry.stage === "edit")) {
 			const cwd = String(book.header.cwd ?? "");
-			if (diffAgainstBases(book.entries).paths.some((path) => !outsideWork(path, cwd))) appendEntry(book.path, "edit", { via: "commit" });
+			if ((await read(() => diffAgainstBases(book.entries))).paths.some((path) => !outsideWork(path, cwd))) appendEntry(book.path, "edit", { via: "commit" });
 		}
 		return notices.join("\n") || undefined;
 	}
@@ -1258,7 +1273,7 @@ export default function (pi: ExtensionAPI) {
 	 * Records what a finished tool call shows; returns the tool result with any line the loop adds. A main session whose book another
 	 * session resumed is told so on whatever tool result comes next, and that call records nothing in a loop that is no longer its own.
 	 */
-	function recordResult(event: ToolResultEvent, ctx: ExtensionContext) {
+	async function recordResult(event: ToolResultEvent, ctx: ExtensionContext) {
 		const own = openBook(ctx);
 		const moved = own && isClosed(own) && childId() === undefined ? movedNotice(own) : undefined;
 		if (moved) {
@@ -1267,16 +1282,16 @@ export default function (pi: ExtensionAPI) {
 		return recordOwnResult(event, ctx, own && !isClosed(own) ? own : undefined);
 	}
 
-	function recordOwnResult(event: ToolResultEvent, ctx: ExtensionContext, book: Book | undefined) {
+	async function recordOwnResult(event: ToolResultEvent, ctx: ExtensionContext, book: Book | undefined) {
 		if (event.toolName === "bash") {
-			if (!book && childId() !== undefined) book = openChildFromBash(ctx, event);
-			const notice = book ? recordBash(book, event, ctx.cwd) : undefined;
+			if (!book && childId() !== undefined) book = await openChildFromBash(ctx, event);
+			const notice = book ? await recordBash(book, event, ctx.cwd) : undefined;
 			const before = tipsBefore.get(event.toolCallId);
 			tipsBefore.delete(event.toolCallId);
 			const remotes = remotesBefore.get(event.toolCallId);
 			remotesBefore.delete(event.toolCallId);
-			if (book && remotes) recordPushes(book, remotes, String((event.input as { command?: unknown }).command ?? ""), ctx);
-			if (book) checkLandings(book, before);
+			if (book && remotes) await recordPushes(book, remotes, String((event.input as { command?: unknown }).command ?? ""), ctx);
+			if (book) await checkLandings(book, before);
 			// The line only appends text, so the bash call's structured output passes on unchanged.
 			return notice ? { content: [...((event.content as unknown[]) ?? []), { type: "text", text: notice }], structuredContent: event.structuredContent } : undefined;
 		}
@@ -1288,11 +1303,11 @@ export default function (pi: ExtensionAPI) {
 			const resume = input.action === "create" ? (taskDetails(event.details) ?? []).map((task) => task.metadata?.resume).find((id): id is string => typeof id === "string" && id.trim() !== "") : undefined;
 			// A todo's `resume` adopts the book whether or not an opening `kind` came first; a refusal is said, never dropped.
 			if (resume !== undefined && open?.header.id !== resume) {
-				const adopted = resumeBook(ctx, resume);
+				const adopted = await resumeBook(ctx, resume);
 				if (adopted.refused) said = `anchorloop: resume refused: ${adopted.refused}${open ? "" : "; a new loop was opened instead, and `kind` with `resume` can still adopt the book while it holds no evidence"}.`;
 				open = adopted.book ?? open;
 			}
-			if (!open && input.action === "create") open = openFromTodo(ctx, event.details);
+			if (!open && input.action === "create") open = await openFromTodo(ctx, event.details);
 			if (!open) return;
 			recordTasks(open, event.details, input, ctx.cwd);
 			return said ? { content: [...((event.content as unknown[]) ?? []), { type: "text", text: said }] } : undefined;
@@ -1300,11 +1315,11 @@ export default function (pi: ExtensionAPI) {
 		if (!book) return;
 		if (event.toolName === "subagent") {
 			const link = linkFrom(event.toolName, event.input, event.details);
-			if (link) recordLink(book, link, ctx);
+			if (link) await recordLink(book, link, ctx);
 			return;
 		}
 		if (event.toolName === "subagent_send" || event.toolName === "subagent_resume") {
-			recordSend(book, event.toolName, event.input, event.details, ctx);
+			await recordSend(book, event.toolName, event.input, event.details, ctx);
 			return;
 		}
 		if (event.toolName !== "write" && event.toolName !== "edit") return;
@@ -1313,7 +1328,7 @@ export default function (pi: ExtensionAPI) {
 		if (!artifactKind(path)) {
 			const target = resolve(ctx.cwd, path);
 			// A file git ignores (a handoff note, a plan) is in no diff, so it is no change to the code.
-			if (outsideWork(path, ctx.cwd) || ignoredByGit(target)) return;
+			if (outsideWork(path, ctx.cwd) || (await ignoredByGit(target))) return;
 			const repo = repoRootOf(target);
 			const last = book.entries.at(-1);
 			if (last?.stage !== "edit" || last.repo !== repo) appendEntry(book.path, "edit", { path, ...(repo ? { repo } : {}) });
@@ -1331,8 +1346,8 @@ export default function (pi: ExtensionAPI) {
 
 	// One reading of the working state per tool result: the footer after the recording reads the trees the recording built.
 	pi.on("tool_result", (event, ctx) =>
-		withTrees(() => {
-			const out = guarded(recordResult)(event, ctx);
+		bookEvent(async () => {
+			const out = await guarded(recordResult)(event, ctx);
 			guarded(showStatus)(ctx);
 			return out;
 		}),
@@ -1361,7 +1376,7 @@ export default function (pi: ExtensionAPI) {
 		const found = unitsOf(book.entries, todos);
 		const brief = sent !== undefined ? undefined : result.task;
 		const task = sent !== undefined ? sent : found.units.length >= 2 ? unitOfDispatch(found, todos, typeof child === "string" ? child : undefined, brief ?? "") : undefined;
-		const trees = dispatch?.treeAt ? { treeAt: dispatch.treeAt } : dispatch ? {} : treeAtField(reviewedRepos(book, ctx.cwd));
+		const trees = dispatch?.treeAt ? { treeAt: dispatch.treeAt } : dispatch ? {} : await bookEvent(() => treeAtField(reviewedRepos(book, ctx.cwd)));
 		const counts = parseBlocking(text);
 		let blocking: boolean | null = null;
 		let source = `reviewer ${name}`;
@@ -1412,9 +1427,9 @@ function headAndTail(text: string): string {
 
 /** Jev judges whether a returned subagent was a fresh-context read of the spec; the spec path in its brief is only a pre-filter. */
 	async function detectFreshRead(ctx: ExtensionContext, book: Book, details: { name?: unknown; task?: unknown; resultContent?: unknown }): Promise<void> {
-		const phases = withTrees(() => phasesOf(book, ctx));
-		const read = phases.statuses.find((status) => status.name === "read");
-		if (read?.state !== "missing" || !read.note.startsWith("a fresh-context")) return;
+		const phases = await bookEvent(() => read(() => phasesOf(book, ctx)));
+		const fresh = phases.statuses.find((status) => status.name === "read");
+		if (fresh?.state !== "missing" || !fresh.note.startsWith("a fresh-context")) return;
 		const folder = specFolder(book.entries, todosOf(ctx), ctx.cwd);
 		const brief = String(details.task ?? "");
 		if (!folder || !(brief.includes(`${folder}/spec.md`) || brief.includes(resolve(ctx.cwd, folder, "spec.md")))) return;
@@ -1458,9 +1473,9 @@ function headAndTail(text: string): string {
 				...(handoff?.changedFiles ? { changedFiles: handoff.changedFiles.slice(0, 50) } : {}),
 			}));
 			if (!subagent) {
-				withTrees(() => {
-					checkLandings(book);
-					adoptRuns(book, ctx);
+				await bookEvent(async () => {
+					await checkLandings(book);
+					await adoptRuns(book, ctx);
 				});
 			}
 			if (REVIEWERS.has(result.agent)) await recordReview(ctx, book, result, link);

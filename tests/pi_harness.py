@@ -32,7 +32,7 @@ const [extensionUrls, cwd, stepsJson, branchJson, classifyJson, sessionId, sessi
 const handlers = {};
 const tools = {};
 const branch = JSON.parse(branchJson);
-const out = { results: [], branchReads: [], classifyCalls: [], questionSets: [], notices: [], appended: [], emitted: [], statuses: [], widgets: [] };
+const out = { results: [], branchReads: [], classifyCalls: [], questionSets: [], notices: [], appended: [], emitted: [], statuses: [], widgets: [], lags: [] };
 const pi = {
   on: (event, fn) => { (handlers[event] ??= []).push(fn); },
   registerTool: (tool) => { tools[tool.name] = tool; },
@@ -77,7 +77,16 @@ async function dispatch(event, payload) {
   }
   return merged;
 }
+// How late a 20 ms timer fired at worst while a step ran: a step that blocks the event loop holds the timer back.
+function watchLag() {
+  let last = performance.now();
+  let worst = 0;
+  const tick = () => { const now = performance.now(); worst = Math.max(worst, now - last - 20); last = now; };
+  const timer = setInterval(tick, 20);
+  return () => { clearInterval(timer); tick(); return Math.max(0, Math.round(worst)); };
+}
 for (const step of JSON.parse(stepsJson)) {
+  const lag = watchLag();
   try {
     if (step.file) {
       mkdirSync(dirname(resolve(cwd, step.file)), { recursive: true });
@@ -106,6 +115,7 @@ for (const step of JSON.parse(stepsJson)) {
   } catch (error) {
     out.results.push({ error: error.message });
   }
+  out.lags.push(lag());
 }
 out.schemas = Object.fromEntries(Object.entries(tools).map(([name, tool]) => [name, { description: tool.description, parameters: tool.parameters }]));
 console.log(JSON.stringify(out));
