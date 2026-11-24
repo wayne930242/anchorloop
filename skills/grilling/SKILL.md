@@ -23,6 +23,8 @@ Finding facts is the agent's job. Use the environment and available tools; deleg
 
 When terminology or a durable architectural decision emerges, invoke `domain-modeling` at that point.
 
+Optionally, when the settled design should outlive this session, write each decision with the options rejected and the evidence behind it where the project's instructions keep durable records, so a later session, person, or team can pick it up without asking again. A project that names no such place skips this step.
+
 The session is complete when the frontier is empty and every branch has been visited. Record each answer as `confirmed` in the caller's artifact, if any, and return the confirmed decisions to the caller.
 
 ---
