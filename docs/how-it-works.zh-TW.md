@@ -1,4 +1,4 @@
-# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ cbdc370 -->
+# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ b6c901d -->
 
 [README](../README.zh-TW.md) 背後的完整行為。skill 告訴 agent 怎麼工作；下面兩個 pi extension 只在程式碼裡抓便宜就抓得到的事，兩者都不會多開一輪，也不註冊工具。
 
@@ -16,8 +16,8 @@
 <details>
 <summary>什麼算 anchor、什麼算變更、什麼算通過的執行</summary>
 
-anchor 是 agent 最後寫下的 `Anchor: <check>` 行（`Reality anchor:` 和粗體標記也算），或 `todo` 呼叫最後帶的 `metadata.anchor`，以較晚的為準。
-那一行裡每個反引號包住的指令都是一項檢查；沒有反引號的 `metadata.anchor` 整個視為一條指令。
+anchor 是 agent 最後寫下的 `Anchor: <check>` 行（`Reality anchor:` 和粗體標記也算），或 `todo` 呼叫最後指定的 anchor，以較晚的為準。守衛先讀呼叫本身，再依序讀每個 `tasks[]` 項目；每次從 `anchor`、`metadata.anchor` 依序取第一個非空白字串。
+那一行裡每個反引號包住的指令都是一項檢查；沒有反引號的任務 anchor 整個視為一條指令。
 沒有指令的 anchor，例如 reviewer 的判定或某個人的驗收，不在判斷範圍內。
 
 變更是成功的 `write` 或 `edit`。
