@@ -1,4 +1,4 @@
-# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ b6c901d -->
+# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ bc8adcb -->
 
 [README](../README.zh-TW.md) 背後的完整行為。skill 告訴 agent 怎麼工作；下面兩個 pi extension 只在程式碼裡抓便宜就抓得到的事，兩者都不會多開一輪，也不註冊工具。
 
@@ -31,7 +31,12 @@ anchor 是 agent 最後寫下的 `Anchor: <check>` 行（`Reality anchor:` 和�
 anchorloop: no passing run of `pytest -q` after the last change.
 ```
 
-每次變更只提醒一次：之後沒有新變更的停下不再加任何東西，下一次變更才會重新啟動它。
+每次變更只提醒一次還缺哪些檢查。
+
+若已安裝 pi-todo-ledger，守門也會在任務的 anchor 通過後指出任務編號，請 agent 用 `todo update` 補記尚未登錄的執行：每次執行各佔一筆 `evidence`，填入 `command`、`result: "pass"`，若知道當時的版本則一併填入 `sha`。
+守門從成功的工具呼叫和 branch 上的 `todo/v1` 快照辨認任務；檢查是否通過，看的是 bash 執行結果，不是帳本。
+要收到這項提醒，每個檢查都須在最後一次編輯後按原指令執行並通過（前面可加簡單的 `cd dir &&` 或 `uv run`）；只印出指令或掩蓋失敗的呼叫不能當作證據。
+同一次執行只提醒一次，agent 在下次收到提示時才會看到；帳本仍由 agent 寫入。
 一切都從 branch 讀出，所以恢復或重新載入的 session 讀到的是同樣的狀態。
 
 </details>
