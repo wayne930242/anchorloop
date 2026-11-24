@@ -13,7 +13,8 @@ export const NOTICE_TYPE = "anchorloop-close-guard";
 
 type Part = { type?: string; text?: string; id?: string; name?: string; arguments?: Record<string, unknown> };
 type Message = { role?: string; content?: unknown; toolCallId?: string; isError?: boolean; structuredContent?: { exit_code?: unknown } };
-type Entry = { type?: string; id?: string; customType?: string; details?: { change?: unknown }; message?: Message };
+interface LedgerTask { id: number; subject: string; status: string; anchor?: string; metadata?: { anchor?: string } }
+type Entry = { type?: string; id?: string; customType?: string; details?: { change?: unknown; evidenceKey?: string }; data?: { v?: number; tasks?: LedgerTask[] }; message?: Message };
 
 /** Runs of spaces and tabs collapsed, so `pytest  -q` matches `pytest -q`. */
 const squeeze = (text: string) => text.replace(/[ \t]+/g, " ").trim();
@@ -41,6 +42,7 @@ export interface Reading {
 	green: Map<string, boolean>;
 	/** The change ids a notice was already added for. */
 	noticed: Set<string>;
+	handoff?: { task: number; key: string };
 }
 
 /** Reads the branch in order: anchor statements, tool calls and their results, and earlier notices. */
@@ -51,22 +53,35 @@ export function read(branch: readonly Entry[]): Reading {
 	let anchor: string[] | undefined;
 	let change: string | undefined;
 	let changeSeq = -1;
+	let source: { call: string; value: string; subject?: unknown; id?: unknown } | undefined;
+	let tasks: LedgerTask[] = [];
+	let task: number | undefined;
+	const reminded = new Set<string>();
 	branch.forEach((entry, seq) => {
 		if (entry.type === "custom_message" && entry.customType === NOTICE_TYPE && typeof entry.details?.change === "string") noticed.add(entry.details.change);
+		if (entry.customType === NOTICE_TYPE && entry.details?.evidenceKey) reminded.add(entry.details.evidenceKey);
+		if (entry.type === "custom" && entry.customType === "todo/v1" && entry.data?.v === 1 && Array.isArray(entry.data.tasks)) {
+			tasks = entry.data.tasks;
+			if (!tasks.some(t => t?.id === task && t.status !== "deleted")) task = undefined;
+		}
 		const message = entry.message;
 		if (entry.type !== "message" || !message) return;
 		if (message.role === "assistant") {
 			for (const part of partsOf(message)) {
 				if (part.type === "text" && part.text) {
 					const line = anchorLine(part.text);
-					if (line !== undefined) anchor = commandsOf(line, false);
+					if (line !== undefined) { anchor = commandsOf(line, false); source = undefined; task = undefined; }
 				} else if (part.type === "toolCall" && part.id) {
 					calls.set(part.id, part);
 					if (part.name === "todo" && part.arguments) {
 						const tasks = part.arguments.tasks;
 						for (const item of [part.arguments, ...(Array.isArray(tasks) ? tasks : [])]) {
 							const value = [item?.anchor, item?.metadata?.anchor].find(v => typeof v === "string" && v.trim());
-							if (value) anchor = commandsOf(value, true);
+							if (value) {
+								anchor = commandsOf(value, true);
+								source = { call: part.id, value, subject: item.subject, id: item.id };
+								task = undefined;
+							}
 						}
 					}
 				}
@@ -76,6 +91,11 @@ export function read(branch: readonly Entry[]): Reading {
 			if (!part) return;
 			const code = message.structuredContent?.exit_code;
 			const ok = typeof code === "number" ? code === 0 : message.isError !== true;
+			if (source && source.call === message.toolCallId && ok) {
+				const { id, subject, value } = source;
+				task = tasks.findLast(t => t && t.status !== "deleted" && (id !== undefined ? t.id === id : t.subject === subject)
+					&& (t.anchor ?? t.metadata?.anchor) === value)?.id;
+			}
 			if ((part.name === "write" || part.name === "edit") && ok) {
 				change = entry.id ?? `#${seq}`;
 				changeSeq = seq;
@@ -85,11 +105,17 @@ export function read(branch: readonly Entry[]): Reading {
 		}
 	});
 	const green = new Map<string, boolean>();
+	const runIds: number[] = [];
 	for (const command of anchor ?? []) {
 		const last = runs.filter((run) => run.command.includes(command)).at(-1);
+		// A containing shell command can quote the check or swallow its failure; only hand off identifiable invocations.
+		const invocation = last?.command.replace(/^cd [\w./-]+ && /, "");
+		if (last && [last.command, invocation, invocation?.replace(/^uv run /, "")].includes(command)) runIds.push(last.seq);
 		green.set(command, !!last && last.seq > changeSeq && last.ok);
 	}
-	return { anchor, change, green, noticed };
+	const key = JSON.stringify([source?.call, change, runIds]);
+	const handoff = task && change && green.size && runIds.length === anchor?.length && [...green.values()].every(Boolean) && !reminded.has(key) ? { task, key } : undefined;
+	return { anchor, change, green, noticed, handoff };
 }
 
 /** The one-line notice for a reading, or `undefined` when the run may close as it stands. */
@@ -105,9 +131,10 @@ export function notice(reading: Reading): string | undefined {
 export default function closeGuard(pi: ExtensionAPI) {
 	pi.on("agent_before_settle", (event, ctx) => {
 		const reading = read(ctx.sessionManager.getBranch() as Entry[]);
-		const line = notice(reading);
+		const handoff = reading.handoff && pi.getAllTools().some(t => t.name === "todo" && t.parameters.properties?.evidence) ? reading.handoff : undefined;
+		const line = handoff ? `anchorloop: use todo update on #${handoff.task} to append each unrecorded passing run to evidence: {command, result:"pass"} and include sha when known.` : notice(reading);
 		if (!line) return undefined;
-		const entry = { type: "custom_message" as const, customType: NOTICE_TYPE, content: line, display: true, details: { change: reading.change } };
+		const entry = { type: "custom_message" as const, customType: NOTICE_TYPE, content: line, display: true, details: handoff ? { evidenceKey: handoff.key } : { change: reading.change } };
 		return { entries: [...event.entries, entry] };
 	});
 }

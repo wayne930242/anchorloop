@@ -12,7 +12,7 @@ HARNESS = """
 const [extensionUrl, branchJson, entriesJson] = process.argv.slice(1);
 const handlers = {};
 const tools = [];
-const pi = { on: (event, fn) => { (handlers[event] ??= []).push(fn); }, registerTool: (tool) => tools.push(tool.name) };
+const pi = { getAllTools: () => [{ name: 'todo', parameters: { properties: JSON.parse(process.argv[4]) } }], on: (event, fn) => { (handlers[event] ??= []).push(fn); }, registerTool: (tool) => tools.push(tool.name) };
 const { default: register } = await import(extensionUrl);
 register(pi);
 const branch = JSON.parse(branchJson);
@@ -47,8 +47,8 @@ def bash(call_id: str, command: str, ok: bool = True) -> list[dict]:
 
 @unittest.skipUnless(shutil.which("node"), "node is required to load the pi extension")
 class TestCloseGuard(unittest.TestCase):
-    def settle(self, branch: list[dict], entries: list[dict] | None = None) -> dict:
-        proc = subprocess.run(["node", "--input-type=module", "-e", HARNESS, EXTENSION.as_uri(), json.dumps(branch), json.dumps(entries or [])],
+    def settle(self, branch: list[dict], entries: list[dict] | None = None, ledger: bool = True) -> dict:
+        proc = subprocess.run(["node", "--input-type=module", "-e", HARNESS, EXTENSION.as_uri(), json.dumps(branch), json.dumps(entries or []), json.dumps({"evidence": {}} if ledger else {})],
                               capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return json.loads(proc.stdout.strip().splitlines()[-1])
@@ -120,6 +120,36 @@ class TestCloseGuard(unittest.TestCase):
                 branch = [call("todo", "t", action="create", **args), *edit("e")]
                 self.assertIn("`make check`", self.notice(branch))
                 self.assertIsNone(self.notice([*branch, *bash("b", "make check")]))
+
+    def test_evidence_handoff_uses_real_results_and_the_current_task(self) -> None:
+        task = {"id": 7, "subject": "check", "status": "in_progress", "anchor": "make check",
+                "evidence": [{"command": "make check", "result": "pass", "at": "2026-01-01T00:00:00.000Z"}]}
+        snapshot = {"type": "custom", "customType": "todo/v1", "data": {"v": 1, "tasks": [task], "nextId": 8}}
+        branch = [call("todo", "t", action="update", id=7, anchor="make check"), snapshot, result("todo", "t"), *edit("e")]
+        missing = self.settle(branch)["result"]["entries"][0]
+        self.assertNotIn("evidence", missing["content"])
+        passed = [*branch, missing, *bash("b", "make check")]
+        line = self.notice(passed)
+        self.assertIsNotNone(line)
+        for token in ("todo update", "#7", "evidence", "command", "sha", '"pass"'):
+            self.assertIn(token, line)
+        self.assertIsNone(self.settle(passed, ledger=False)["result"])
+        for command in ("echo make check", "make check || true"):
+            self.assertIsNone(self.notice([*branch, *bash("b", command)]))
+        reminder = self.settle(passed)["result"]["entries"][0]
+        self.assertIsNone(self.notice([*passed, reminder]))
+        self.assertIsNone(self.notice([*passed, say("Anchor: `make check`")]))
+        empty = {**snapshot, "data": {"v": 1, "tasks": [], "nextId": 1}}
+        self.assertIsNone(self.notice([*passed, empty, snapshot]))  # id reused after clear
+
+    def test_batch_handoff_names_the_last_anchored_item(self) -> None:
+        items = [{"subject": "one", "anchor": "make check"}, {"subject": "two", "metadata": {"anchor": "make check"}}, {"subject": "three"}]
+        tasks = [{**item, "id": i, "status": "pending"} for i, item in enumerate(items, 1)]
+        snapshot = {"type": "custom", "customType": "todo/v1", "data": {"v": 1, "tasks": tasks, "nextId": 4}}
+        branch = [call("todo", "t", action="create", tasks=items), snapshot, result("todo", "t"), *edit("e")]
+        self.assertIn("#2", self.notice([*branch, *bash("b", "cd svc && make check")]))
+        rejected = [snapshot, call("todo", "u", action="update", id=1, anchor="make check"), result("todo", "u", is_error=True)]
+        self.assertIsNone(self.notice([*rejected, *edit("e"), *bash("b", "make check")]))
 
     def test_a_failed_edit_is_not_a_change(self):
         branch = [say("Anchor: `pytest -q`"), *bash("b1", "pytest -q"), call("edit", "e1", path="a.py"), result("edit", "e1", is_error=True)]

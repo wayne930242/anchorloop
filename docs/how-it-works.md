@@ -31,7 +31,12 @@ The line names the checks still missing, for example:
 anchorloop: no passing run of `pytest -q` after the last change.
 ```
 
-It speaks once per change: a later settle with no new change adds nothing, and the next change arms it again.
+The guard reports missing checks once per change.
+
+With pi-todo-ledger installed, the guard also names the task whose anchor passed and asks the agent to append any unrecorded runs with `todo update`: one `evidence` item per run, with `command`, `result: "pass"`, and `sha` when known.
+The guard identifies the task from the accepted call and the branch’s `todo/v1` snapshot; it judges the run from the bash result, never from the ledger.
+For this reminder, each check must pass as written after the last edit (a simple `cd dir &&` or `uv run` prefix also counts); a command that only prints the check or masks its failure supplies no evidence.
+The same run gets one reminder, visible on the next prompt; only the agent can write the ledger.
 Everything is read from the branch, so a resumed or reloaded session reads the same state.
 
 </details>
