@@ -2,7 +2,7 @@
  * The close guard: when a run settles after a file change with no passing run of its anchor since, it adds one line to the
  * session. The line is shown and reaches the model with the next prompt; it never starts a turn.
  *
- * The anchor is the last `Anchor: <check>` line the agent wrote, or the last `metadata.anchor` on a todo call. Each backticked
+ * The anchor is the last `Anchor: <check>` line the agent wrote, or the last anchor on a todo call or batch item. Each backticked
  * command in it (a todo's bare value is one command) must have its latest bash run after the last change, and that run passed.
  * An anchor with no command (a review, a person's verdict) is not judged. A change is a successful `write` or `edit`.
  * Everything is read from the session branch, so a resumed or reloaded session reads the same state.
@@ -62,8 +62,13 @@ export function read(branch: readonly Entry[]): Reading {
 					if (line !== undefined) anchor = commandsOf(line, false);
 				} else if (part.type === "toolCall" && part.id) {
 					calls.set(part.id, part);
-					const meta = part.name === "todo" ? (part.arguments?.metadata as { anchor?: unknown } | undefined) : undefined;
-					if (typeof meta?.anchor === "string" && meta.anchor.trim()) anchor = commandsOf(meta.anchor, true);
+					if (part.name === "todo" && part.arguments) {
+						const tasks = part.arguments.tasks;
+						for (const item of [part.arguments, ...(Array.isArray(tasks) ? tasks : [])]) {
+							const value = [item?.anchor, item?.metadata?.anchor].find(v => typeof v === "string" && v.trim());
+							if (value) anchor = commandsOf(value, true);
+						}
+					}
 				}
 			}
 		} else if (message.role === "toolResult" && message.toolCallId) {

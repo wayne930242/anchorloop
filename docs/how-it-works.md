@@ -16,8 +16,8 @@ The line is shown in the transcript and reaches the model with the next prompt; 
 <details>
 <summary>What counts as the anchor, a change, and a passing run</summary>
 
-The anchor is the last `Anchor: <check>` line the agent wrote (`Reality anchor:` and bold markers also count), or the last `metadata.anchor` on a `todo` call, whichever came later.
-Each backticked command in the line is one check; a `metadata.anchor` without backticks is one command as written.
+The anchor is the last `Anchor: <check>` line the agent wrote (`Reality anchor:` and bold markers also count), or the last anchor on a `todo` call, whichever came later. The guard reads the call first, then each `tasks[]` item in order, taking the first non-empty string from `anchor` and `metadata.anchor` at each step.
+Each backticked command in the line is one check; a task anchor without backticks is one command as written.
 An anchor with no command, such as a reviewer's verdict or a person's acceptance, is not judged.
 
 A change is a `write` or `edit` that succeeded.

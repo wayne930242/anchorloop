@@ -113,6 +113,14 @@ class TestCloseGuard(unittest.TestCase):
         self.assertIsNone(self.notice(branch))
         self.assertIn("`go test ./...`", self.notice([*branch, *edit("e2")]))
 
+    def test_ledger_anchor_requires_a_real_run(self):
+        for args in ({"anchor": "make check"}, {"tasks": [{"anchor": "old"}, {"anchor": "make check"}, {"anchor": " "}]},
+                     {"tasks": [{"anchor": "old"}, {"metadata": {"anchor": "make check"}}]}):
+            with self.subTest(args=args):
+                branch = [call("todo", "t", action="create", **args), *edit("e")]
+                self.assertIn("`make check`", self.notice(branch))
+                self.assertIsNone(self.notice([*branch, *bash("b", "make check")]))
+
     def test_a_failed_edit_is_not_a_change(self):
         branch = [say("Anchor: `pytest -q`"), *bash("b1", "pytest -q"), call("edit", "e1", path="a.py"), result("edit", "e1", is_error=True)]
         self.assertIsNone(self.notice(branch))
