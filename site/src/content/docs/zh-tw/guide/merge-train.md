@@ -13,7 +13,7 @@ description: 審過的 branch 怎麼併成一班列車進入共用 branch、列�
 
 ```mermaid
 flowchart TD
-  slip["車廂單<br/>review P0=0 P1=0、輕量檢查、<br/>auth 內有核准者原話"] --> recv["receive-car<br/>owner 逐項檢查每個主張"]
+  slip["車廂單<br/>review、輕量檢查、<br/>auth 內有核准者原話"] --> recv["receive-car<br/>owner 逐項檢查每個主張"]
   recv -->|"欄位缺漏或不實"| back["退回作者"]
   recv --> depart["發車<br/>maxCars、maxWaitMin、Load 允許、<br/>pipeline 不是紅的"]
   depart --> assemble["組裝 train/code<br/>逐節 merge --no-ff，<br/>再跑 Train assembly"]
@@ -30,12 +30,12 @@ flowchart TD
 <details>
 <summary>每個方塊背後的步驟</summary>
 
-- **車廂單。** 車廂要附完整的單才能進來：票號、branch、head SHA、review 結論、輕量檢查、migration、車道、部署目標、`departs` 那一行、驗收證據，以及 `auth` 裡核准者的原話。缺一個欄位就退回。
+- **車廂單。** 車廂要附完整的單才能進來：票號、branch、head SHA、review 結論、輕量檢查、migration、車道、部署目標、`departs` 那一行、驗收證據，以及 `auth` 裡核准者的原話。缺一個欄位就退回。不論走哪個車道，純測試修正的協調者讀完整份改動、記下相關測試修正前失敗與修正後通過的結果，就能送車。改動限於只供測試使用的檔案，各項斷言維持原來的檢驗內容與強度。
 - **發車。** 列車在達到 `maxCars`（預設 4）、最舊的車廂等滿 `maxWaitMin`（預設 60），或等待中的協調者都到齊時出發，前提是每節車廂的 `departs` 那一行、專案的 `Load` 與該 branch 的 pipeline 都允許。
 - **組裝。** 在本機 `train/<code>` 上從最新的 base 出發，依到達順序逐節 `--no-ff` merge。單純的衝突自己解決並記錄；語意衝突退回給較晚的那一節。
-- **Review 與 gate。** 全新 context 的 reviewer 對照 base 閱讀組裝結果，找車廂之間的交互作用、衝突解法與 migration 順序。接著每班只跑一次 `Full gates`。紅燈就丟掉肇事的車廂，用其餘的重新組裝。
+- **Review 與 gate。** 全新 context 的 reviewer 對照 base 閱讀組裝結果，找車廂之間的交互作用、衝突解法與 migration 順序。純測試修正若以 `review: author's read (test-only)` 送車，審查員也會讀該車廂的完整改動，不符純測試條件就退回。接著每班只跑一次 `Full gates`。紅燈就丟掉肇事的車廂，用其餘的重新組裝。
 - **合併。** gate 全綠之後才 push `pre-dev/<code>`。head 每次改變，舊 head 的步驟全部作廢，gate 只重跑涵蓋自上次綠燈以來 diff 的部分。
-- **急件車廂。** 只有核准者明說「先上」、修正上線中部署目標的 P0 缺陷，或修復紅燈整合 branch 的 fix-forward 車廂，才可以插隊。它仍然要 review 和 gate。
+- **急件車廂。** 核准者明說「先上」、上線目標的 P0 修正，以及修復整合 branch 紅燈的 fix-forward 車廂，都可以插隊。急件仍須經過審查與檢查。
 
 </details>
 

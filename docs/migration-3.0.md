@@ -1,7 +1,7 @@
 # Migrating to pi-anchorloop 3.0.0
 
 3.0.0 removes the turn tax: the loop book and its phase machine, the stage and decision tools, the Jev second thought, the anchor gate, and the stream rules.
-The loop is one rule: write `Anchor: <check>` before the first edit, show a passing run of it after the last change, and send a change that touches authorization or permission data, a migration, a shared contract, or security, or any work two or more workers carried, to one fresh reviewer on a different model family, where P0 and P1 block the merge.
+The loop is one rule: write `Anchor: <check>` before the first edit, show a passing run of it after the last change, and send a change that touches authorization or permission data, a migration, a shared contract, or security, or any work two or more workers carried, to one fresh-context reviewer (since 3.3.0, any model family), where P0 and P1 block the merge.
 
 ## What changed
 

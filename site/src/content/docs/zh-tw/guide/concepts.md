@@ -18,7 +18,7 @@ flowchart TD
   anchor["Anchor<br/>第一次編輯前寫一行：<br/>Anchor: 檢查"] --> act["Act<br/>以最小的有用<br/>增量推進"]
   act --> verify["Verify<br/>最後一次變更之後<br/>anchor 通過的執行"]
   verify -->|"檢查失敗：修正"| act
-  verify -->|"權限、migration、契約、<br/>資安，或兩個以上 worker"| review["Review<br/>一位新的 reviewer<br/>用不同模型家族"]
+  verify -->|"權限、migration、契約、<br/>資安，或兩個以上 worker"| review["審查<br/>一位沒看過這次改動的審查員"]
   review -->|"P0 或 P1：窄範圍複查"| act
 ```
 
@@ -47,8 +47,7 @@ anchor 是觀察結果的那一個確切檢查，要在第一次變更前選定�
 
 ## 審查
 
-改到授權或權限資料、migration、共用契約或資安的變更，以及由兩個以上 worker 完成的工作，都要有一位全新 context 的 reviewer。
-reviewer 用的模型家族要和作者不同，因為同一個模型容易漏掉自己寫下的同一種錯。
+涉及授權或權限資料、migration、共用契約或資安的改動，以及兩個以上 worker 共同完成的改動，都交給一位沒看過該改動的審查員。
 P0 和 P1 會擋住合併，並只窄範圍複查那些發現和修正改到的行；P2 以下列為後續事項。
 
 ## 收尾守門

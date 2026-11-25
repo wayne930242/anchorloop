@@ -15,7 +15,7 @@ This page covers only the seams between them; each project's own pages explain t
 
 | Session | pi-straw-boss gives it | anchorloop gives it |
 | --- | --- | --- |
-| Main agent (`coordinator`) | The tab's chain of command: plans, dispatches workers, asks the boss. | The loop: each todo's `metadata.anchor` is its check, a worker's passing run is the coordinator's verify, and two or more workers bring a reviewer on another model family. |
+| Main agent (`coordinator`) | The tab's chain of command: plans, dispatches workers, asks the boss. | The loop: each todo's `metadata.anchor` is its check, a worker's passing run is the coordinator's verify, and two or more workers bring a reviewer who has not seen the change. |
 | Tower | Routes work between the mains of a workspace; forwards car slips. | Nothing it needs: it forwards, and the loops run in the sessions it routes to. |
 | Integrator (`integ <project>`) | Receives and places cars, and asks the tower to open trains. | The `integrating` skill's `receive-car` playbook. |
 | Train (`train <code>`) | A session of its own for one train. | The `integrating` and `deploying` skills' steps. |
@@ -40,7 +40,7 @@ The brief hands that check to the worker as its `Anchor:` line, so the plan, the
 flowchart TD
   plan["Plan: one todo per task<br/>metadata graph, anchor, checkpoint"] -->|"Anchor: line in the brief"| worker["Worker"]
   worker -->|"passing run on the tree<br/>the coordinator holds"| verify["Coordinator's verify"]
-  worker -->|"two or more workers,<br/>or auth, migration, contract, security"| review["One fresh reviewer<br/>on another model family"]
+  worker -->|"two or more workers,<br/>or auth, migration, contract, security"| review["One reviewer<br/>new to the change"]
   review -->|"P0 or P1: narrow re-check"| worker
   verify --> guard["Close guard reads the anchor<br/>from the todo or the Anchor: line"]
 ```

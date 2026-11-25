@@ -13,7 +13,7 @@ The `integrating` and `deploying` skills carry this procedure for any project; t
 
 ```mermaid
 flowchart TD
-  slip["Car slip<br/>review P0=0 P1=0, light checks,<br/>approver's words in auth"] --> recv["receive-car<br/>the owner checks every claim"]
+  slip["Car slip<br/>review, light checks,<br/>approver's words in auth"] --> recv["receive-car<br/>the owner checks every claim"]
   recv -->|"a field missing or false"| back["Returned to its author"]
   recv --> depart["Depart<br/>maxCars, maxWaitMin, Load allows,<br/>pipeline not red"]
   depart --> assemble["Assemble train/code<br/>merge --no-ff each car,<br/>then Train assembly"]
@@ -30,12 +30,12 @@ flowchart TD
 <details>
 <summary>The steps behind each box</summary>
 
-- **Slip.** A car enters only with a complete slip: its tickets, branch, head SHA, review verdict, light checks, migrations, lane, deploy targets, `departs` line, acceptance evidence, and the approver's words in `auth`. One missing field returns the car.
+- **Slip.** A car enters only with a complete slip: its tickets, branch, head SHA, review verdict, light checks, migrations, lane, deploy targets, `departs` line, acceptance evidence, and the approver's words in `auth`. One missing field returns the car. In either lane, a coordinator may send a test-only fix after reading its whole diff and recording the fixed tests failing before the change and passing after it. The fix preserves each assertion's scope and strength and confines the diff to test paths.
 - **Depart.** The train leaves at `maxCars` (default 4), after the oldest car has waited `maxWaitMin` (default 60), or when every awaited coordinator has arrived, provided each car's `departs` line, the project's `Load`, and the branch's pipeline allow it.
 - **Assemble.** On a local `train/<code>` from the latest base, merge each car with `--no-ff` in arrival order. A plain conflict is resolved and logged; a semantic conflict goes back to the later car.
-- **Review and gates.** A fresh-context reviewer reads the assembly against the base for interactions between cars, conflict resolutions, and migration order. `Full gates` then run once per train. A red gate drops the guilty car and rebuilds from the rest.
+- **Review and gates.** A fresh-context reviewer reads the assembly against the base for interactions between cars, conflict resolutions, and migration order. For a test-only fix sent with `review: author's read (test-only)`, this reviewer also reads the whole car diff and returns it if it falls outside the test-only rules. `Full gates` then run once per train. A red gate drops the guilty car and rebuilds from the rest.
 - **Merge.** `pre-dev/<code>` is pushed only after green gates. Every head change voids the old head's steps, and gates rerun only for what covers the diff since each was last green.
-- **Urgent car.** A car may jump the queue only on the approver's explicit "first", a fix of a P0 defect in a live deploy target, or a fix-forward car for a red integration branch. It still gets review and gates.
+- **Urgent car.** The approver's explicit "first", a P0 fix in a live target, or a fix-forward for a red integration branch qualifies a car to jump the queue. It still gets review and gates.
 
 </details>
 

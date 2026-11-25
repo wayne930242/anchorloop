@@ -18,7 +18,7 @@ flowchart TD
   anchor["Anchor<br/>one line before the first edit:<br/>Anchor: the check"] --> act["Act<br/>smallest useful<br/>increments"]
   act --> verify["Verify<br/>a passing run of the anchor<br/>after the last change"]
   verify -->|"red check: fix"| act
-  verify -->|"auth, migration, contract,<br/>security, or 2+ workers"| review["Review<br/>one fresh reviewer<br/>on another model family"]
+  verify -->|"auth, migration, contract,<br/>security, or 2+ workers"| review["Review<br/>one reviewer new to the change"]
   review -->|"P0 or P1: narrow re-check"| act
 ```
 
@@ -47,8 +47,7 @@ The reply names each with its reason for the user to accept, and puts them befor
 
 ## Review
 
-A change that touches authorization or permission data, a migration, a shared contract, or security, and any work that two or more workers carried, gets one fresh-context reviewer.
-The reviewer runs on a model family different from the author's, because the same model tends to miss the same things it wrote.
+A change that touches authorization or permission data, a migration, a shared contract, or security, and any work that two or more workers carried, gets one fresh-context reviewer who has not seen the change.
 P0 and P1 findings block the merge and get a narrow re-check of those findings and the lines their fixes changed; P2 and lower become follow-ups.
 
 ## The close guard

@@ -15,7 +15,7 @@ anchorloop 不靠 pi-straw-boss 也能用，而 pi-straw-boss 的合併列車需
 
 | Session | pi-straw-boss 給它 | anchorloop 給它 |
 | --- | --- | --- |
-| 主 agent（`coordinator`） | 該分頁的指揮鏈：做計畫、派 worker、問 boss。 | 循環：每個 todo 的 `metadata.anchor` 是它的檢查，worker 通過的執行就是協調者的 verify，兩個以上 worker 時加一位不同模型家族的 reviewer。 |
+| 主 agent（`coordinator`） | 該分頁的指揮鏈：做計畫、派 worker、問 boss。 | 循環：每個 todo 的 `metadata.anchor` 是它的檢查，worker 通過的執行就是協調者的 verify，兩個以上 worker 共同完成的改動，交給一位沒看過該改動的審查員。 |
 | 塔台 | 在工作區的各個 main 之間轉送工作；轉送車廂單。 | 不需要什麼：它只轉送，loop 在它轉送去的 session 裡跑。 |
 | 整合員（`integ <project>`） | 收下並安排車廂，請塔台開列車。 | `integrating` skill 的 `receive-car` playbook。 |
 | 列車（`train <code>`） | 為一班列車開的獨立 session。 | `integrating` 與 `deploying` skill 的步驟。 |
@@ -40,7 +40,7 @@ brief 把這道檢查當成 `Anchor:` 那一行交給 worker，所以計畫、wo
 flowchart TD
   plan["計畫：每項任務一個 todo<br/>metadata 有 graph、anchor、checkpoint"] -->|"brief 裡的 Anchor: 那一行"| worker["Worker"]
   worker -->|"在協調者手上的那棵樹<br/>通過的執行"| verify["協調者的 verify"]
-  worker -->|"兩個以上 worker，<br/>或權限、migration、契約、資安"| review["一位新的 reviewer<br/>用不同模型家族"]
+  worker -->|"兩個以上 worker，<br/>或權限、migration、契約、資安"| review["一位沒看過<br/>這次改動的審查員"]
   review -->|"P0 或 P1：窄範圍複查"| worker
   verify --> guard["收尾守門從 todo 或<br/>Anchor: 那一行讀 anchor"]
 ```
