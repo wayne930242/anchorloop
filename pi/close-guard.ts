@@ -2,13 +2,10 @@
  * The close guard: when a run settles after a file change with no passing run of its anchor since, it adds one line to the
  * session. The line is shown and reaches the model with the next prompt; it never starts a turn.
  *
- * The anchor is the last labelled check line (`Anchor:`, `Gates:`, `Checks:`, `Verify:`, `Done when:`, `驗證：`) in the brief (the
- * first user message) or the agent's text, or the last anchor or sb check spec on a todo call or batch item. Each backticked command
- * in it (a todo's bare value is one command) must have its latest run, in bash or a monitor (by its exit code), after the last change,
- * and that run passed; passing todo evidence recorded after the last change counts as a passing run of each. An anchor with no
- * command (a review, a person's verdict) is not judged. A change is a successful `write` or `edit`; prose (.md, .txt) written after
- * a code change does not move the last change.
- * Everything is read from the session branch, so a resumed or reloaded session reads the same state.
+ * The anchor: the last labelled check line in the brief (first user message) or the agent's text, or a todo's anchor or sb check
+ * spec. Each backticked command must have its latest run (bash, or a monitor by exit code, or passing todo evidence naming it) after
+ * the last change, and passed. An anchor with no command is not judged. A change is a successful `write` or `edit`; prose written
+ * after a code change does not move it. All is read from the session branch, so a resumed session reads the same state.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -29,24 +26,20 @@ function commandsOf(text: string, bare: boolean): string[] {
 	return ticked.length || !bare ? ticked : [squeeze(text)].filter(Boolean);
 }
 
-const LABEL = String.raw`(?:reality anchor|anchor|checks?|gates?|verify|verification|done when|驗證|檢查|驗收)`;
-/** The anchor stated in one text, if any: its last labelled check line (bold, list, quote, and heading markers allowed). */
-const anchorLine = (text: string) => [...text.matchAll(new RegExp(String.raw`^[ \t>*_#-]*${LABEL}[*_]*\s*[:：][*_]*\s*(.+)$`, "gim"))].at(-1)?.[1];
+const LABELLED = /^[ \t>*_#-]*(reality anchor|anchor|checks?|gates?|verify|verification|done when|驗證|檢查|驗收)[*_]*\s*[:：][*_]*\s*(.+)$/gim;
+/** The anchor in one text: its last labelled check line (bold, list, quote, heading markers allowed); only `Anchor:` may name no command. */
+const anchorLine = (text: string) => [...text.matchAll(LABELLED)].filter(m => /anchor/i.test(m[1]) || m[2].includes("`")).at(-1)?.[2];
 
 const partsOf = (message: Message): Part[] => (Array.isArray(message.content) ? (message.content as Part[]) : []);
 const textOf = (message: Message) => typeof message.content === "string" ? message.content : partsOf(message).map(p => p.type === "text" ? p.text ?? "" : "").join("\n");
 const PROSE = /\.(?:md|markdown|txt|rst)$/i;
 
 export interface Reading {
-	/** The anchor's commands, `[]` for an anchor with no command, `undefined` when none was stated. */
-	anchor?: string[];
-	/** The id of the entry that recorded the last change. */
-	change?: string;
-	/** Per anchor command, whether its latest run came after the last change and passed. */
-	green: Map<string, boolean>;
+	anchor?: string[]; // `[]` for an anchor with no command, `undefined` when none was stated
+	change?: string; // the id of the entry that recorded the last change
+	green: Map<string, boolean>; // per anchor command, whether its latest run came after the last change and passed
 	evidenced?: boolean; // passing todo evidence was recorded after the last change
-	/** The change ids a notice was already added for. */
-	noticed: Set<string>;
+	noticed: Set<string>; // the change ids a notice was already added for
 	handoff?: { task: number; key: string };
 }
 
@@ -54,10 +47,10 @@ export interface Reading {
 export function read(branch: readonly Entry[]): Reading {
 	const calls = new Map<string, Part>();
 	const runs: { seq: number; command: string; ok: boolean }[] = [];
-	const noticed = new Set<string>();
+	const noticed = new Set<string>(), monitors = new Map<string, string>();
 	let anchor: string[] | undefined;
-	const monitors = new Map<string, string>();
 	let change: { id: string; seq: number } | undefined, codeChange: typeof change, evidenceSeq = -1, briefed = false;
+	const evidence: { seq: number; command: string }[] = [];
 	let source: { call: string; value: string; subject?: unknown; id?: unknown } | undefined;
 	let tasks: LedgerTask[] = [];
 	let task: number | undefined;
@@ -91,8 +84,8 @@ export function read(branch: readonly Entry[]): Reading {
 						for (const item of [part.arguments, ...(Array.isArray(tasks) ? tasks : [])]) {
 							const value = [item?.anchor, item?.metadata?.anchor].find(v => typeof v === "string" && v.trim());
 							const spec = item?.metadata?.sb?.spec?.check;
-							if (value || spec) {
-								anchor = value ? commandsOf(value, true) : commandsOf(typeof spec.run === "string" ? spec.run : "", true);
+							if (value || typeof spec?.run === "string" && spec.run.trim()) {
+								anchor = commandsOf(value || spec.run, true);
 								source = value ? { call: part.id, value, subject: item.subject, id: item.id } : undefined;
 								task = undefined;
 							}
@@ -119,9 +112,11 @@ export function read(branch: readonly Entry[]): Reading {
 			} else if (part.name === "MonitorCreate" && typeof args?.command === "string" && ok) {
 				const id = /Monitor #(\w+) started/.exec(textOf(message))?.[1];
 				if (id) monitors.set(id, squeeze(args.command));
-			} else if (part.name === "todo" && ok && [args, ...(Array.isArray(args?.tasks) ? args.tasks : [])]
-				.some(item => Array.isArray(item?.evidence) && item.evidence.some((e: { result?: unknown }) => e?.result === "pass"))) {
-				evidenceSeq = seq;
+			} else if (part.name === "todo" && ok) for (const item of [args, ...(Array.isArray(args?.tasks) ? args.tasks : [])]) {
+				for (const e of Array.isArray(item?.evidence) ? item.evidence : []) if (e?.result === "pass") {
+					evidenceSeq = seq;
+					if (typeof e.command === "string") evidence.push({ seq, command: squeeze(e.command) });
+				}
 			}
 		}
 	});
@@ -134,8 +129,9 @@ export function read(branch: readonly Entry[]): Reading {
 		// A containing shell command can quote the check or swallow its failure; only hand off identifiable invocations.
 		const invocation = latest?.command.replace(/^cd [\w./-]+ && /, "");
 		if (latest && [latest.command, invocation, invocation?.replace(/^uv run /, "")].includes(command)) runIds.push(latest.seq);
-		// Passing evidence is a passing run at the point it was recorded; a later run of the command overrides it.
-		const run = latest && latest.seq > evidenceSeq ? latest : evidenceSeq >= 0 ? { seq: evidenceSeq, ok: true } : undefined;
+		// Passing evidence for the command is a passing run when recorded; a later run of it overrides it.
+		const noted = evidence.filter(e => e.command.includes(command)).at(-1);
+		const run = noted && (!latest || noted.seq > latest.seq) ? { ...noted, ok: true } : latest;
 		green.set(command, !!run && run.seq > changeSeq && run.ok);
 	}
 	const key = JSON.stringify([source?.call, last?.id, runIds]);

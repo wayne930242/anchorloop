@@ -228,6 +228,19 @@ class TestCloseGuard(unittest.TestCase):
         self.assertIn("`make check`", self.notice(branch))
         self.assertIn("`make check`", self.notice([say("驗證：`make check`"), *edit("e1"), *monitor("m1", "make check", "4"), outcome("4", 2)]))
 
+    def test_a_labelled_line_without_a_command_does_not_replace_the_anchor(self):
+        for line in ("Summary.\nVerification: not run yet.", "**Checks:** reviewed the diff by eye", "檢查：稍後再跑"):
+            with self.subTest(line=line):
+                self.assertIn("`pytest -q`", self.notice([say("Anchor: `pytest -q`"), *edit("e1"), say(line)]))
+        self.assertIn("Anchor:", self.notice([user("Fix the bug.\nVerify: the user confirms in the browser"), *edit("e1")]))
+        spec = {"sb": {"spec": {"check": {"run": 3}}}}
+        self.assertIn("Anchor:", self.notice([call("todo", "t1", action="create", subject="x", metadata=spec), result("todo", "t1"), *edit("e1")]))
+
+    def test_evidence_for_another_command_does_not_pass_the_anchor(self):
+        record = [call("todo", "t2", action="update", id=1, evidence=[{"command": "ls", "result": "pass"}]), result("todo", "t2")]
+        branch = [say("Anchor: `pytest -q`"), *edit("e1"), *bash("b1", "pytest -q", ok=False), *record]
+        self.assertIn("`pytest -q`", self.notice(branch))
+
     def test_it_still_fires_when_no_check_ran_after_a_code_change(self):
         branch = [say("Checks: `make check`"), *edit("e1", "README.md"), *bash("b1", "make check"), *edit("e2", "src/app.py"), *edit("e3", "CHANGELOG.md")]
         self.assertIn("`make check`", self.notice(branch))
