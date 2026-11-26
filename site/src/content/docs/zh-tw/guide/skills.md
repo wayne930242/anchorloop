@@ -13,7 +13,7 @@ anchorloop            循環卡 · playbook：autonomous-run、pause、pickup
 ├─ answering        explain · compare
 ├─ investigating    research · diagnose
 ├─ inspecting       diff-review · qa-release
-├─ coding           bug-fix · feature · refactoring · perf · prototype · state-model（+ Mini SDD）
+├─ coding           bug-fix · feature · refactoring · perf · prototype · registered-flow · state-model（+ Mini SDD）
 ├─ integrating      receive-car · train · urgent-car（+ seams）
 ├─ deploying        deploy · rollback
 ├─ writing          draft · tighten · comments · pr-description
@@ -47,7 +47,7 @@ flowchart LR
 
 | Skill | Anchor | Playbook |
 | --- | --- | --- |
-| `coding` | 斷言被改動檔案的測試；共用程式路徑則擴大到它的呼叫者，以及整個 repo 的檢查。 | `bug-fix`、`feature`、`refactoring`、`perf`、`prototype`、`state-model` |
+| `coding` | 斷言被改動檔案的測試；共用程式路徑則擴大到它的呼叫者，以及整個 repo 的檢查。 | `bug-fix`、`feature`、`refactoring`、`perf`、`prototype`、`registered-flow`、`state-model` |
 | `investigating` | 精確的問題與它的完成界線：已回答，或精確指出缺少的證據。 | `research`、`diagnose` |
 | `inspecting` | 範圍內每一項都有結論與證據。 | `diff-review`、`qa-release` |
 | `answering` | 每個重要主張都附出處與證據等級。 | `explain`、`compare` |
@@ -62,7 +62,8 @@ flowchart LR
 
 循環要送審的改動，在第一次編輯前寫下三到五條前提，由 reviewer 逐條拿程式碼驗證。
 使用者要 spec，或使用者自己決定的取捨卡住設計時，`coding` 依 `MINI-SDD.md`：一個 `docs/specs/<日期>-<slug>/` 資料夾，放 `decision.md`、`spec.md`、`design.md` 與 `verification.md`，spec 要等使用者核准才能做任何 production 修改。
-`state-model` playbook 把有多個參與者、重試、重啟或逾時的流程，當成 TLA+ 模型檢查，找到的 bug 路徑變成會失敗的測試。
+`registered-flow` playbook 把一筆紀錄的狀態轉移集中登記在一份定義裡：只有一個地方能寫狀態，流程圖與測試都從定義產生，定義以外的寫入會讓檢查失敗。
+`state-model` playbook 把規則取決於多個參與者的重試、重啟或逾時如何交錯的流程，當成 TLA+ 模型檢查，找到的 bug 路徑變成會失敗的測試；它要花改動本身兩到三倍的 token，所以 `coding` 在設計檢查點提出、使用者同意才跑。
 
 </details>
 

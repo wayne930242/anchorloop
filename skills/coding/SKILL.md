@@ -1,6 +1,6 @@
 ---
 name: coding
-description: Use when changing source code or its tests, such as fixing a bug, adding or changing behavior, refactoring, improving performance, or prototyping a design question.
+description: Use when changing source code or its tests, such as fixing a bug, adding or changing behavior, refactoring, improving performance, or prototyping a design question, and when designing or checking a status lifecycle, state machine, or workflow.
 ---
 
 # Coding
@@ -28,10 +28,10 @@ When the user asks for a spec, or a user-owned trade-off, material ambiguity, or
 - [refactoring](playbooks/refactoring.md): structure changes, behavior does not.
 - [perf](playbooks/perf.md): a measured slowness to improve against a baseline.
 - [prototype](playbooks/prototype.md): disposable code that settles a design or behavior question.
-- [state-model](playbooks/state-model.md): a flow with several actors, retries, restarts, or timeouts, checked as a TLA+ model whose bug paths become red tests.
+- [registered-flow](playbooks/registered-flow.md), beside the task's playbook: a change to the transitions of a record with a status or stage (order, request, ticket, job), registered in one definition that tests and a chart derive from.
+- [state-model](playbooks/state-model.md), offered at a design checkpoint and run on the user's yes: when a flow's design turns on how actors' retries, restarts, or timeouts interleave, or fixes, reviews, or new tickets keep turning up bugs in one flow, ask with the question tool whether to check it as a TLA+ model whose bug paths become red tests, at about two to three times the change's tokens; an unattended run lists the offer in its reply. A race one interleaving test can show stays with `bug-fix`.
 
 ## References
 
 - [Benchmark checklist](references/benchmark-checklist.md): the measurement checks `perf` runs before reporting a number.
 - [Design red flags](references/design-red-flags.md): the shape screen `feature` runs on a new interface.
-- [State model checks](references/state-model-checks.md): the config sizing and `statechart` notes `state-model` reads.

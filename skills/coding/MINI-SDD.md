@@ -18,7 +18,7 @@ Artifacts live in `docs/specs/YYYY-MM-DD-<slug>/`, each created when its step is
    Approved from: <the user reply that approved it, empty while proposed>
    ```
 
-3. **`design.md`**: the smallest approach that fits the approved spec, the interfaces and data flow it touches, precedent, and at least one rejected alternative. Done when implementation invents no product behavior.
+3. **`design.md`**: the smallest approach that fits the approved spec, the interfaces and data flow it touches, precedent, and at least one rejected alternative. A flow whose rules turn on interleaving actors gets the `state-model` offer here. Done when implementation invents no product behavior.
 4. **`verification.md`**: one row per requirement of `spec.md`, then deviations from the spec and open gaps.
 
    ```markdown

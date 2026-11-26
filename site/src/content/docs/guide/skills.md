@@ -13,7 +13,7 @@ anchorloop            loop card · playbooks: autonomous-run, pause, pickup
 ├─ answering        explain · compare
 ├─ investigating    research · diagnose
 ├─ inspecting       diff-review · qa-release
-├─ coding           bug-fix · feature · refactoring · perf · prototype · state-model  (+ Mini SDD)
+├─ coding           bug-fix · feature · refactoring · perf · prototype · registered-flow · state-model  (+ Mini SDD)
 ├─ integrating      receive-car · train · urgent-car  (+ seams)
 ├─ deploying        deploy · rollback
 ├─ writing          draft · tighten · comments · pr-description
@@ -47,7 +47,7 @@ A playbook has an ownership line, numbered steps, and a `Reply:` line that sets 
 
 | Skill | Anchor | Playbooks |
 | --- | --- | --- |
-| `coding` | The tests that assert the touched files, widened to a shared code path's callers and the repository's tree-wide checks. | `bug-fix`, `feature`, `refactoring`, `perf`, `prototype`, `state-model` |
+| `coding` | The tests that assert the touched files, widened to a shared code path's callers and the repository's tree-wide checks. | `bug-fix`, `feature`, `refactoring`, `perf`, `prototype`, `registered-flow`, `state-model` |
 | `investigating` | The exact question and its completion boundary: answered, or the missing evidence named precisely. | `research`, `diagnose` |
 | `inspecting` | Every scoped item has a verdict and its evidence. | `diff-review`, `qa-release` |
 | `answering` | Every material claim carries its source and evidence grade. | `explain`, `compare` |
@@ -62,7 +62,8 @@ A playbook has an ownership line, numbered steps, and a `Reply:` line that sets 
 
 A change the loop sends to review writes three to five premises before the first edit, and the reviewer tests each against the code.
 When the user asks for a spec, or a user-owned trade-off blocks the design, `coding` follows `MINI-SDD.md`: a `docs/specs/<date>-<slug>/` folder with `decision.md`, `spec.md`, `design.md`, and `verification.md`, where the spec waits for the user's approval before any production edit.
-The `state-model` playbook checks a flow with several actors, retries, restarts, or timeouts as a TLA+ model whose bug paths become red tests.
+The `registered-flow` playbook puts a record's status transitions in one registered definition, with a single writer, a chart and tests derived from it, and a check that fails on a write outside it.
+The `state-model` playbook checks a flow whose rules turn on how actors' retries, restarts, or timeouts interleave as a TLA+ model whose bug paths become red tests; `coding` offers it at a design checkpoint and runs it when the user agrees, since it costs two to three times the tokens of the change.
 
 </details>
 

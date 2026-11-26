@@ -19,7 +19,7 @@ anchorloop            loop card · playbooks: autonomous-run, pause, pickup
 ├─ answering        explain · compare
 ├─ investigating    research · diagnose
 ├─ inspecting       diff-review · qa-release
-├─ coding           bug-fix · feature · refactoring · perf · prototype · state-model  (+ Mini SDD)
+├─ coding           bug-fix · feature · refactoring · perf · prototype · registered-flow · state-model  (+ Mini SDD)
 ├─ integrating      receive-car · train · urgent-car  (+ seams)
 ├─ deploying        deploy · rollback
 ├─ writing          draft · tighten · comments · pr-description
