@@ -1,4 +1,4 @@
-# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ 06cd4e8 -->
+# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ 9e49801 -->
 
 [README](../README.zh-TW.md) 背後的完整行為。skill 告訴 agent 怎麼工作；下面兩個 pi extension 只在程式碼裡抓便宜就抓得到的事，兩者都不會多開一輪，也不註冊工具。
 
@@ -16,13 +16,13 @@
 <details>
 <summary>什麼算 anchor、什麼算變更、什麼算通過的執行</summary>
 
-anchor 是 brief（也就是第一則使用者訊息）或 agent 文字裡最後一行標示檢查的行（`Anchor:`、`Reality anchor:`、`Gates:`、`Checks:`、`Verify:`、`Done when:`、`驗證：`；粗體、清單與標題標記也算），或 `todo` 呼叫最後指定的 anchor，以較晚的為準。守衛先讀呼叫本身，再依序讀每個 `tasks[]` 項目；每次從 `anchor`、`metadata.anchor` 依序取第一個非空白字串，都沒有時改取 straw-boss 檢查規格的 `metadata.sb.spec.check.run`。
+anchor 是 brief（也就是第一則使用者訊息）或 agent 文字裡最後一行標示檢查的行（`Anchor:`、`Reality anchor:`、`Gates:`、`Checks:`、`Verify:`、`Done when:`、`驗證：`；粗體、清單與標題標記也算；`Anchor:` 以外的標示，要那一行含反引號指令才算），或 `todo` 呼叫最後指定的 anchor，以較晚的為準。守衛先讀呼叫本身，再依序讀每個 `tasks[]` 項目；每次從 `anchor`、`metadata.anchor` 依序取第一個非空白字串，都沒有時改取 straw-boss 檢查規格的 `metadata.sb.spec.check.run`。
 那一行裡每個反引號包住的指令都是一項檢查；沒有反引號的任務 anchor 整個視為一條指令。
 沒有指令的 anchor，例如 reviewer 的判定或某個人的驗收，不在判斷範圍內。
 
 變更是成功的 `write` 或 `edit`；程式變更之後寫的文字檔（`.md`、`.txt`、`.rst`）不會移動最後一次變更，所以檢查之後才寫的報告或 changelog 不會讓檢查失效。
 一次檢查的執行，是指令內容包含該檢查文字的 `bash` 呼叫，或以 `MonitorCreate` 啟動、結果已送回的 monitor（連續空白視為一個），所以 `uv run pytest -q tests/` 也算 `pytest -q` 的執行。
-結束代碼為 0 的執行才算通過；最後一次變更之後，以 `todo` 呼叫記下的通過 `evidence`，算作每項檢查各通過一次，直到該檢查之後再次執行取而代之。
+結束代碼為 0 的執行才算通過；最後一次變更之後，以 `todo` 呼叫記下的通過 `evidence`，算作其 `command` 所含的每項檢查各通過一次，直到該檢查之後再次執行取而代之。
 
 檔案改過，而且沒有宣告 anchor、之後也沒記下通過的 evidence，或某項檢查最近一次執行早於最後一次變更或失敗時，守門才會出聲。
 那一行會列出還缺的檢查，例如：
