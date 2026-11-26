@@ -37,6 +37,19 @@ def result(name: str, call_id: str, is_error: bool = False, text: str = "ok") ->
                                                               "content": [{"type": "text", "text": text}], "isError": is_error}}
 
 
+def user(content) -> dict:
+    return {"type": "message", "id": f"u{abs(hash(str(content))) % 10**8}", "message": {"role": "user", "content": content}}
+
+
+def monitor(call_id: str, command: str, monitor_id: str) -> list[dict]:
+    return [call("MonitorCreate", call_id, command=command), result("MonitorCreate", call_id, text=f"Monitor #{monitor_id} started: {command}")]
+
+
+def outcome(monitor_id: str, exit_code: int) -> dict:
+    return {"type": "custom_message", "id": f"o{monitor_id}-{exit_code}", "customType": "pi-loop-monitor", "content": "done",
+            "details": {"monitorOutcome": {"monitorId": monitor_id, "status": "completed", "exitCode": exit_code}}}
+
+
 def edit(call_id: str, path: str = "src/app.py") -> list[dict]:
     return [call("edit", call_id, path=path), result("edit", call_id)]
 
@@ -160,6 +173,65 @@ class TestCloseGuard(unittest.TestCase):
         first = self.settle(branch)["result"]["entries"][0]
         self.assertIsNone(self.notice([*branch, {"type": "custom_message", **first}]))
         self.assertIsNotNone(self.notice([*branch, {"type": "custom_message", **first}, *edit("e2")]))
+
+    def test_labelled_check_lines_count_as_the_anchor(self):
+        for line in ("Gates: `make check`", "**Checks:** `make check`", "## Verify: `make check`", "Done when: `make check` passes",
+                     "驗證：`make check`", "- Reality anchor: `make check`"):
+            with self.subTest(line=line):
+                branch = [say(line), *edit("e1")]
+                self.assertIn("`make check`", self.notice(branch))
+                self.assertIsNone(self.notice([*branch, *bash("b1", "make check")]))
+
+    def test_the_brief_states_the_anchor(self):
+        for content in ("Fix the parser.\nAnchor: `make check`", [{"type": "text", "text": "Fix it.\nGates: `make check`"}]):
+            with self.subTest(content=content):
+                branch = [user(content), *edit("e1")]
+                self.assertIn("`make check`", self.notice(branch))
+                self.assertIsNone(self.notice([*branch, *bash("b1", "make check")]))
+        later = [user("Fix it."), user("Anchor: `make check`"), *edit("e1")]
+        self.assertIn("Anchor:", self.notice(later))
+
+    def test_an_sb_check_spec_counts_as_the_anchor(self):
+        spec = {"sb": {"spec": {"check": {"run": "make check"}}}}
+        branch = [call("todo", "t1", action="create", subject="fix", metadata=spec), result("todo", "t1"), *edit("e1")]
+        self.assertIn("`make check`", self.notice(branch))
+        self.assertIsNone(self.notice([*branch, *bash("b1", "make check")]))
+
+    def test_a_monitor_run_counts_by_its_exit_code(self):
+        branch = [say("Anchor: `make check`"), *edit("e1"), *monitor("m1", "make check", "3")]
+        self.assertIn("`make check`", self.notice(branch))
+        self.assertIsNone(self.notice([*branch, outcome("3", 0)]))
+        self.assertIn("`make check`", self.notice([*branch, outcome("3", 1)]))
+        digest = {**outcome("3", 0), "details": {"notifications": [{"monitorOutcome": {"monitorId": "3", "exitCode": 0}}]}}
+        self.assertIsNone(self.notice([*branch, digest]))
+
+    def test_passing_evidence_after_the_last_change_counts(self):
+        record = [call("todo", "t2", action="update", id=1, evidence=[{"command": "make check", "result": "pass"}]), result("todo", "t2")]
+        anchored = [say("Anchor: `make check`"), *edit("e1")]
+        self.assertIsNone(self.notice([*anchored, *record]))
+        self.assertIsNone(self.notice([say("Fixing it."), *edit("e1"), *record]))
+        self.assertIn("`make check`", self.notice([*anchored, *record, *edit("e2")]))
+        failed = [call("todo", "t3", action="update", id=1, evidence=[{"command": "make check", "result": "fail"}]), result("todo", "t3")]
+        self.assertIn("`make check`", self.notice([*anchored, *failed]))
+
+    def test_prose_edits_after_the_check_do_not_rearm_it(self):
+        branch = [say("Anchor: `make check`"), *edit("e1"), *bash("b1", "make check"), *edit("e2", "README.md"), *edit("e3", "notes/run.txt")]
+        self.assertIsNone(self.notice(branch))
+        self.assertIn("`make check`", self.notice([say("Anchor: `make check`"), *edit("e1", "docs/guide.md")]))
+
+    def test_it_still_fires_when_nothing_was_stated(self):
+        self.assertIn("Anchor:", self.notice([user("Fix the parser."), say("Done: the parser is fixed."), *edit("e1"), *bash("b1", "make check")]))
+
+    def test_it_still_fires_when_the_anchor_failed_after_the_last_change(self):
+        record = [call("todo", "t2", action="update", id=1, evidence=[{"command": "make check", "result": "pass"}]), result("todo", "t2")]
+        branch = [user("Gates: `make check`"), *edit("e1"), *record, *bash("b1", "make check", ok=False)]
+        self.assertIn("`make check`", self.notice(branch))
+        self.assertIn("`make check`", self.notice([say("驗證：`make check`"), *edit("e1"), *monitor("m1", "make check", "4"), outcome("4", 2)]))
+
+    def test_it_still_fires_when_no_check_ran_after_a_code_change(self):
+        branch = [say("Checks: `make check`"), *edit("e1", "README.md"), *bash("b1", "make check"), *edit("e2", "src/app.py"), *edit("e3", "CHANGELOG.md")]
+        self.assertIn("`make check`", self.notice(branch))
+        self.assertIn("`make check`", self.notice([say("Verify: `make check`"), *edit("e1"), *monitor("m1", "make check", "5")]))
 
     def test_earlier_proposed_entries_are_kept(self):
         prior = {"type": "custom", "customType": "other", "data": {}}
