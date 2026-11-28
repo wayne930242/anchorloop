@@ -9,7 +9,7 @@
 ## Why
 
 - **An anchor before the first change.** Each task writes `Anchor: <check>` before its first edit and ends with a passing run of that check after its last change.
-- **A reviewer on another model.** Authorization, migrations, shared contracts, security, or two or more workers bring one fresh reviewer on a different model family; P0 and P1 block the merge.
+- **A reviewer who has not seen the change.** Authorization, migrations, shared contracts, security, or work carried by two or more workers gets one fresh-context reviewer. Any model family can review; P0 and P1 block the merge.
 - **No turn tax.** No phase machine, no stage tools, and no advisory turns: one close guard adds a single line when a run settles without a passing anchor run.
 
 ## Evaluation
@@ -73,6 +73,7 @@ cd site && npm ci && npm run check && npm run build   # the documentation site
 - [google-research/harness2](https://github.com/google-research/harness2) (Apache-2.0), revision `1cfe254`: solid-loop's placement test, cheapest-mechanism order, and declining a lesson without a before/after contrast.
 - [mattpocock/skills](https://github.com/mattpocock/skills) (MIT): grilling, domain-modeling, the diff review, the prototype playbook, and the feature playbook's interface checks.
 - [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman) (Apache-2.0), revision `bad48a0`: the terse voice in `agent-terse`.
+- [google/elephant-goldfish-model](https://github.com/google/elephant-goldfish-model) (Apache-2.0), revision `a8380ab`: the fresh-reader spec check.
 - HumanLayer's [show-me](https://github.com/humanlayer/skills/tree/main/plugins/show-me) (MIT): the views in `answering`.
 
 Ported files credit their sources in their own footers.

@@ -9,7 +9,7 @@
 ## 為什麼
 
 - **第一筆修改前先有 anchor。** 每個任務在第一次編輯前寫下 `Anchor: <check>`，最後一次變更之後拿出這道檢查通過的執行。
-- **換一個模型的 reviewer。** 授權、migration、共用契約、資安，或兩個以上 worker，都會加一位不同模型家族的新 reviewer；P0 與 P1 擋住合併。
+- **由沒看過改動的審查員檢查。** 涉及授權、遷移、共用契約或資安，或由兩位以上 worker 共同完成的改動，交給一位沒看過改動的審查員。不限模型家族；P0 與 P1 會擋住合併。
 - **不收回合稅。** 沒有階段機、沒有 stage 工具、也沒有多開一輪的提醒：執行停下卻沒有通過的 anchor 執行時，收尾守門只加一行。
 
 ## 評估結果
@@ -73,6 +73,7 @@ cd site && npm ci && npm run check && npm run build   # 文件網站
 - [google-research/harness2](https://github.com/google-research/harness2)（Apache-2.0），版本 `1cfe254`：solid-loop 的放置判斷、最便宜機制的順序，以及沒有前後對照就不寫成教訓。
 - [mattpocock/skills](https://github.com/mattpocock/skills)（MIT）：grilling、domain-modeling、diff review、prototype playbook，以及 feature playbook 的介面檢查。
 - [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman)（Apache-2.0），revision `bad48a0`：`agent-terse` 的精簡寫法。
+- [google/elephant-goldfish-model](https://github.com/google/elephant-goldfish-model)（Apache-2.0），版本 `a8380ab`：請沒看過規格的讀者檢查規格。
 - HumanLayer 的 [show-me](https://github.com/humanlayer/skills/tree/main/plugins/show-me)（MIT）：`answering` 的呈現方式。
 
 移植來的檔案在各自的頁尾註明出處。

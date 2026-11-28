@@ -38,7 +38,7 @@ brief 把這道檢查當成 `Anchor:` 那一行交給 worker，所以計畫、wo
 
 ```mermaid
 flowchart TD
-  plan["計畫：每項任務一個 todo<br/>metadata 有 graph、anchor、checkpoint"] -->|"brief 裡的 Anchor: 那一行"| worker["Worker"]
+  plan["計畫：每項任務一個 todo<br/>graph；metadata 有 anchor、checkpoint、points"] -->|"brief 裡的 Anchor: 那一行"| worker["Worker"]
   worker -->|"在協調者手上的那棵樹<br/>通過的執行"| verify["協調者的 verify"]
   worker -->|"兩個以上 worker，<br/>或權限、migration、契約、資安"| review["一位沒看過<br/>這次改動的審查員"]
   review -->|"P0 或 P1：窄範圍複查"| worker
@@ -48,8 +48,7 @@ flowchart TD
 <details>
 <summary>雙方各寫什麼</summary>
 
-pi-straw-boss 的 planning prompt 要協調者每項任務寫一個 todo，帶 `subject`、`owner`、`description`、`blockedBy`，以及 `metadata` 的 `graph`（`single-loop`、`fan-out/fan-in` 或 `orchestrator-worker`）、`anchor` 與 `checkpoint`。
-todo 沒有指名 graph 前，pi-straw-boss 會拒絕派 worker。
+pi-straw-boss 的 planning prompt 要協調者每項任務寫一個 todo，帶 `subject`、`owner`、`description`、`blockedBy` 與 `graph`（`single-loop`、`fan-out/fan-in` 或 `orchestrator-worker`）。`metadata` 帶 `anchor`、`checkpoint` 與 `points`。
 
 anchorloop 把 `metadata.anchor` 讀成該任務自己的檢查，收尾守門把它當成 `Anchor:` 那一行計算。
 協調者審的是每個 worker 的 diff，不是它的回報；只有自己的改動或整合改變了 worker 通過的那棵樹時，才再跑一次檢查。
@@ -113,7 +112,7 @@ sequenceDiagram
 <summary>merge-train 契約</summary>
 
 pi-straw-boss 檢查 pi 載入的兩個 skill 是否各在 frontmatter 宣告 `merge-train-contract: "1"`；沒宣告之前，列車與整合員會改動東西的 `todo` 與 `MonitorCreate` 呼叫都會被拒絕。
-pi-anchorloop 從 2.11.0 起實作版本 1，而 pi-straw-boss 接受 2.11.0 或更新、沒有宣告的 pi-anchorloop。
+pi-anchorloop 從 2.16.3 起宣告版本 1。更早的版本沒有這項宣告，pi-straw-boss 會拒絕。
 [契約](https://wayne930242.github.io/pi-straw-boss/docs/zh-tw/guide/merge-train/#合併火車契約)列出版本 1 的完整假設。
 
 </details>

@@ -25,7 +25,7 @@ flowchart TD
 <details>
 <summary>What each step asks for</summary>
 
-- **Anchor.** Before the first edit the agent writes `Anchor: <check>`, with each command in backticks, or the review or person's verdict that observes the result. A todo's `metadata.anchor` also counts.
+- **Anchor.** Before the first edit the agent writes `Anchor: <check>`, with each command in backticks, or the review or person's verdict that observes the result. A todo's `anchor` or `metadata.anchor` also counts.
 - **Act.** Small increments through the project's native practices, deleting before adding. Delegate units of work; the session that holds the request keeps the anchor and the reply.
 - **Verify.** After the last change, show a passing run of the anchor and report what it observed. A requirement the anchor did not exercise is `unknown`, whatever other checks show.
 

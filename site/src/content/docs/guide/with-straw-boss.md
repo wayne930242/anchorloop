@@ -38,7 +38,7 @@ The brief hands that check to the worker as its `Anchor:` line, so the plan, the
 
 ```mermaid
 flowchart TD
-  plan["Plan: one todo per task<br/>metadata graph, anchor, checkpoint"] -->|"Anchor: line in the brief"| worker["Worker"]
+  plan["Plan: one todo per task<br/>graph; metadata: anchor, checkpoint, points"] -->|"Anchor: line in the brief"| worker["Worker"]
   worker -->|"passing run on the tree<br/>the coordinator holds"| verify["Coordinator's verify"]
   worker -->|"two or more workers,<br/>or auth, migration, contract, security"| review["One reviewer<br/>new to the change"]
   review -->|"P0 or P1: narrow re-check"| worker
@@ -48,8 +48,7 @@ flowchart TD
 <details>
 <summary>What each side writes</summary>
 
-pi-straw-boss's planning prompt has the coordinator write one todo per task with `subject`, `owner`, `description`, `blockedBy`, and `metadata` of `graph` (`single-loop`, `fan-out/fan-in`, or `orchestrator-worker`), `anchor`, and `checkpoint`.
-pi-straw-boss refuses a worker dispatch until a todo names a graph.
+pi-straw-boss's planning prompt has the coordinator write one todo per task with `subject`, `owner`, `description`, `blockedBy`, and `graph` (`single-loop`, `fan-out/fan-in`, or `orchestrator-worker`). The `metadata` holds `anchor`, `checkpoint`, and `points`.
 
 anchorloop reads `metadata.anchor` as the task's own check, and the close guard counts it like an `Anchor:` line.
 The coordinator reviews each worker's diff, not its report, and runs the check again only when its own change or an integration altered the tree the worker passed on.
@@ -113,7 +112,7 @@ Where a project binds none, anchorloop's default applies: the session is its own
 <summary>The merge-train contract</summary>
 
 pi-straw-boss checks that the two skills pi loaded each declare `merge-train-contract: "1"` in their frontmatter, and until they do, a train's and the integrator's `todo` and `MonitorCreate` calls that change something are refused.
-pi-anchorloop implements version 1 since 2.11.0, and pi-straw-boss accepts pi-anchorloop 2.11.0 or newer without the declaration.
+pi-anchorloop 2.16.3 is the first release to declare version 1. pi-straw-boss rejects earlier releases because they lack the declaration.
 [The contract](https://wayne930242.github.io/pi-straw-boss/docs/guide/merge-train/#the-merge-train-contract) lists exactly what version 1 assumes.
 
 </details>

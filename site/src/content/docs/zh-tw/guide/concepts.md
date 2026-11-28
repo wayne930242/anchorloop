@@ -25,7 +25,7 @@ flowchart TD
 <details>
 <summary>每一步要求什麼</summary>
 
-- **Anchor。** 第一次編輯前，agent 寫下 `Anchor: <check>`，每條指令用反引號包住；也可以是觀察結果的審查或某個人的判定。todo 的 `metadata.anchor` 也算。
+- **Anchor。** 第一次編輯前，agent 寫下 `Anchor: <check>`，每條指令用反引號包住；也可以是觀察結果的審查或某個人的判定。todo 的 `anchor` 或 `metadata.anchor` 也算。
 - **Act。** 依專案原本的做法以小增量推進，先刪再加。把工作單元委派出去；持有請求的 session 保有 anchor 和回覆。
 - **Verify。** 最後一次變更之後，拿出 anchor 通過的執行，並回報它觀察到什麼。anchor 沒有驗到的需求就是 `unknown`，不論其他檢查怎麼說。
 

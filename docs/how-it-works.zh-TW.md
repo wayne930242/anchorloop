@@ -1,4 +1,4 @@
-# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ 9e49801 -->
+# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ b76a0d7 -->
 
 [README](../README.zh-TW.md) 背後的完整行為。skill 告訴 agent 怎麼工作；下面兩個 pi extension 只在程式碼裡抓便宜就抓得到的事，兩者都不會多開一輪，也不註冊工具。
 
@@ -16,7 +16,7 @@
 <details>
 <summary>什麼算 anchor、什麼算變更、什麼算通過的執行</summary>
 
-anchor 是 brief（也就是第一則使用者訊息）或 agent 文字裡最後一行標示檢查的行（`Anchor:`、`Reality anchor:`、`Gates:`、`Checks:`、`Verify:`、`Done when:`、`驗證：`；粗體、清單與標題標記也算；`Anchor:` 以外的標示，要那一行含反引號指令才算），或 `todo` 呼叫最後指定的 anchor，以較晚的為準。守衛先讀呼叫本身，再依序讀每個 `tasks[]` 項目；每次從 `anchor`、`metadata.anchor` 依序取第一個非空白字串，都沒有時改取 straw-boss 檢查規格的 `metadata.sb.spec.check.run`。
+anchor 是 brief（也就是第一則使用者訊息）或 agent 文字裡最後一行標示檢查的行（`Anchor:`、`Reality anchor:`、`Gate:`、`Gates:`、`Check:`、`Checks:`、`Verify:`、`Verification:`、`Done when:`、`檢查：`、`驗證：`、`驗收：`；粗體、清單與標題標記也算；`Anchor:` 以外的標示，要那一行含反引號指令才算），或 `todo` 呼叫最後指定的 anchor，以較晚的為準。守衛先讀呼叫本身，再依序讀每個 `tasks[]` 項目；每次從 `anchor`、`metadata.anchor` 依序取第一個非空白字串，都沒有時改取 straw-boss 檢查規格的 `metadata.sb.spec.check.run`。
 那一行裡每個反引號包住的指令都是一項檢查；沒有反引號的任務 anchor 整個視為一條指令。
 沒有指令的 anchor，例如 reviewer 的判定或某個人的驗收，不在判斷範圍內。
 

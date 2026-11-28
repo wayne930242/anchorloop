@@ -7,6 +7,7 @@ description: anchorloop 的 playbook 與規則改寫自哪些專案。
 - [google-research/harness2](https://github.com/google-research/harness2)（Apache-2.0），版本 `1cfe254`：solid-loop 的放置判斷、最便宜機制的順序，以及沒有前後對照就不寫成教訓。
 - [mattpocock/skills](https://github.com/mattpocock/skills)（MIT）：grilling、domain-modeling、diff review、prototype playbook，以及 feature playbook 的介面檢查。
 - [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman)（Apache-2.0），revision `bad48a0`：`agent-terse` 的精簡寫法。
+- [google/elephant-goldfish-model](https://github.com/google/elephant-goldfish-model)（Apache-2.0），版本 `a8380ab`：請沒看過規格的讀者檢查規格。
 - HumanLayer 的 [show-me](https://github.com/humanlayer/skills/tree/main/plugins/show-me)（MIT）：`answering` 的呈現方式。
 
 移植來的檔案在各自的頁尾註明出處。

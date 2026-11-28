@@ -35,8 +35,8 @@ pi install /path/to/anchorloop
 <details>
 <summary>What else the extensions use</summary>
 
-- The close guard reads `metadata.anchor` from any tool named `todo`, such as the one in [`@juicesharp/rpiv-todo`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-todo#readme); without one, the `Anchor:` line alone carries the anchor.
-- The delegation rules assume a subagent tool such as [pi-herdr-agents](https://github.com/wayne930242/pi-herdr-agents); pi itself has no subagents.
+- The close guard reads `anchor` or `metadata.anchor` from `todo`, including items in `tasks[]` and Straw Boss check specs. Install [pi-todo-ledger](https://github.com/wayne930242/pi-todo-ledger) for the reminder to record passing evidence through `todo`. Without a todo tool, use an `Anchor:` line.
+- The delegation rules use a `subagent` tool, such as the one [pi-straw-boss](https://wayne930242.github.io/pi-straw-boss/docs/) provides.
 - Neither extension needs a key, a model, or Python.
 
 Each is described where it applies, in [the extension reference](/anchorloop/reference/how-it-works/).

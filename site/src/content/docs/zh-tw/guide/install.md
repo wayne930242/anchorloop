@@ -35,8 +35,8 @@ pi install /path/to/anchorloop
 <details>
 <summary>extension 還會用到什麼</summary>
 
-- 收尾守門從任何名為 `todo` 的工具讀 `metadata.anchor`，例如 [`@juicesharp/rpiv-todo`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-todo#readme) 的那一個；沒有這種工具時，只靠 `Anchor:` 那一行承載 anchor。
-- 委派規則假設有 subagent 工具，例如 [pi-herdr-agents](https://github.com/wayne930242/pi-herdr-agents)；pi 本身沒有 subagent。
+- 收尾守門會讀 `todo` 的 `anchor` 或 `metadata.anchor`，也會讀 `tasks[]` 裡的項目與 Straw Boss 的檢查規格。安裝 [pi-todo-ledger](https://github.com/wayne930242/pi-todo-ledger) 後，檢查通過時，收尾守門會提醒你用 `todo` 記下證據。沒有 todo 工具時，就用 `Anchor:` 那一行。
+- 委派規則使用 `subagent` 工具，例如 [pi-straw-boss](https://wayne930242.github.io/pi-straw-boss/docs/) 提供的工具。
 - 兩個 extension 都不需要 key、模型或 Python。
 
 各項在用到的地方另有說明，見[擴充功能參考](/anchorloop/zh-tw/reference/how-it-works/)。

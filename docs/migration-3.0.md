@@ -21,6 +21,8 @@ Kept: every skill name, the three lifecycle playbooks, the merge-train contract 
 
 ## What references it elsewhere
 
+This inventory records the references at the 3.0.0 migration, not the current state of these repositories.
+
 Read at pi-straw-boss `94d5523c` and weihung-basic-agent `3c0be5b`.
 
 ### weihung-basic-agent
