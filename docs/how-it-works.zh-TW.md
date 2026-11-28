@@ -1,4 +1,4 @@
-# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ b76a0d7 -->
+# anchorloop 擴充功能的運作方式 <!-- source: docs/how-it-works.md @ 9f2bee0 -->
 
 [README](../README.zh-TW.md) 背後的完整行為。skill 告訴 agent 怎麼工作；下面兩個 pi extension 只在程式碼裡抓便宜就抓得到的事，兩者都不會多開一輪，也不註冊工具。
 
@@ -31,7 +31,8 @@ anchor 是 brief（也就是第一則使用者訊息）或 agent 文字裡最後
 anchorloop: no passing run of `pytest -q` after the last change.
 ```
 
-每次變更只提醒一次還缺哪些檢查。
+還缺的檢查提醒一次後，守門就保持安靜，直到 todo 清單有變動：只是再改檔案不會讓提醒回來，更新 todo（例如把任務標為完成）才會。
+anchor 所屬的 todo 在等待時，守門也不提醒，也就是該 todo 尚未完成，且設了 `metadata.waitsOn`，或 `metadata.until` 的時間還沒到（即 pi-todo-ledger 的 `waitsOn`、`until` 欄位）；在文字裡宣告的 anchor，則在每個進行中的 todo 都在等待時不提醒。
 
 若已安裝 pi-todo-ledger，守門也會在任務的 anchor 通過後指出任務編號，請 agent 用 `todo update` 補記尚未登錄的執行：每次執行各佔一筆 `evidence`，填入 `command`、`result: "pass"`，若知道當時的版本則一併填入 `sha`。
 守門從成功的工具呼叫和 branch 上的 `todo/v1` 快照辨認任務；檢查是否通過，看的是 bash 執行結果，不是帳本。
