@@ -31,8 +31,8 @@ The line names the checks still missing, for example:
 anchorloop: no passing run of `pytest -q` after the last change.
 ```
 
-The guard reports missing checks once, then stays quiet until the todo list changes: further edits alone do not bring the line back, while a todo update, such as completing a task, does.
-It also stays quiet while the anchor's todo waits, that is, while the todo is open and has `metadata.waitsOn` set or a `metadata.until` time still ahead (pi-todo-ledger's `waitsOn` and `until` fields); for an anchor stated in text, while every todo in progress waits.
+The guard reports missing checks once, then stays quiet until the todo list changes: further edits alone do not bring the line back, while a todo update, such as completing a task, does, even when nothing else changed since the last line.
+It also stays quiet while the anchor's todo waits, that is, while the todo whose `anchor` or straw-boss check spec named the anchor is open and has `metadata.waitsOn` set or a `metadata.until` still ahead (pi-todo-ledger's `waitsOn` and `until` fields; `until` counts only as an ISO date or date-time with a `T` on a real calendar day, the form the ledger and straw-boss accept); for an anchor stated in text, while every todo in progress waits.
 
 With pi-todo-ledger installed, the guard also names the task whose anchor passed and asks the agent to append any unrecorded runs with `todo update`: one `evidence` item per run, with `command`, `result: "pass"`, and `sha` when known.
 The guard identifies the task from the accepted call and the branch’s `todo/v1` snapshot; it judges the run from the bash result, never from the ledger.

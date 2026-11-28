@@ -6,7 +6,7 @@
  * spec. Each backticked command must have its latest run (bash, or a monitor by exit code, or passing todo evidence naming it) after
  * the last change, and passed. An anchor with no command is not judged. A change is a successful `write` or `edit`; prose written
  * after a code change does not move it. After a notice it stays quiet until the todo list changes, and while the anchor's todo (for
- * a stated anchor, every todo in progress) waits: `metadata.waitsOn` set, or `metadata.until` ahead. All is read from the session
+ * a stated anchor, every todo in progress) waits: `metadata.waitsOn` set, or an ISO `metadata.until` ahead. All is read from the session
  * branch, so a resumed session reads the same state.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -15,7 +15,7 @@ export const NOTICE_TYPE = "anchorloop-close-guard";
 
 type Part = { type?: string; text?: string; id?: string; name?: string; arguments?: Record<string, unknown> };
 type Message = { role?: string; content?: unknown; toolCallId?: string; isError?: boolean; structuredContent?: { exit_code?: unknown } };
-interface LedgerTask { id: number; subject: string; status: string; anchor?: string; metadata?: { anchor?: string; waitsOn?: unknown; until?: unknown } }
+interface LedgerTask { id: number; subject: string; status: string; anchor?: string; metadata?: { anchor?: string; waitsOn?: unknown; until?: unknown; sb?: { spec?: { check?: { run?: unknown } } } } }
 type Outcome = { monitorId?: unknown; exitCode?: unknown };
 type Entry = { type?: string; id?: string; customType?: string; details?: { change?: unknown; evidenceKey?: string; monitorOutcome?: Outcome; notifications?: { monitorOutcome?: Outcome }[] }; data?: { v?: number; tasks?: LedgerTask[] }; message?: Message };
 
@@ -35,16 +35,17 @@ const anchorLine = (text: string) => [...text.matchAll(LABELLED)].filter(m => /a
 const partsOf = (message: Message): Part[] => (Array.isArray(message.content) ? (message.content as Part[]) : []);
 const textOf = (message: Message) => typeof message.content === "string" ? message.content : partsOf(message).map(p => p.type === "text" ? p.text ?? "" : "").join("\n");
 const PROSE = /\.(?:md|markdown|txt|rst)$/i;
-/** An open todo held up on something (pi-todo-ledger's wait mark): a named party, or an ISO time still ahead. */
-const waits = ({ status, metadata: m } = {} as LedgerTask) => (status === "pending" || status === "in_progress") && (typeof m?.waitsOn === "string" && !!m.waitsOn.trim()
-	|| typeof m?.until === "string" && /^\d{4}-\d\d-\d\d/.test(m.until) && Date.parse(m.until) > Date.now());
+const ISO = /^\d{4}-\d\d-\d\d(?:T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-](?:[01]\d|2[0-3]):?[0-5]\d)?)?$/;
+/** An ISO date or date-time on a real calendar day still ahead: the rule of pi-todo-ledger and pi-straw-boss (src/todoledger.ts). */
+const ahead = (s: unknown) => typeof s === "string" && ISO.test(s) && new Date(Date.parse(s.slice(0, 10)) || 0).toISOString().startsWith(s.slice(0, 10)) && Date.parse(s) > Date.now();
+/** An open todo held up on something (pi-todo-ledger's wait mark): a named party, or an `until` still ahead. */
+const waits = ({ status, metadata: m } = {} as LedgerTask) => (status === "pending" || status === "in_progress") && (typeof m?.waitsOn === "string" && !!m.waitsOn.trim() || ahead(m?.until));
 
 export interface Reading {
 	anchor?: string[]; // `[]` for an anchor with no command, `undefined` when none was stated
 	change?: string; // the id of the entry that recorded the last change
 	green: Map<string, boolean>; // per anchor command, whether its latest run came after the last change and passed
 	evidenced?: boolean; // passing todo evidence was recorded after the last change
-	noticed: Set<string>; // the change ids a notice was already added for
 	quiet?: boolean; // a notice came after the last todo list change, or the anchor's work waits
 	handoff?: { task: number; key: string };
 }
@@ -53,17 +54,17 @@ export interface Reading {
 export function read(branch: readonly Entry[]): Reading {
 	const calls = new Map<string, Part>();
 	const runs: { seq: number; command: string; ok: boolean }[] = [];
-	const noticed = new Set<string>(), monitors = new Map<string, string>();
+	const monitors = new Map<string, string>();
 	let anchor: string[] | undefined;
 	let change: { id: string; seq: number } | undefined, codeChange: typeof change, evidenceSeq = -1, briefed = false;
 	const evidence: { seq: number; command: string }[] = [];
-	let source: { call: string; value: string; subject?: unknown; id?: unknown } | undefined;
+	let source: { call: string; value?: string; run?: string; subject?: unknown; id?: unknown } | undefined;
 	let tasks: LedgerTask[] = [];
-	let task: number | undefined;
+	let task: number | undefined, held: number | undefined; // the anchored todo for the evidence handoff, and the todo whose wait holds the anchor
 	const reminded = new Set<string>();
 	let noticeSeq = -1, todoSeq = -1;
 	branch.forEach((entry, seq) => {
-		if (entry.type === "custom_message" && entry.customType === NOTICE_TYPE && typeof entry.details?.change === "string") { noticed.add(entry.details.change); noticeSeq = seq; }
+		if (entry.type === "custom_message" && entry.customType === NOTICE_TYPE && typeof entry.details?.change === "string") noticeSeq = seq;
 		if (entry.customType === NOTICE_TYPE && entry.details?.evidenceKey) reminded.add(entry.details.evidenceKey);
 		if (entry.type === "custom_message" && entry.customType === "pi-loop-monitor") for (const out of [entry.details?.monitorOutcome, ...(entry.details?.notifications ?? []).map(n => n?.monitorOutcome)]) {
 			const command = monitors.get(String(out?.monitorId));
@@ -73,6 +74,7 @@ export function read(branch: readonly Entry[]): Reading {
 			tasks = entry.data.tasks;
 			todoSeq = seq;
 			if (!tasks.some(t => t?.id === task && t.status !== "deleted")) task = undefined;
+			if (!tasks.some(t => t?.id === held && t.status !== "deleted")) held = undefined;
 		}
 		const message = entry.message;
 		if (entry.type !== "message" || !message) return;
@@ -84,18 +86,18 @@ export function read(branch: readonly Entry[]): Reading {
 			for (const part of partsOf(message)) {
 				if (part.type === "text" && part.text) {
 					const line = anchorLine(part.text);
-					if (line !== undefined) { anchor = commandsOf(line, false); source = undefined; task = undefined; }
+					if (line !== undefined) { anchor = commandsOf(line, false); source = task = held = undefined; }
 				} else if (part.type === "toolCall" && part.id) {
 					calls.set(part.id, part);
 					if (part.name === "todo" && part.arguments) {
 						const tasks = part.arguments.tasks;
 						for (const item of [part.arguments, ...(Array.isArray(tasks) ? tasks : [])]) {
 							const value = [item?.anchor, item?.metadata?.anchor].find(v => typeof v === "string" && v.trim());
-							const spec = item?.metadata?.sb?.spec?.check;
-							if (value || typeof spec?.run === "string" && spec.run.trim()) {
-								anchor = commandsOf(value || spec.run, true);
-								source = value ? { call: part.id, value, subject: item.subject, id: item.id } : undefined;
-								task = undefined;
+							const run = item?.metadata?.sb?.spec?.check?.run;
+							if (value || typeof run === "string" && run.trim()) {
+								anchor = commandsOf(value || run, true);
+								source = { call: part.id, ...(value ? { value } : { run }), subject: item.subject, id: item.id };
+								task = held = undefined;
 							}
 						}
 					}
@@ -107,9 +109,10 @@ export function read(branch: readonly Entry[]): Reading {
 			const code = message.structuredContent?.exit_code;
 			const ok = typeof code === "number" ? code === 0 : message.isError !== true;
 			if (source && source.call === message.toolCallId && ok) {
-				const { id, subject, value } = source;
-				task = tasks.findLast(t => t && t.status !== "deleted" && (id !== undefined ? t.id === id : t.subject === subject)
-					&& (t.anchor ?? t.metadata?.anchor) === value)?.id;
+				const { id, subject, value, run } = source;
+				held = tasks.findLast(t => t && t.status !== "deleted" && (id !== undefined ? t.id === id : t.subject === subject)
+					&& (value ? (t.anchor ?? t.metadata?.anchor) === value : t.metadata?.sb?.spec?.check?.run === run))?.id;
+				task = value ? held : undefined;
 			}
 			const args = part.arguments;
 			if ((part.name === "write" || part.name === "edit") && ok) {
@@ -146,13 +149,13 @@ export function read(branch: readonly Entry[]): Reading {
 	const handoff = task && last && green.size && runIds.length === anchor?.length && Math.min(...runIds) > evidenceSeq
 		&& [...green.values()].every(Boolean) && !reminded.has(key) ? { task, key } : undefined;
 	const doing = tasks.filter(t => t?.status === "in_progress");
-	const waiting = task !== undefined ? waits(tasks.find(t => t?.id === task)) : doing.length > 0 && doing.every(waits);
-	return { anchor, change: last?.id, green, evidenced: evidenceSeq > changeSeq && changeSeq >= 0, noticed, quiet: noticeSeq > todoSeq || waiting, handoff };
+	const waiting = held !== undefined ? waits(tasks.find(t => t?.id === held)) : doing.length > 0 && doing.every(waits);
+	return { anchor, change: last?.id, green, evidenced: evidenceSeq > changeSeq && changeSeq >= 0, quiet: noticeSeq > todoSeq || waiting, handoff };
 }
 
 /** The one-line notice for a reading, or `undefined` when the run may close as it stands. */
 export function notice(reading: Reading): string | undefined {
-	if (!reading.change || reading.noticed.has(reading.change) || reading.quiet) return undefined;
+	if (!reading.change || reading.quiet) return undefined;
 	if (!reading.anchor) return reading.evidenced ? undefined : "anchorloop: files changed, but no `Anchor: <check>` line was stated; state the check and show it passing.";
 	const missing = [...reading.green].filter(([, ok]) => !ok).map(([command]) => `\`${command}\``);
 	if (!missing.length) return undefined;

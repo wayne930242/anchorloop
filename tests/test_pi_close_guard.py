@@ -193,6 +193,33 @@ class TestCloseGuard(unittest.TestCase):
         done = [*branch, call("todo", "u", action="update", id=1, status="completed"), todos({"id": 1, "subject": "fix", "status": "completed"}), result("todo", "u")]
         self.assertIn("`make check`", self.notice(done))
 
+    def test_completing_a_todo_after_a_notice_for_the_same_change_is_flagged(self):
+        branch = [call("todo", "t", action="create", subject="fix", anchor="make check"), todos({"id": 1, "subject": "fix", "status": "in_progress", "anchor": "make check"}), result("todo", "t"), *edit("e1")]
+        first = self.settle(branch)["result"]["entries"][0]
+        done = [*branch, first, call("todo", "u", action="update", id=1, status="completed"),
+                todos({"id": 1, "subject": "fix", "status": "completed", "anchor": "make check"}), result("todo", "u")]
+        self.assertIn("`make check`", self.notice(done))
+        again = self.settle(done)["result"]["entries"][0]
+        self.assertIsNone(self.notice([*done, again]), "one notice per todo list state")
+
+    def test_until_follows_the_ledger_date_rule(self):
+        anchored = lambda until: [say("Anchor: `make check`"), todos({"id": 1, "subject": "x", "status": "in_progress", "metadata": {"until": until}}), *edit("e1")]
+        for until in ("2099-02-30T09:00:00Z", "2099-12-01 09:00:00Z", "2099-12-01t09:00Z", "2099-12-01T24:00Z"):
+            with self.subTest(until=until):
+                self.assertIn("`make check`", self.notice(anchored(until)))
+        for until in ("2099-12-01", "2099-12-01T09:00", "2099-12-01T09:00+0800"):
+            with self.subTest(until=until):
+                self.assertIsNone(self.notice(anchored(until)))
+
+    def test_an_sb_check_spec_waits_on_its_own_todo(self):
+        spec = {"sb": {"spec": {"check": {"run": "make check"}}}}
+        owner = lambda metadata, status="in_progress": {"id": 1, "subject": "ship", "status": status, "metadata": {**spec, **metadata}}
+        other = lambda metadata: {"id": 2, "subject": "other", "status": "in_progress", "metadata": metadata}
+        branch = lambda *tasks: [call("todo", "t", action="create", subject="ship", metadata=spec), todos(*tasks), result("todo", "t"), *edit("e1")]
+        self.assertIsNone(self.notice(branch(owner({"waitsOn": "CI"}), other({}))), "its todo waits, another one in progress does not matter")
+        self.assertIn("`make check`", self.notice(branch(owner({}), other({"waitsOn": "boss"}))))
+        self.assertIn("`make check`", self.notice(branch(owner({}, "completed"), other({"waitsOn": "boss"}))))
+
     def test_a_waiting_todo_is_not_reminded(self):
         anchored = lambda task: [call("todo", "t", action="create", subject="install", anchor="make check"), todos(task), result("todo", "t"), *edit("e1")]
         base = {"id": 1, "subject": "install", "status": "in_progress"}
