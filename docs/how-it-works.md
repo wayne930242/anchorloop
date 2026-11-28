@@ -16,7 +16,7 @@ The line is shown in the transcript and reaches the model with the next prompt; 
 <details>
 <summary>What counts as the anchor, a change, and a passing run</summary>
 
-The anchor is the last labelled check line (`Anchor:`, `Reality anchor:`, `Gates:`, `Checks:`, `Verify:`, `Done when:`, `驗證：`; bold, list, and heading markers also count; a label other than `Anchor:` counts only when its line holds a backticked command) in the brief, meaning the first user message, or in the agent's text, or the last anchor on a `todo` call, whichever came later. The guard reads the call first, then each `tasks[]` item in order, taking the first non-empty string from `anchor` and `metadata.anchor` at each step, or else the `metadata.sb.spec.check.run` of a straw-boss check spec.
+The anchor is the last labelled check line (`Anchor:`, `Reality anchor:`, `Gate:`, `Gates:`, `Check:`, `Checks:`, `Verify:`, `Verification:`, `Done when:`, `檢查：`, `驗證：`, `驗收：`; bold, list, and heading markers also count; a label other than `Anchor:` counts only when its line holds a backticked command) in the brief, meaning the first user message, or in the agent's text, or the last anchor on a `todo` call, whichever came later. The guard reads the call first, then each `tasks[]` item in order, taking the first non-empty string from `anchor` and `metadata.anchor` at each step, or else the `metadata.sb.spec.check.run` of a straw-boss check spec.
 Each backticked command in the line is one check; a task anchor without backticks is one command as written.
 An anchor with no command, such as a reviewer's verdict or a person's acceptance, is not judged.
 
