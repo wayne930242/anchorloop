@@ -1,5 +1,5 @@
 // The documentation site, served on GitHub Pages at https://wayne930242.github.io/anchorloop/.
-// Pages under reference/how-it-works are generated from docs/ by scripts/sync.mjs.
+// Pages under reference/how-it-works and evals are generated from docs/ by scripts/sync.mjs.
 import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 import mermaid from "astro-mermaid";
@@ -68,7 +68,7 @@ export default defineConfig({
 				{
 					label: "Project",
 					translations: { "zh-TW": "專案" },
-					items: ["guide/develop", "guide/acknowledgments"],
+					items: ["guide/develop", { autogenerate: { directory: "evals" } }, "guide/acknowledgments"],
 				},
 			],
 			plugins: [starlightLinksValidator({ errorOnFallbackPages: false })],

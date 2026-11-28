@@ -1,9 +1,9 @@
-// Generates the site's extension reference from the repository's own Markdown, so docs/ stays the one source:
-// docs/how-it-works.md (and its zh-TW twin) split by H2 into one page each.
+// Generates the site's extension reference and evaluation reports from Markdown in docs/.
+// The extension reference splits by H2; each evaluation report becomes one page per language.
 // Links are rewritten to absolute site paths (the links validator checks them) or to GitHub for files the site does not publish.
 // `--check` reports whether docs/how-it-works.zh-TW.md still matches the English file: line for line (same line count, same kind of line,
 // every backticked token of an English line on the same zh-TW line; error), heading structure (error), and drift since the source commit (warning),
-// whether each hand-written English page has a zh-TW twin with the same headings, folds, and diagrams (error),
+// whether each evaluation report has a line-for-line twin and each hand-written site page has a twin of the same shape (error),
 // and every `**` that CommonMark would not turn into bold (CJK punctuation beside it), in the site's own zh pages and in docs/*.zh-TW.md (error).
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -19,7 +19,16 @@ const BASE = "/anchorloop";
 const GITHUB = "https://github.com/wayne930242/anchorloop";
 const BRANCH = "master";
 const LOCALES = { en: { dir: "", suffix: "" }, zh: { dir: "zh-tw", suffix: ".zh-TW" } };
-const GENERATED = ["reference/how-it-works"];
+const EVALS = "evals";
+const GENERATED = ["reference/how-it-works", EVALS];
+
+function evalIds() {
+	const dir = join(DOCS, EVALS);
+	const files = readdirSync(dir, { withFileTypes: true });
+	return [...new Set(files.filter((f) => f.isFile() && f.name.endsWith(".md")).map((f) => f.name.replace(/(?:\.zh-TW)?\.md$/, "")))].sort();
+}
+
+const evalSource = (id, lang) => join(DOCS, EVALS, `${id}${LOCALES[lang].suffix}.md`);
 
 // Heading text as GitHub and Astro slug it: the rendered text, without code ticks, link targets, or emphasis marks.
 const plain = (text) =>
@@ -269,6 +278,28 @@ function checkPairs() {
 	return bad;
 }
 
+function checkEvals() {
+	let bad = 0;
+	for (const id of evalIds()) {
+		const sources = [evalSource(id, "en"), evalSource(id, "zh")];
+		const [en, zh] = sources.map(read);
+		if (!en || !zh) {
+			console.log(`${relative(REPO, !en ? sources[0] : sources[1])}: missing or empty evaluation report`);
+			bad = 1;
+			continue;
+		}
+		const drift = twinDrift(en.split("\n"), zh.split("\n"));
+		const bold = brokenBold(zh);
+		const path = relative(REPO, sources[1]);
+		if (drift.message || drift.bad.length) {
+			console.log(`${path}: ${drift.message ?? `differs from English on lines ${drift.bad.join(", ")}`}`);
+			bad = 1;
+		}
+		if (bold.length) console.log(`${path}: bold the page cannot show, at lines ${bold.join(", ")}`), (bad = 1);
+	}
+	return bad;
+}
+
 function check() {
 	const en = read(join(DOCS, "how-it-works.md"));
 	const zh = read(join(DOCS, "how-it-works.zh-TW.md"));
@@ -293,7 +324,7 @@ function check() {
 		if (log) console.log(`docs/how-it-works.md changed since the translation (${sha}); bring these into docs/how-it-works.zh-TW.md:\n${log}`);
 		else console.log(`docs/how-it-works.zh-TW.md matches docs/how-it-works.md at ${sha}`);
 	}
-	return bad | checkBold() | checkPairs();
+	return bad | checkBold() | checkPairs() | checkEvals();
 }
 
 function sync() {
@@ -316,7 +347,17 @@ function sync() {
 		});
 	}
 
-	console.log(`synced: how-it-works ${Object.keys(plans).join("+")} (${plans.en.pages.length + 1} pages each)`);
+	for (const id of evalIds()) {
+		for (const [lang, locale] of Object.entries(LOCALES)) {
+			const src = evalSource(id, lang);
+			const [heading, ...lines] = readFileSync(src, "utf8").split("\n");
+			if (!heading.startsWith("# ")) throw new Error(`${relative(REPO, src)}: expected an H1 title on the first line`);
+			const front = { title: plain(heading.slice(2)), editUrl: `${GITHUB}/edit/${BRANCH}/${relative(REPO, src)}` };
+			page(join(CONTENT, locale.dir, EVALS, `${id}.md`), front, rewrite(lines.join("\n"), src, lang, ctx));
+		}
+	}
+
+	console.log(`synced: how-it-works ${Object.keys(plans).join("+")} (${plans.en.pages.length + 1} pages each) and evaluation reports`);
 }
 
 process.exit(process.argv.includes("--check") ? check() : (sync(), 0));

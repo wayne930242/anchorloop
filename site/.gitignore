@@ -4,3 +4,5 @@ dist/
 # Generated from docs/ by scripts/sync.mjs
 src/content/docs/reference/how-it-works/
 src/content/docs/zh-tw/reference/how-it-works/
+src/content/docs/evals/
+src/content/docs/zh-tw/evals/

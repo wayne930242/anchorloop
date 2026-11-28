@@ -12,6 +12,14 @@
 - **A reviewer on another model.** Authorization, migrations, shared contracts, security, or two or more workers bring one fresh reviewer on a different model family; P0 and P1 block the merge.
 - **No turn tax.** No phase machine, no stage tools, and no advisory turns: one close guard adds a single line when a run settles without a passing anchor run.
 
+## Evaluation
+
+On 16 screened SWE-Bench Pro tasks, the agent stated a check before editing and showed a passing result after the last edit in 42% of trials with anchorloop versus 6% without it (+35 percentage points; 95% CI: +15 to +56).
+The task pass rate was 46% versus 29% (+17 percentage points; 95% CI: −4 to +38), which does not establish an improvement.
+The small, screened sample and single model limit how far the results generalize.
+
+[Full evaluation report](docs/evals/2026-11-28-swepro-pro-16.md)
+
 ## Skills
 
 ```text
