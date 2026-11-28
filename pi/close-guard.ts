@@ -62,7 +62,7 @@ export function read(branch: readonly Entry[]): Reading {
 	let tasks: LedgerTask[] = [];
 	let task: number | undefined, held: number | undefined; // the anchored todo for the evidence handoff, and the todo whose wait holds the anchor
 	const reminded = new Set<string>();
-	let noticeSeq = -1, todoSeq = -1;
+	let noticeSeq = -1, todoSeq = -1, closedSeq = -1; // closedSeq: the last snapshot that completed an open todo
 	branch.forEach((entry, seq) => {
 		if (entry.type === "custom_message" && entry.customType === NOTICE_TYPE && typeof entry.details?.change === "string") noticeSeq = seq;
 		if (entry.customType === NOTICE_TYPE && entry.details?.evidenceKey) reminded.add(entry.details.evidenceKey);
@@ -71,6 +71,7 @@ export function read(branch: readonly Entry[]): Reading {
 			if (command && typeof out?.exitCode === "number") runs.push({ seq, command, ok: out.exitCode === 0 });
 		}
 		if (entry.type === "custom" && entry.customType === "todo/v1" && entry.data?.v === 1 && Array.isArray(entry.data.tasks)) {
+			if (entry.data.tasks.some(t => t?.status === "completed" && tasks.some(p => p?.id === t.id && p.status !== "completed"))) closedSeq = seq;
 			tasks = entry.data.tasks;
 			todoSeq = seq;
 			if (!tasks.some(t => t?.id === task && t.status !== "deleted")) task = undefined;
@@ -149,7 +150,8 @@ export function read(branch: readonly Entry[]): Reading {
 	const handoff = task && last && green.size && runIds.length === anchor?.length && Math.min(...runIds) > evidenceSeq
 		&& [...green.values()].every(Boolean) && !reminded.has(key) ? { task, key } : undefined;
 	const doing = tasks.filter(t => t?.status === "in_progress");
-	const waiting = held !== undefined ? waits(tasks.find(t => t?.id === held)) : doing.length > 0 && doing.every(waits);
+	// A todo completed after the last change outranks the wait of the work still in progress.
+	const waiting = held !== undefined ? waits(tasks.find(t => t?.id === held)) : closedSeq < changeSeq && doing.length > 0 && doing.every(waits);
 	return { anchor, change: last?.id, green, evidenced: evidenceSeq > changeSeq && changeSeq >= 0, quiet: noticeSeq > todoSeq || waiting, handoff };
 }
 

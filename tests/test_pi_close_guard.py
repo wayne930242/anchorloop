@@ -202,6 +202,16 @@ class TestCloseGuard(unittest.TestCase):
         again = self.settle(done)["result"]["entries"][0]
         self.assertIsNone(self.notice([*done, again]), "one notice per todo list state")
 
+    def test_a_todo_completed_after_the_change_outranks_a_waiting_todo_in_progress(self):
+        a = {"id": 1, "subject": "fix", "status": "in_progress"}
+        b = {"id": 2, "subject": "deploy", "status": "pending", "metadata": {"waitsOn": "CI"}}
+        branch = [say("Anchor: `make check`"), todos(a, b), *edit("e1"),
+                  todos({**a, "status": "completed"}, {**b, "status": "in_progress"})]
+        self.assertIn("`make check`", self.notice(branch))
+        self.assertIsNone(self.notice([*branch, *bash("b1", "make check")]))
+        earlier = [say("Anchor: `make check`"), todos(a, b), todos({**a, "status": "completed"}, {**b, "status": "in_progress"}), *edit("e1")]
+        self.assertIsNone(self.notice(earlier), "a completion before the last change leaves the wait in force")
+
     def test_until_follows_the_ledger_date_rule(self):
         anchored = lambda until: [say("Anchor: `make check`"), todos({"id": 1, "subject": "x", "status": "in_progress", "metadata": {"until": until}}), *edit("e1")]
         for until in ("2099-02-30T09:00:00Z", "2099-12-01 09:00:00Z", "2099-12-01t09:00Z", "2099-12-01T24:00Z"):
