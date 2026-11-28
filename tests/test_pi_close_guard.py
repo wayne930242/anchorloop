@@ -50,6 +50,10 @@ def outcome(monitor_id: str, exit_code: int) -> dict:
             "details": {"monitorOutcome": {"monitorId": monitor_id, "status": "completed", "exitCode": exit_code}}}
 
 
+def todos(*tasks: dict) -> dict:
+    return {"type": "custom", "id": f"s{abs(hash(json.dumps(tasks))) % 10**8}", "customType": "todo/v1", "data": {"v": 1, "tasks": list(tasks), "nextId": 9}}
+
+
 def edit(call_id: str, path: str = "src/app.py") -> list[dict]:
     return [call("edit", call_id, path=path), result("edit", call_id)]
 
@@ -172,7 +176,36 @@ class TestCloseGuard(unittest.TestCase):
         branch = [say("Anchor: `pytest -q`"), *edit("e1")]
         first = self.settle(branch)["result"]["entries"][0]
         self.assertIsNone(self.notice([*branch, {"type": "custom_message", **first}]))
-        self.assertIsNotNone(self.notice([*branch, {"type": "custom_message", **first}, *edit("e2")]))
+
+    def test_after_a_notice_it_stays_quiet_until_the_todo_list_changes(self):
+        snapshot = todos({"id": 1, "subject": "fix", "status": "in_progress"})
+        branch = [say("Anchor: `pytest -q`"), snapshot, *edit("e1")]
+        first = self.settle(branch)["result"]["entries"][0]
+        kept_going = [*branch, first, *edit("e2"), *bash("b1", "git status")]
+        self.assertIsNone(self.notice(kept_going), "a later change alone does not bring the reminder back")
+        self.assertIn("`pytest -q`", self.notice([*kept_going, todos({"id": 1, "subject": "fix", "status": "in_progress", "activeForm": "retrying"})]))
+        self.assertIsNone(self.notice([*kept_going, *bash("b2", "pytest -q"), todos({"id": 1, "subject": "fix", "status": "completed"})]))
+
+    def test_a_todo_completed_without_a_run_after_the_last_change_is_still_flagged(self):
+        snapshot = todos({"id": 1, "subject": "fix", "status": "in_progress", "metadata": {"waitsOn": "CI"}})
+        branch = [call("todo", "t", action="create", subject="fix", anchor="make check"), snapshot, result("todo", "t"), *edit("e1")]
+        self.assertIsNone(self.notice(branch), "the anchored todo waits")
+        done = [*branch, call("todo", "u", action="update", id=1, status="completed"), todos({"id": 1, "subject": "fix", "status": "completed"}), result("todo", "u")]
+        self.assertIn("`make check`", self.notice(done))
+
+    def test_a_waiting_todo_is_not_reminded(self):
+        anchored = lambda task: [call("todo", "t", action="create", subject="install", anchor="make check"), todos(task), result("todo", "t"), *edit("e1")]
+        base = {"id": 1, "subject": "install", "status": "in_progress"}
+        for metadata in ({"waitsOn": "trains to end"}, {"until": "2099-12-01T18:00:00+08:00"}, {"waitsOn": "boss", "until": "2001-01-01"}):
+            with self.subTest(metadata=metadata):
+                self.assertIsNone(self.notice(anchored({**base, "metadata": metadata})))
+        for metadata in ({}, {"waitsOn": "  "}, {"until": "2001-01-01T00:00:00Z"}, {"until": "Dec 1 2099"}):
+            with self.subTest(metadata=metadata):
+                self.assertIn("`make check`", self.notice(anchored({**base, "metadata": metadata})))
+        waiting = {"id": 2, "subject": "deploy", "status": "in_progress", "metadata": {"waitsOn": "CI"}}
+        stated = [say("Anchor: `make check`"), todos(waiting), *edit("e1")]
+        self.assertIsNone(self.notice(stated), "a stated anchor whose work all waits is not reminded")
+        self.assertIn("`make check`", self.notice([say("Anchor: `make check`"), todos(waiting, base), *edit("e1")]))
 
     def test_labelled_check_lines_count_as_the_anchor(self):
         for line in ("Gates: `make check`", "**Checks:** `make check`", "## Verify: `make check`", "Done when: `make check` passes",
